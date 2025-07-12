@@ -10,8 +10,9 @@ The console app still kind of works, but is no longer maintained.
 
 * Import Selig or Lednicer `.dat` airfoil point files.
 * Input data is normalised to satisfy constraints.  
-* Automatic fitting of a **four‑segment cubic Bézier** model (two segments per surface) using a constrained SLSQP optimiser.  
-* Optional collapse to a **single ninth‑order Bézier** representation with fixed abscissae, matching the 16‑parameter scheme proposed by Venkataraman (2017).  
+* Automatic fitting of a **single ninth‑order Bézier** representation with fixed abscissae, matching the 16‑parameter scheme proposed by Venkataraman (2017).  
+* Alternatively fitting of a **four‑segment cubic Bézier** model (two segments per surface) using a constrained SLSQP optimiser.  
+* Curvature Comb
 * Trailing‑edge thickening and chord‑length scaling prior to export.  
 * Direct export to DXF (millimetres) for CAD/CAM workflows.  
 * Cross‑platform GUI built with PySide 6; the legacy console script remains for batch automation.
