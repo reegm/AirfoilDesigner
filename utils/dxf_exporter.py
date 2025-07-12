@@ -1,0 +1,75 @@
+import ezdxf
+import traceback
+
+def export_curves_to_dxf(polygons, chord_length_mm, logger_func, merged):
+    """
+    Exports a list of Bezier curves to a DXF file.
+
+    Args:
+        polygons (list of list of np.array): A list of polygons, where each polygon is a list of control points.
+        chord_length_mm (float): The desired chord length in millimeters for scaling.
+        logger_func (callable): A function (like print or a signal's emit method) to send log messages to.
+        merged (bool): Flag indicating if the curves are merged (2 segments) or unmerged (4 segments).
+
+    Returns:
+        ezdxf.document.Drawing: The created DXF document object, or None if an error occurred.
+    """
+    try:
+        if not polygons:
+            logger_func("Error: No polygons provided for DXF export.")
+            return None
+
+        if chord_length_mm <= 0:
+            logger_func("Error: Chord length must be positive for DXF export.")
+            return None
+
+        logger_func(f"Preparing DXF export with chord length: {chord_length_mm:.2f} mm...")
+
+        doc = ezdxf.new('R2000')
+        # Set drawing units to millimetres, matching the test generator script
+        doc.header["$INSUNITS"] = 4  # 4 = millimetres in DXF spec
+        msp = doc.modelspace()
+
+        # Scale all polygons by the desired chord length
+        scaled_polygons = [[p * chord_length_mm for p in poly] for poly in polygons]
+
+        # Define colors for different segments for better visualization in CAD software
+        colors = [1, 5, 2, 6] # Red, Blue, Yellow, Magenta
+
+        for i, poly in enumerate(scaled_polygons):
+            color = colors[i % len(colors)]
+
+            # Convert numpy points to plain (x, y) tuples for ezdxf
+            control_pts = [tuple(pt.tolist()) for pt in poly]
+
+            # Determine spline degree: #control_points - 1, capped at 9 per DXF spec
+            degree = min(len(control_pts) - 1, 9)
+
+            # Add open (clamped) B-spline defined by control points
+            msp.add_open_spline(
+                control_points=control_pts,
+                degree=degree,
+                dxfattribs={"layer": "AIRFOIL_CURVE", "color": color},
+            )
+
+        # Connect the trailing and leading edges based on the 'merged' flag
+        if merged and len(scaled_polygons) == 2:
+            # Single Bezier case: Connect upper and lower curves' TE and LE
+            upper_poly, lower_poly = scaled_polygons
+            msp.add_line(upper_poly[-1], lower_poly[-1], dxfattribs={'layer': 'TRAILING_EDGE_CONNECTOR', 'color': 2}) # Yellow
+            msp.add_line(upper_poly[0], lower_poly[0], dxfattribs={'layer': 'LEADING_EDGE_CONNECTOR', 'color': 3}) # Green
+        elif not merged and len(scaled_polygons) == 4:
+            # 4-segment case: connect S2 and S4 (trailing edge)
+            # S1, S2, S3, S4 are the four segments. S2's last point connects to S4's last point for the TE.
+            # Only S2 (upper rear) and S4 (lower rear) are needed for the TE connector
+            s2 = scaled_polygons[1]
+            s4 = scaled_polygons[3]
+            msp.add_line(s2[-1], s4[-1], dxfattribs={'layer': 'TRAILING_EDGE_CONNECTOR', 'color': 2}) # Yellow
+            # Leading edge is implicitly connected at (0,0) by the model definition, no explicit line needed.
+
+        logger_func(f"DXF document successfully created in memory.")
+        return doc
+    except Exception as e:
+        logger_func(f"Error during DXF export: {e}")
+        logger_func(traceback.format_exc()) # Log full traceback for debugging
+        return None

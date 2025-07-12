@@ -1,0 +1,6 @@
+out/
+res/
+venv/
+dist/
+build/
+__pycache__/
