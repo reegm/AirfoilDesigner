@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'        # fires on any tag starting with “v”
+  workflow_dispatch:
+
+# explicitly grant write
+permissions:
+  contents: write
 
 jobs:
   build:
