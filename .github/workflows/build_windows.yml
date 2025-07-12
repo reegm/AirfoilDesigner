@@ -45,8 +45,9 @@ jobs:
       - name: Upload EXE to Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
-          name: AirfoilDesigner-${{ github.ref_name }}-win.exe
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: dist/AirfoilDesigner.exe
+          asset_name: AirfoilDesigner-${{ github.ref_name }}-win.exe
+          asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
