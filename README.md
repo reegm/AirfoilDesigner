@@ -1,13 +1,15 @@
 # AirfoilDesigner
 
 AirfoilDesigner is a Python toolkit for reverse‑engineering, parameterising, and exporting airfoils using Bézier‐curve formulations derived from the work of Venkataraman (1995, 2017).  
-The graphical front‑end is implemented with Qt 6; all computational routines are independent of the user interface and can be invoked programmatically.
+The graphical front‑end is implemented with Qt 6.
+The console app still kind of works, but is no longer maintained.
 
 ---
 
 ## Features
 
-* Import Selig or Lednicer `.dat` airfoil point files without preprocessing.  
+* Import Selig or Lednicer `.dat` airfoil point files.
+* Input data is normalised to satisfy constraints.  
 * Automatic fitting of a **four‑segment cubic Bézier** model (two segments per surface) using a constrained SLSQP optimiser.  
 * Optional collapse to a **single ninth‑order Bézier** representation with fixed abscissae, matching the 16‑parameter scheme proposed by Venkataraman (2017).  
 * Trailing‑edge thickening and chord‑length scaling prior to export.  
