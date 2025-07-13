@@ -12,7 +12,7 @@ The console app still kind of works, but is no longer maintained.
 * Input data is normalised to satisfy constraints.  
 * Automatic fitting of a **single ninth‑order Bézier** representation with fixed abscissae, matching the 16‑parameter scheme proposed by Venkataraman (2017).  
 * Alternatively fitting of a **four‑segment cubic Bézier** model (two segments per surface) using a constrained SLSQP optimiser.  
-* Curvature Comb
+* Curvature Comb.
 * Trailing‑edge thickening and chord‑length scaling prior to export.  
 * Direct export to DXF (millimetres) for CAD/CAM workflows.  
 * Cross‑platform GUI built with PySide 6; the legacy console script remains for batch automation.
@@ -20,13 +20,21 @@ The console app still kind of works, but is no longer maintained.
 ---
 
 ## Installation
+* Make sure Python is installed on your system. 
+* Unpack Code.
+* Open a terminal in project root.
+* Optional: Create virtual environment: 
 
 ```bash
 python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install -r requirements.txt   # numpy, scipy, ezdxf, PySide6
 ```
 
+* Install dependencies
+
+```bash
+pip install -r requirements.txt   # numpy, scipy, ezdxf, PySide6, pyqtgraph
+```
 Python 3.10 + is recommended. No compiled extensions are required.
 
 ---
@@ -38,10 +46,12 @@ python run_gui.py
 ```
 
 1. **Open** a `.dat` file.  
-2. Select **Fit** to optimise the four‑segment model.  
-3. **Refine** can add control points where the residual is greatest (up to degree 9).  
-4. **Create Single Bezier** Generates the single‑segment ninth‑order model.  
-5. **Export DXF**, specifying chord length and trailing‑edge thickness.
+2. **Build Single Bezier Model** Generates the single‑segment ninth‑order model.  
+3. **Select error function** Chose between minimum squared error or euclidean iterative closest point.
+4. **Regularization Weight** Set optimizer penalty for uneven control point flow. 
+5. **Generate 4-Segment Model** Generate the four segemnt model.
+6. **Refine Model** Add a conterol point to the worst fitting segment of the four‑segment model (up to degree 9).  
+7. **Export DXF**, specifying chord length and trailing‑edge thickness.
 
 ---
 
