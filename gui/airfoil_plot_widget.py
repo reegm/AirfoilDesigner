@@ -115,18 +115,16 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 self.plot_items['Control Polygons (Sharp)'].append(item)
 
         # Plot Curvature Comb for 4-segment model
-        if comb_4_segment is not None:
-            # Plot each hair as a separate line segment for cleaner visualization
-            comb_items = []
-            for i, hair_segment in enumerate(comb_4_segment):
-                # Only add to legend for the first hair to avoid cluttering
-                name = '4-Seg Curvature Comb' if i == 0 else None
-                hair_item = self.plot(
-                    hair_segment[:, 0], hair_segment[:, 1],
-                    pen=COLOR_4SEG_COMB, name=name
-                )
-                comb_items.append(hair_item)
-            self.plot_items['4-Segment Curvature Comb'] = comb_items
+        if comb_4_segment is not None and len(comb_4_segment) > 0:
+            # Reshape the list of hair segments into a single array for efficient plotting
+            comb_array = np.concatenate(comb_4_segment)
+            # Plot all hairs as a single item with disconnected lines
+            comb_item = self.plot(
+                comb_array[:, 0], comb_array[:, 1],
+                pen=COLOR_4SEG_COMB, name='4-Seg Curvature Comb',
+                connect='pairs'
+            )
+            self.plot_items['4-Segment Curvature Comb'] = comb_item
 
         # Plot Single Bezier Curves (prioritize thickened if available)
         if thickened_single_bezier_upper_poly is not None and thickened_single_bezier_lower_poly is not None:
@@ -166,18 +164,16 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 self.plot_items['Control Polygons (Single Bezier)'].append(item)
 
         # Plot Curvature Comb for Single Bezier model
-        if comb_single_bezier is not None:
-            # Plot each hair as a separate line segment for cleaner visualization
-            comb_items = []
-            for i, hair_segment in enumerate(comb_single_bezier):
-                # Only add to legend for the first hair to avoid cluttering
-                name = 'Single Bezier Curvature Comb' if i == 0 else None
-                hair_item = self.plot(
-                    hair_segment[:, 0], hair_segment[:, 1],
-                    pen=COLOR_SINGLE_BEZIER_COMB, name=name
-                )
-                comb_items.append(hair_item)
-            self.plot_items['Single Bezier Curvature Comb'] = comb_items
+        if comb_single_bezier is not None and len(comb_single_bezier) > 0:
+            # Reshape the list of hair segments into a single array
+            comb_array = np.concatenate(comb_single_bezier)
+            # Plot all hairs as a single item with disconnected lines
+            comb_item = self.plot(
+                comb_array[:, 0], comb_array[:, 1],
+                pen=COLOR_SINGLE_BEZIER_COMB, name='Single Bezier Curvature Comb',
+                connect='pairs'
+            )
+            self.plot_items['Single Bezier Curvature Comb'] = comb_item
 
         # Plot Trailing Edge Tangent Vectors (only once, as they are derived from original data)
         tangent_length = 0.05
