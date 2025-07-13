@@ -21,7 +21,7 @@ The console app still kind of works, but is no longer maintained.
 
 ## Installation
 * Make sure Python is installed on your system. 
-* Unpack Code.
+* Unpack code .zip.
 * Open a terminal in project root.
 * Optional: Create virtual environment: 
 
