@@ -374,7 +374,7 @@ class AirfoilDesignerApp(QMainWindow):
             polygons_to_export,
             chord_length_mm,
             self.processor.log_message.emit,
-            merged=is_merged_export
+            thickened=is_merged_export
         )
 
         if dxf_doc:
@@ -419,7 +419,7 @@ class AirfoilDesignerApp(QMainWindow):
             polygons_to_export,
             chord_length_mm,
             self.processor.log_message.emit,
-            merged=is_merged_export
+            thickened=is_merged_export
         )
 
         if dxf_doc:

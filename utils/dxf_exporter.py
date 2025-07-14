@@ -1,7 +1,7 @@
 import ezdxf
 import traceback
 
-def export_curves_to_dxf(polygons, chord_length_mm, logger_func, merged):
+def export_curves_to_dxf(polygons, chord_length_mm, logger_func, thickened):
     """
     Exports a list of Bezier curves to a DXF file.
 
@@ -9,7 +9,7 @@ def export_curves_to_dxf(polygons, chord_length_mm, logger_func, merged):
         polygons (list of list of np.array): A list of polygons, where each polygon is a list of control points.
         chord_length_mm (float): The desired chord length in millimeters for scaling.
         logger_func (callable): A function (like print or a signal's emit method) to send log messages to.
-        merged (bool): Flag indicating if the curves are merged (2 segments) or unmerged (4 segments).
+        thickened (bool): Flag indicating if the trailing edge is thickened or unthickened.
 
     Returns:
         ezdxf.document.Drawing: The created DXF document object, or None if an error occurred.
@@ -52,20 +52,20 @@ def export_curves_to_dxf(polygons, chord_length_mm, logger_func, merged):
                 dxfattribs={"layer": "AIRFOIL_CURVE", "color": color},
             )
 
-        # Connect the trailing and leading edges based on the 'merged' flag
-        if merged and len(scaled_polygons) == 2:
+        # Connect the trailing and leading edges based on the 'thickened' flag
+        if thickened and len(scaled_polygons) == 2:
             # Single Bezier case: Connect upper and lower curves' TE and LE
             upper_poly, lower_poly = scaled_polygons
             msp.add_line(upper_poly[-1], lower_poly[-1], dxfattribs={'layer': 'TRAILING_EDGE_CONNECTOR', 'color': 2}) # Yellow
             msp.add_line(upper_poly[0], lower_poly[0], dxfattribs={'layer': 'LEADING_EDGE_CONNECTOR', 'color': 3}) # Green
-        elif not merged and len(scaled_polygons) == 4:
+        elif not thickened and len(scaled_polygons) == 4:
             # 4-segment case: connect S2 and S4 (trailing edge)
             # S1, S2, S3, S4 are the four segments. S2's last point connects to S4's last point for the TE.
             # Only S2 (upper rear) and S4 (lower rear) are needed for the TE connector
             s2 = scaled_polygons[1]
             s4 = scaled_polygons[3]
             msp.add_line(s2[-1], s4[-1], dxfattribs={'layer': 'TRAILING_EDGE_CONNECTOR', 'color': 2}) # Yellow
-            # Leading edge is implicitly connected at (0,0) by the model definition, no explicit line needed.
+            # Leading edge is implicitly connected at (0,0).
 
         logger_func(f"DXF document successfully created in memory.")
         return doc

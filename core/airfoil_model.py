@@ -6,7 +6,7 @@ import logging
 class AirfoilModel:
     """
     Manages the geometry, variables, and constraints of the airfoil model.
-    The airfoil is defined by four Bezier control polygons:
+    The airfoil in the segmented model is defined by four Bezier control polygons:
     S1: Top-front (LE to shared vertex)
     S2: Top-rear (shared vertex to TE)
     S3: Lower-front (LE to shared vertex)
@@ -14,7 +14,7 @@ class AirfoilModel:
     """
     def __init__(self, initial_upper_shoulder_x=0.4, initial_lower_shoulder_x=0.4):
         """
-        Initializes the AirfoilModel with default or provided shoulder x-coordinates.
+        Initializes the AirfoilModel with default or provided shoulder x-coordinates for the segmented model.
 
         Args:
             initial_upper_shoulder_x (float): Fixed x-coordinate for the upper shared vertex.
