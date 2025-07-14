@@ -37,8 +37,7 @@ jobs:
         env:
           PYTHONOPTIMIZE: 2
         run: |
-          pyinstaller --onefile --noconsole \ --clean --strip \ --upx-dir "C:\Program Files\upx" \ --name AirfoilDesigner \ run_gui.py
-
+          pyinstaller --onefile --noconsole --clean --strip --upx-dir "C:\Program Files\upx" --name AirfoilDesigner run_gui.py
       - name: Compress with UPX
         run: upx --best --lzma dist\AirfoilDesigner.exe
 
