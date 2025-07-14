@@ -1,117 +1,46 @@
-name: Build and Release Windows EXEs
+name: Build Windows EXE
 
 on:
   push:
     tags:
-      - 'v*'
-  pull_request:
+      - 'v*'        # fires on any tag starting with “v”
   workflow_dispatch:
 
+# explicitly grant write
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
-    strategy:
-      matrix:
-        include:
-          - arch: x86
-            python-version: '3.11'
-            installer: conda
-          - arch: x64
-            python-version: '3.x'
-            installer: pip
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 32-bit (x86) via Conda to get SciPy wheels
-      - name: Set up Conda Python (x86)
-        if: matrix.installer == 'conda'
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniconda-version: latest
-          architecture: x86
-          python-version: ${{ matrix.python-version }}
-          auto-update-conda: true
-
-      - name: Install deps with Conda (x86)
-        if: matrix.installer == 'conda'
-        run: conda install -y scipy pyinstaller
-
-      # 64-bit (x64) via pip
-      - name: Set up Python (x64)
-        if: matrix.installer == 'pip'
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: ${{ matrix.python-version }}
-          architecture: x64
-          cache: pip
+          python-version: '3.x'
 
-      - name: Install deps with pip (x64)
-        if: matrix.installer == 'pip'
+      - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
 
-      - name: Install UPX
-        run: choco install upx
-
-      - name: Build EXE (${{ matrix.arch }})
-        env:
-          PYTHONOPTIMIZE: 2
+      - name: Build EXE
         run: |
-          pyinstaller --onefile --noconsole \ --clean --strip \ --upx-dir "C:\Program Files\upx" \ --name AirfoilDesigner-${{ matrix.arch }} \ run_gui.py
+          pyinstaller --onefile --name AirfoilDesigner run_gui.py
 
-      - name: Compress with UPX (${{ matrix.arch }})
-        run: upx --best --lzma dist\AirfoilDesigner-${{ matrix.arch }}.exe
-
-      - name: List dist\
+      - name: List dist folder
         run: dir dist\
 
-      - name: Upload build artifact (${{ matrix.arch }})
-        uses: actions/upload-artifact@v4
-        with:
-          name: AirfoilDesigner-${{ matrix.arch }}
-          path: dist/AirfoilDesigner-${{ matrix.arch }}.exe
-
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download x86
-        uses: actions/download-artifact@v4
-        with: { name: AirfoilDesigner-x86 }
-
-      - name: Download x64
-        uses: actions/download-artifact@v4
-        with: { name: AirfoilDesigner-x64 }
-
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
+      - name: Publish Release + Attach EXE
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          release_name: Release ${{ github.ref_name }}
-
-      - name: Upload x86 asset
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: AirfoilDesigner-x86/AirfoilDesigner-x86.exe
-          asset_name: AirfoilDesigner-x86.exe
-          asset_content_type: application/octet-stream
-
-      - name: Upload x64 asset
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: AirfoilDesigner-x64/AirfoilDesigner-x64.exe
-          asset_name: AirfoilDesigner-x64.exe
-          asset_content_type: application/octet-stream
+          name: Release ${{ github.ref_name }}
+          files: dist/AirfoilDesigner.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
