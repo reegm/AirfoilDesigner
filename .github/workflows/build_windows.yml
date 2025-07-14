@@ -14,25 +14,42 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        arch: [x86, x64]
+        include:
+          - arch: x86
+            python-version: '3.11'
+          - arch: x64
+            python-version: '3.x'
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Set up Python (${{ matrix.arch }})
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: ${{ matrix.python-version }}
           architecture: ${{ matrix.arch }}
-          cache: 'pip'
+          cache: pip
+
+      - name: Install UPX
+        run: choco install upx
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-      - name: Package EXE (${{ matrix.arch }})
-        run: pyinstaller --onefile --clean --strip --noconsole --name AirfoilDesigner-${{ matrix.arch }} run_gui.py
+      - name: Build EXE (${{ matrix.arch }})
+        run: |
+          set PYTHONOPTIMIZE=2
+          pyinstaller --onefile --noconsole \
+            --clean --strip \
+            --upx-dir "C:\Program Files\upx" \
+            --name AirfoilDesigner-${{ matrix.arch }} \
+            run_gui.py
+
+      - name: Further compress with UPX (${{ matrix.arch }})
+        run: upx --best --lzma dist\AirfoilDesigner-${{ matrix.arch }}.exe
 
       - name: List dist folder
         run: dir dist\
@@ -66,8 +83,6 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           release_name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
 
       - name: Upload x86 asset
         uses: actions/upload-release-asset@v1
