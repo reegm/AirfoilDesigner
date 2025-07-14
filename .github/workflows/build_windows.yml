@@ -2,7 +2,8 @@ name: Build and Release Windows EXEs
 
 on:
   push:
-    tags: ['v*']
+    tags:
+      - 'v*'
   pull_request:
   workflow_dispatch:
 
@@ -26,21 +27,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # x86: set up Miniforge with 32-bit Python + SciPy
-      - name: Setup Miniforge (x86)
+      # 32-bit (x86) via Conda to get SciPy wheels
+      - name: Set up Conda Python (x86)
         if: matrix.installer == 'conda'
-        uses: conda-incubator/setup-miniconda@v2
+        uses: conda-incubator/setup-miniconda@v3
         with:
+          miniconda-version: latest
           architecture: x86
           python-version: ${{ matrix.python-version }}
-          activate-environment: base
+          auto-update-conda: true
 
-      - name: Install deps (x86)
+      - name: Install deps with Conda (x86)
         if: matrix.installer == 'conda'
-        run: |
-          conda install -y scipy pyinstaller
+        run: conda install -y scipy pyinstaller
 
-      # x64: normal pip flow
+      # 64-bit (x64) via pip
       - name: Set up Python (x64)
         if: matrix.installer == 'pip'
         uses: actions/setup-python@v4
@@ -49,7 +50,7 @@ jobs:
           architecture: x64
           cache: pip
 
-      - name: Install deps (x64)
+      - name: Install deps with pip (x64)
         if: matrix.installer == 'pip'
         run: |
           pip install --upgrade pip
@@ -64,10 +65,13 @@ jobs:
         run: |
           pyinstaller --onefile --noconsole \ --clean --strip \ --upx-dir "C:\Program Files\upx" \ --name AirfoilDesigner-${{ matrix.arch }} \ run_gui.py
 
-      - name: Further compress with UPX (${{ matrix.arch }})
+      - name: Compress with UPX (${{ matrix.arch }})
         run: upx --best --lzma dist\AirfoilDesigner-${{ matrix.arch }}.exe
 
-      - name: Upload artifact (${{ matrix.arch }})
+      - name: List dist\
+        run: dir dist\
+
+      - name: Upload build artifact (${{ matrix.arch }})
         uses: actions/upload-artifact@v4
         with:
           name: AirfoilDesigner-${{ matrix.arch }}
@@ -81,12 +85,16 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download x86
+        uses: actions/download-artifact@v4
         with: { name: AirfoilDesigner-x86 }
-      - uses: actions/download-artifact@v4
+
+      - name: Download x64
+        uses: actions/download-artifact@v4
         with: { name: AirfoilDesigner-x64 }
 
-      - id: create_release
+      - name: Create GitHub Release
+        id: create_release
         uses: actions/create-release@v1
         with:
           tag_name: ${{ github.ref_name }}
@@ -98,6 +106,7 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: AirfoilDesigner-x86/AirfoilDesigner-x86.exe
           asset_name: AirfoilDesigner-x86.exe
+          asset_content_type: application/octet-stream
 
       - name: Upload x64 asset
         uses: actions/upload-release-asset@v1
@@ -105,3 +114,4 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: AirfoilDesigner-x64/AirfoilDesigner-x64.exe
           asset_name: AirfoilDesigner-x64.exe
+          asset_content_type: application/octet-stream
