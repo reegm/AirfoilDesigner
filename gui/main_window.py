@@ -186,13 +186,17 @@ class AirfoilDesignerApp(QMainWindow):
         is_file_loaded = self.processor.core_processor.upper_data is not None
         is_single_bezier_built = self.processor.core_processor.single_bezier_upper_poly_sharp is not None
         is_thickened = self.processor._is_thickened
+        is_trailing_edge_thickened = False
+        if hasattr(self.processor, 'is_trailing_edge_thickened'):
+            is_trailing_edge_thickened = self.processor.is_trailing_edge_thickened()
 
         # "Build Single Bezier Model" button
         self.build_single_bezier_button.setEnabled(is_file_loaded)
         is_any_model_built = is_single_bezier_built
 
         # "Apply Thickening" / "Remove Thickening" button
-        self.toggle_thickening_button.setEnabled(is_any_model_built)
+        # Disable if trailing edge is thickened in the original data
+        self.toggle_thickening_button.setEnabled(is_any_model_built and not is_trailing_edge_thickened)
         if is_thickened:
             self.toggle_thickening_button.setText("Remove Thickening")
         else:

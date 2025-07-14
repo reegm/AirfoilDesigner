@@ -3,10 +3,11 @@ import numpy as np
 def normalize_airfoil_data(upper_surface, lower_surface, logger_func=print):
     """
     Normalizes airfoil coordinates to have a chord length of 1, with the
-    leading edge at (0,0) and the trailing edge chord-line at (1,0).
+    leading edge at (0,0) and the trailing edge chord-line at (1,0) if appropriate.
 
     This process preserves the shape of the airfoil by performing translation,
-    rotation, and scaling.
+    rotation, and scaling. For thick trailing edges, y-normalization is only performed
+    if the TE y-values are not symmetric about y=0.
 
     Args:
         upper_surface (np.ndarray): Original upper surface coordinates (N, 2), ordered LE to TE.
@@ -58,7 +59,27 @@ def normalize_airfoil_data(upper_surface, lower_surface, logger_func=print):
 
     upper_normalized = upper_rotated / chord_length
     lower_normalized = lower_rotated / chord_length
-    
+
+    # --- Trailing edge y-normalization logic ---
+    y_te_upper = upper_normalized[-1, 1]
+    y_te_lower = lower_normalized[-1, 1]
+    tol = 1e-8
+    if np.isclose(y_te_upper, y_te_lower, atol=tol):
+        # Not thickened, proceed as before: shift so TE is at y=0
+        y_shift = (y_te_upper + y_te_lower) / 2.0
+        logger_func(f"TE y-values equal (not thickened). Shifting y by {-y_shift:.8f}.")
+        upper_normalized[:, 1] -= y_shift
+        lower_normalized[:, 1] -= y_shift
+    elif np.isclose(y_te_upper, -y_te_lower, atol=tol):
+        # Thickened and symmetric, do not shift y
+        logger_func("TE y-values are symmetric about y=0 (thickened trailing edge). No y-shift performed.")
+    else:
+        # Not symmetric, shift so TE midpoint is at y=0
+        y_shift = (y_te_upper + y_te_lower) / 2.0
+        logger_func(f"TE y-values not symmetric. Shifting y by {-y_shift:.8f}.")
+        upper_normalized[:, 1] -= y_shift
+        lower_normalized[:, 1] -= y_shift
+
     return upper_normalized, lower_normalized
 
 def load_airfoil_data(filename, logger_func=print):
@@ -67,13 +88,13 @@ def load_airfoil_data(filename, logger_func=print):
 
     Selig format:
         Line 1: Airfoil name
-        Subsequent lines: x y coordinates, usually starting from upper TE, around LE, to lower TE.
+        Subsequent lines: x y coordinates, starting from upper TE, around LE, to lower TE.
 
     Lednicer format:
         Line 1: Airfoil name
-        Line 2: NUM_UPPER NUM_LOWER (number of points on upper and lower surfaces)
-        Subsequent lines: Upper surface points (x y), typically LE to TE.
-        Then: Lower surface points (x y), typically LE to TE.
+        Line 2: NUM_UPPER NUM_LOWER (number of points on upper and lower surfaces) [optional]
+        Subsequent lines: Upper surface points (x y), LE to TE.
+        Then: Lower surface points (x y), LE to TE.
 
     Args:
         filename (str): Path to the airfoil data file.
@@ -81,8 +102,9 @@ def load_airfoil_data(filename, logger_func=print):
                                           Defaults to `print`.
 
     Returns:
-        tuple: (upper_surface_coords, lower_surface_coords)
+        tuple: (upper_surface_coords, lower_surface_coords, airfoil_name, thickened)
                Each is a NumPy array (N, 2) with points ordered LE to TE.
+               'thickened' is True if the trailing edge is thickened and symmetric about y=0.
     Raises:
         ValueError: If the file is empty or malformed.
     """
@@ -99,62 +121,99 @@ def load_airfoil_data(filename, logger_func=print):
     num_upper_points = 0
     num_lower_points = 0
 
-    # Attempt to detect Lednicer format
+    # 1. Try Lednicer with count line (both numbers close to int and > 1)
     if len(lines) > 1:
-        try:
-            parts = lines[1].split()
-            if len(parts) == 2:
-                num_upper_points = int(parts[0])
-                num_lower_points = int(parts[1])
+        parts = lines[1].split()
+        if len(parts) == 2:
+            try:
+                n1 = float(parts[0])
+                n2 = float(parts[1])
+                is_n1_int = abs(n1 - int(round(n1))) < 1e-6 and n1 > 1
+                is_n2_int = abs(n2 - int(round(n2))) < 1e-6 and n2 > 1
+                if is_n1_int and is_n2_int:
+                    num_upper_points = int(round(n1))
+                    num_lower_points = int(round(n2))
+                    total_points = num_upper_points + num_lower_points
+                    if abs(len(lines) - (2 + total_points)) <= 1:
+                        is_lednicer = True
+                        coords_start_line = 2
+            except ValueError:
+                pass # Not numbers, so check slope below
+
+    # 2. Slope-based detection if not already Lednicer
+    if not is_lednicer:
+        # Try to parse the next 5 lines as coordinates (skip count line if present)
+        slope_start = coords_start_line
+        sample_coords = []
+        for i in range(slope_start, min(slope_start + 5, len(lines))):
+            try:
+                x, y = map(float, lines[i].split())
+                sample_coords.append(x)
+            except Exception:
+                break
+        if len(sample_coords) >= 3:
+            # Only check if x goes up or down from first to last sample
+            if sample_coords[-1] > sample_coords[0] and abs(sample_coords[0]) < 1e-3 and abs(sample_coords[-1] - 1.0) < 1e-2:
                 is_lednicer = True
-                coords_start_line = 2
-        except ValueError:
-            pass # Not integers, so it's likely a Selig-like format
+                logger_func(f"Detected Lednicer format for '{airfoil_name}' (by x slope).")
+            elif sample_coords[-1] < sample_coords[0] and abs(sample_coords[0] - 1.0) < 1e-2 and abs(sample_coords[-1]) < 1e-3:
+                is_lednicer = False
+                logger_func(f"Detected Selig-like format for '{airfoil_name}' (by x slope).")
+            else:
+                logger_func(f"Ambiguous x slope for '{airfoil_name}'. Defaulting to Selig-like format.")
+                is_lednicer = False
+        else:
+            logger_func(f"Insufficient coordinate data to determine format for '{airfoil_name}'. Defaulting to Selig-like format.")
+            is_lednicer = False
 
     if is_lednicer:
-        logger_func(f"Detected Lednicer format for '{airfoil_name}'.")
-        logger_func(f"Expected upper points: {num_upper_points}, lower points: {num_lower_points}.")
-
-        all_coords_raw = np.array([list(map(float, line.split())) for line in lines[coords_start_line:]])
-
-        if len(all_coords_raw) != (num_upper_points + num_lower_points):
-            logger_func(f"Warning: Declared points ({num_upper_points + num_lower_points}) do not match actual points read ({len(all_coords_raw)}). Attempting to proceed.")
-
-        # Lednicer typically lists upper surface points first, then lower, both LE to TE.
-        upper_surface = all_coords_raw[:num_upper_points]
-        lower_surface = all_coords_raw[num_upper_points:]
-
+        if coords_start_line == 2:
+            logger_func(f"Detected Lednicer format for '{airfoil_name}' (by count line). Expected upper points: {num_upper_points}, lower points: {num_lower_points}.")
+            all_coords_raw = np.array([list(map(float, line.split())) for line in lines[coords_start_line:]])
+            if len(all_coords_raw) != (num_upper_points + num_lower_points):
+                logger_func(f"Warning: Declared points ({num_upper_points + num_lower_points}) do not match actual points read ({len(all_coords_raw)}). Attempting to proceed.")
+            upper_surface = all_coords_raw[:num_upper_points]
+            lower_surface = all_coords_raw[num_upper_points:]
+        else:
+            # Lednicer without count line: split at midpoint
+            logger_func(f"Detected Lednicer format for '{airfoil_name}' (by x slope, no count line).")
+            all_coords_raw = np.array([list(map(float, line.split())) for line in lines[coords_start_line:]])
+            midpoint = len(all_coords_raw) // 2
+            upper_surface = all_coords_raw[:midpoint]
+            lower_surface = all_coords_raw[midpoint:]
         # Basic validation: check if LE point is consistent
         if not (np.allclose(upper_surface[0], lower_surface[0]) and np.allclose(upper_surface[0], [0.0, 0.0])):
-             logger_func("Warning: Leading edge points are not consistent or not at (0,0) in Lednicer format. Data may need normalization.")
-
-    else: # Assume Selig-like format
+            logger_func("Warning: Leading edge points are not consistent or not at (0,0) in Lednicer format. Data may need normalization.")
+    else:
         logger_func(f"Detected Selig-like format for '{airfoil_name}'.")
         coords_str = lines[coords_start_line:]
-
         all_coords = np.array([list(map(float, line.split())) for line in coords_str if line])
-
         # Find the index of the leading edge (x=0.0)
         le_index = -1
         for i, x in enumerate(all_coords[:, 0]):
             if abs(x - 0.0) < 1e-9:
                 le_index = i
                 break
-
         if le_index == -1:
             raise ValueError(f"Leading edge (x=0.0) not found in Selig-like data for '{filename}'. Ensure data is normalized.")
-
         # Selig-like data usually lists points from upper TE, around LE, to lower TE.
         upper_surface_raw = all_coords[:le_index + 1] # Upper surface (TE to LE order)
         lower_surface = all_coords[le_index:] # Lower surface (LE to TE order)
-
         # Flip the upper surface to be ordered from LE to TE
         upper_surface = np.flipud(upper_surface_raw)
-
     # Always normalize the data to ensure consistency.
     upper_surface, lower_surface = normalize_airfoil_data(upper_surface, lower_surface, logger_func)
 
-    return upper_surface, lower_surface, airfoil_name
+    # Detect thickened trailing edge (symmetric about y=0)
+    y_te_upper = upper_surface[-1, 1]
+    y_te_lower = lower_surface[-1, 1]
+    tol = 1e-8
+    thickened = False
+    if not np.isclose(y_te_upper, y_te_lower, atol=tol) and np.isclose(y_te_upper, -y_te_lower, atol=tol):
+        thickened = True
+        logger_func("Trailing edge is thickened and symmetric about y=0.")
+
+    return upper_surface, lower_surface, airfoil_name, thickened
 
 def find_shoulder_x_coords(upper_data, lower_data):
     """

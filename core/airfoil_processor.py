@@ -33,6 +33,7 @@ class AirfoilProcessor(QObject):
         self._is_thickened = False # True if thickening is currently applied
         self._thickened_single_bezier_polygons = None # Stores thickened single Bezier polygons
         self._last_plot_data = None # Cache for the last plot data dictionary
+        self._is_trailing_edge_thickened = False # True if original airfoil has thickened TE
 
 
     def load_airfoil_data_and_initialize_model(self, file_path):
@@ -44,14 +45,21 @@ class AirfoilProcessor(QObject):
         self._thickened_single_bezier_polygons = None
         self._last_plot_data = None
         self.core_processor._reset_state()
+        self._is_trailing_edge_thickened = False
 
         if self.core_processor.load_airfoil_data_and_initialize_model(file_path):
+            # After loading, check if the trailing edge is thickened
+            self._is_trailing_edge_thickened = getattr(self.core_processor, 'thickened', False)
             self.log_message.emit("Airfoil data loaded.")
             self._request_plot_update()
             return True
         else:
             self.log_message.emit("Failed to load or initialize airfoil data.")
             return False
+
+    def is_trailing_edge_thickened(self):
+        """Returns True if the loaded airfoil has a thickened trailing edge."""
+        return self._is_trailing_edge_thickened
 
     def build_single_bezier_model(self, regularization_weight, error_function="mse"):
         """

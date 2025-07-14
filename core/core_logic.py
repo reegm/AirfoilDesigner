@@ -21,6 +21,7 @@ class CoreProcessor:
         # Remove self.model and any segmented model state
         self.upper_data = None # Stores original upper airfoil data
         self.lower_data = None # Stores original lower airfoil data
+        self.thickened = False # Stores whether the trailing edge is thickened in the original data
         self.single_bezier_upper_poly_sharp = None # Stores the sharp single Bezier upper control polygon
         self.single_bezier_lower_poly_sharp = None # Stores the sharp single Bezier lower control polygon
 
@@ -38,7 +39,7 @@ class CoreProcessor:
         Loads airfoil data and initializes the airfoil data for single Bezier model only.
         """
         try:
-            self.upper_data, self.lower_data, self.airfoil_name = load_airfoil_data(file_path, logger_func=self.log_message)
+            self.upper_data, self.lower_data, self.airfoil_name, self.thickened = load_airfoil_data(file_path, logger_func=self.log_message)
             self.log_message(f"Successfully loaded airfoil data from '{os.path.basename(file_path)}'.")
 
             initial_upper_shoulder_x, initial_lower_shoulder_x = find_shoulder_x_coords(self.upper_data, self.lower_data)
@@ -331,7 +332,7 @@ class CoreProcessor:
             polygons_to_export,
             chord_length_mm,
             self.log_message,
-            merged=merged_flag
+            thickened=merged_flag
         )
 
         if dxf_doc:
