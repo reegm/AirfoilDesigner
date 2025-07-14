@@ -57,9 +57,6 @@ class AirfoilDesignerApp(QMainWindow):
         file_group_layout.addLayout(file_layout)
         # Export buttons
         export_layout = QHBoxLayout()
-        self.export_4_segment_dxf_button = QPushButton("Export 4-Segment DXF")
-        self.export_4_segment_dxf_button.clicked.connect(self._export_4_segment_dxf_action)
-        export_layout.addWidget(self.export_4_segment_dxf_button)
         self.export_single_bezier_dxf_button = QPushButton("Export Single Bezier DXF")
         self.export_single_bezier_dxf_button.clicked.connect(self._export_single_bezier_dxf_action)
         export_layout.addWidget(self.export_single_bezier_dxf_button)
@@ -93,32 +90,6 @@ class AirfoilDesignerApp(QMainWindow):
         single_group_layout.addWidget(self.build_single_bezier_button)
         single_group.setLayout(single_group_layout)
         control_panel_layout.addWidget(single_group)
-
-        # --- Segment Generation Panel ---
-        segment_group = QGroupBox("4-Segment Model Settings")
-        segment_group_layout = QVBoxLayout()
-        # Spacing Weight
-        spacing_weight_layout = QHBoxLayout()
-        spacing_weight_layout.addWidget(QLabel("Spacing Weight (4-seg):"))
-        self.spacing_weight_input = QLineEdit(str(config.DEFAULT_SPACING_WEIGHT))
-        self.spacing_weight_input.setFixedWidth(80)
-        spacing_weight_layout.addWidget(self.spacing_weight_input)
-        spacing_weight_layout.addStretch(1)
-        segment_group_layout.addLayout(spacing_weight_layout)
-        # Smoothness Weight
-        smoothness_weight_layout = QHBoxLayout()
-        smoothness_weight_layout.addWidget(QLabel("Smoothness Weight (4-seg):"))
-        self.smoothness_weight_input = QLineEdit(str(config.DEFAULT_SMOOTHNESS_WEIGHT))
-        self.smoothness_weight_input.setFixedWidth(80)
-        smoothness_weight_layout.addWidget(self.smoothness_weight_input)
-        smoothness_weight_layout.addStretch(1)
-        segment_group_layout.addLayout(smoothness_weight_layout)
-        # Segment buttons
-        self.generate_refine_segments_button = QPushButton("Generate 4-Segment Model")
-        self.generate_refine_segments_button.clicked.connect(self._handle_generate_refine_segments)
-        segment_group_layout.addWidget(self.generate_refine_segments_button)
-        segment_group.setLayout(segment_group_layout)
-        control_panel_layout.addWidget(segment_group)
 
         # --- General Parameters Panel ---
         general_group = QGroupBox("General Parameters")
@@ -213,26 +184,12 @@ class AirfoilDesignerApp(QMainWindow):
     def _update_button_states(self):
         """Updates the enabled/disabled state and text of buttons based on processor state."""
         is_file_loaded = self.processor.core_processor.upper_data is not None
-        is_4_segment_optimized = self.processor._is_4_segment_optimized
         is_single_bezier_built = self.processor.core_processor.single_bezier_upper_poly_sharp is not None
         is_thickened = self.processor._is_thickened
 
-        # Determine if all segments are at max degree
-        all_segments_at_max_degree = False
-        model = getattr(self.processor.core_processor, 'model', None)
-        if is_4_segment_optimized and model is not None:
-            all_segments_at_max_degree = all((len(poly) - 1) >= config.MAX_BEZIER_DEGREE for poly in model.polygons)
-
-        # "Generate 4-Segment Model" / "Refine 4-Segment Model" button
-        self.generate_refine_segments_button.setEnabled(is_file_loaded and not all_segments_at_max_degree)
-        if is_4_segment_optimized:
-            self.generate_refine_segments_button.setText("Refine 4-Segment Model")
-        else:
-            self.generate_refine_segments_button.setText("Generate 4-Segment Model")
-
         # "Build Single Bezier Model" button
         self.build_single_bezier_button.setEnabled(is_file_loaded)
-        is_any_model_built = is_4_segment_optimized or is_single_bezier_built
+        is_any_model_built = is_single_bezier_built
 
         # "Apply Thickening" / "Remove Thickening" button
         self.toggle_thickening_button.setEnabled(is_any_model_built)
@@ -242,7 +199,6 @@ class AirfoilDesignerApp(QMainWindow):
             self.toggle_thickening_button.setText("Apply Thickening")
 
         # Export DXF buttons
-        self.export_4_segment_dxf_button.setEnabled(is_4_segment_optimized)
         self.export_single_bezier_dxf_button.setEnabled(is_single_bezier_built)
 
         # Comb sliders
@@ -277,8 +233,7 @@ class AirfoilDesignerApp(QMainWindow):
         density = self.comb_density_slider.value()
         
         # Check if any model has been generated before sending update request
-        is_model_present = self.processor._is_4_segment_optimized or \
-                           (self.processor.core_processor.single_bezier_upper_poly_sharp is not None)
+        is_model_present = self.processor.core_processor.single_bezier_upper_poly_sharp is not None
 
         if is_model_present:
             self.processor.request_plot_update_with_comb_params(scale, density)
@@ -291,23 +246,6 @@ class AirfoilDesignerApp(QMainWindow):
 
         density_val = self.comb_density_slider.value()
         self.comb_density_label.setText(f"{density_val}")
-
-    def _handle_generate_refine_segments(self):
-        """
-        Handles the click for the "Generate 4-Segment Model" and "Refine 4-Segment Model" button.
-        """
-        try:
-            spacing_weight = float(self.spacing_weight_input.text())
-            smoothness_weight = float(self.smoothness_weight_input.text())
-        except ValueError:
-            self.processor.log_message.emit("Error: Invalid input for spacing or smoothness weights. Please enter numbers.")
-            return
-
-        # Always use 'mse' for segment optimization
-        if self.generate_refine_segments_button.text() == "Generate 4-Segment Model":
-            self.processor.generate_initial_segments(spacing_weight, smoothness_weight)
-        elif self.generate_refine_segments_button.text() == "Refine 4-Segment Model":
-            self.processor.refine_airfoil(spacing_weight, smoothness_weight)
 
     def _build_single_bezier_action(self):
         """
@@ -347,50 +285,6 @@ class AirfoilDesignerApp(QMainWindow):
         
         # Fallback to generic name
         return "airfoil.dxf"
-
-    def _export_4_segment_dxf_action(self):
-        """Handles the 'Export 4-Segment DXF' button click."""
-        polygons_to_export = None
-        if self.processor._is_thickened and self.processor._thickened_model_polygons:
-            polygons_to_export = self.processor._thickened_model_polygons
-            self.processor.log_message.emit("Preparing to export thickened 4-segment Bezier model.")
-        elif self.processor.core_processor.model:
-            polygons_to_export = self.processor.core_processor.model.polygons
-            self.processor.log_message.emit("Preparing to export sharp 4-segment Bezier model.")
-
-        if polygons_to_export is None:
-            self.processor.log_message.emit("Error: 4-segment model not available for export. Please generate it first.")
-            return
-
-        is_merged_export = False # 4-segment model exports as unmerged segments
-
-        try:
-            chord_length_mm = float(self.chord_length_input.text())
-        except ValueError:
-            self.processor.log_message.emit("Error: Invalid chord length. Please enter a number.")
-            return
-
-        dxf_doc = export_curves_to_dxf(
-            polygons_to_export,
-            chord_length_mm,
-            self.processor.log_message.emit,
-            thickened=is_merged_export
-        )
-
-        if dxf_doc:
-            default_filename = self._get_default_dxf_filename()
-            file_path, _ = QFileDialog.getSaveFileName(self, "Save 4-Segment DXF File", default_filename, "DXF Files (*.dxf)")
-            if file_path:
-                try:
-                    dxf_doc.saveas(file_path)
-                    self.processor.log_message.emit(f"4-Segment DXF export successful to '{os.path.basename(file_path)}'.")
-                    self.processor.log_message.emit("Note: For correct scale in CAD software, ensure import settings are configured for millimeters.")
-                except IOError as e:
-                    self.processor.log_message.emit(f"Could not save DXF file: {e}")
-            else:
-                self.processor.log_message.emit("4-Segment DXF export cancelled by user.")
-        else:
-            self.processor.log_message.emit("4-Segment DXF export failed during document creation.")
 
     def _export_single_bezier_dxf_action(self):
         """Handles the 'Export Single Bezier DXF' button click."""

@@ -69,63 +69,6 @@ class AirfoilPlotWidget(pg.PlotWidget):
                       symbolBrush=pg.mkBrush(COLOR_ORIGINAL_DATA), name='Original Data (Lower)')
         ]
 
-        # Plot 4-segment model (prioritize thickened if available)
-        if thickened_model_polygons is not None:
-            curves_thickened_upper = general_bezier_curve(np.linspace(0, 1, 100), np.array(thickened_model_polygons[0]))
-            curves_thickened_upper_rear = general_bezier_curve(np.linspace(0, 1, 100), np.array(thickened_model_polygons[1]))
-            curves_thickened_lower = general_bezier_curve(np.linspace(0, 1, 100), np.array(thickened_model_polygons[2]))
-            curves_thickened_lower_rear = general_bezier_curve(np.linspace(0, 1, 100), np.array(thickened_model_polygons[3]))
-
-            self.plot_items['Thickened 4-Segment Airfoil'] = [
-                self.plot(np.vstack([curves_thickened_upper, curves_thickened_upper_rear])[:, 0],
-                          np.vstack([curves_thickened_upper, curves_thickened_upper_rear])[:, 1],
-                          pen=COLOR_THICKENED_CURVE, name='Thickened 4-Segment Airfoil - Upper'),
-                self.plot(np.vstack([curves_thickened_lower, curves_thickened_lower_rear])[:, 0],
-                          np.vstack([curves_thickened_lower, curves_thickened_lower_rear])[:, 1],
-                          pen=COLOR_THICKENED_CURVE, name='Thickened 4-Segment Airfoil - Lower')
-            ]
-            self.plot_items['Control Polygons (Thickened 4-Seg)'] = []
-            for p_idx, p in enumerate(thickened_model_polygons):
-                item = self.plot(np.array(p)[:, 0], np.array(p)[:, 1],
-                          pen=COLOR_THICKENED_POLYGON, symbol='s', symbolSize=6,
-                          symbolBrush=COLOR_THICKENED_SYMBOL, symbolPen=COLOR_THICKENED_SYMBOL_PEN,
-                          name=f'Control Poly Thickened 4-Seg {p_idx+1}')
-                self.plot_items['Control Polygons (Thickened 4-Seg)'].append(item)
-
-        elif model_polygons_sharp is not None:
-            curves_sharp_upper = general_bezier_curve(np.linspace(0, 1, 100), np.array(model_polygons_sharp[0]))
-            curves_sharp_upper_rear = general_bezier_curve(np.linspace(0, 1, 100), np.array(model_polygons_sharp[1]))
-            curves_sharp_lower = general_bezier_curve(np.linspace(0, 1, 100), np.array(model_polygons_sharp[2]))
-            curves_sharp_lower_rear = general_bezier_curve(np.linspace(0, 1, 100), np.array(model_polygons_sharp[3]))
-
-            self.plot_items['Optimized Sharp Airfoil'] = [
-                self.plot(np.vstack([curves_sharp_upper, curves_sharp_upper_rear])[:, 0],
-                          np.vstack([curves_sharp_upper, curves_sharp_upper_rear])[:, 1],
-                          pen=COLOR_UPPER_4SEG_CURVE, name='Optimized Sharp Airfoil (4 segments) - Upper'),
-                self.plot(np.vstack([curves_sharp_lower, curves_sharp_lower_rear])[:, 0],
-                          np.vstack([curves_sharp_lower, curves_sharp_lower_rear])[:, 1],
-                          pen=COLOR_LOWER_4SEG_CURVE, name='Optimized Sharp Airfoil (4 segments) - Lower')
-            ]
-            self.plot_items['Control Polygons (Sharp)'] = []
-            for p_idx, p in enumerate(model_polygons_sharp):
-                item = self.plot(np.array(p)[:, 0], np.array(p)[:, 1],
-                          pen=COLOR_4SEG_POLYGON, symbol='s', symbolSize=6,
-                          symbolBrush=COLOR_4SEG_SYMBOL, symbolPen=COLOR_4SEG_SYMBOL_PEN,
-                          name=f'Control Poly Sharp {p_idx+1}')
-                self.plot_items['Control Polygons (Sharp)'].append(item)
-
-        # Plot Curvature Comb for 4-segment model
-        if comb_4_segment is not None and len(comb_4_segment) > 0:
-            # Reshape the list of hair segments into a single array for efficient plotting
-            comb_array = np.concatenate(comb_4_segment)
-            # Plot all hairs as a single item with disconnected lines
-            comb_item = self.plot(
-                comb_array[:, 0], comb_array[:, 1],
-                pen=COLOR_4SEG_COMB, name='4-Seg Curvature Comb',
-                connect='pairs'
-            )
-            self.plot_items['4-Segment Curvature Comb'] = comb_item
-
         # Plot Single Bezier Curves (prioritize thickened if available)
         if thickened_single_bezier_upper_poly is not None and thickened_single_bezier_lower_poly is not None:
             curves_thickened_single_upper = general_bezier_curve(np.linspace(0, 1, 100), np.array(thickened_single_bezier_upper_poly))

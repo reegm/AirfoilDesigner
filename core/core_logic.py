@@ -6,8 +6,7 @@ from scipy.optimize import minimize
 
 # Central configuration constants
 from core import config
-from core.airfoil_model import AirfoilModel
-from core.optimization_core import objective_function, calculate_segment_errors, build_single_venkatamaran_bezier, calculate_single_bezier_fitting_error
+from core.optimization_core import build_single_venkatamaran_bezier, calculate_single_bezier_fitting_error
 from utils.data_loader import load_airfoil_data, find_shoulder_x_coords
 from utils.dxf_exporter import export_curves_to_dxf
 
@@ -19,14 +18,13 @@ class CoreProcessor:
         # self.logger will be the callable function (e.g., self.log_message.emit from AirfoilProcessor)
         self.logger = logger_func if logger_func is not None else logging.info
 
-        self.model = None # Stores the 4-segment AirfoilModel
+        # Remove self.model and any segmented model state
         self.upper_data = None # Stores original upper airfoil data
         self.lower_data = None # Stores original lower airfoil data
         self.single_bezier_upper_poly_sharp = None # Stores the sharp single Bezier upper control polygon
         self.single_bezier_lower_poly_sharp = None # Stores the sharp single Bezier lower control polygon
 
         self.airfoil_name = None  # Stores profile name from .dat
-        self.last_4_seg_worst_error = None # Stores the worst error for 4-segment model
         self.last_single_bezier_upper_error = None # Stores error for single upper Bezier
         self.last_single_bezier_lower_error = None # Stores error for single lower Bezier
 
@@ -37,8 +35,7 @@ class CoreProcessor:
 
     def load_airfoil_data_and_initialize_model(self, file_path):
         """
-        Loads airfoil data and initializes the AirfoilModel.
-        Does not perform initial optimization.
+        Loads airfoil data and initializes the airfoil data for single Bezier model only.
         """
         try:
             self.upper_data, self.lower_data, self.airfoil_name = load_airfoil_data(file_path, logger_func=self.log_message)
@@ -48,50 +45,32 @@ class CoreProcessor:
             self.log_message(f"Detected initial upper shoulder X-coordinate: {initial_upper_shoulder_x:.4f}")
             self.log_message(f"Detected initial lower shoulder X-coordinate: {initial_lower_shoulder_x:.4f}")
 
-            self.model = AirfoilModel(initial_upper_shoulder_x, initial_lower_shoulder_x)
-            self.model.core_processor = self # Give model a reference back to the processor
-            self.log_message("4-segment AirfoilModel initialized with default control points.")
+            # No model initialization needed for single Bezier
             return True
         except Exception as e:
             self.log_message(f"Error loading or initializing airfoil: {e}")
             self._reset_state()
             return False
 
-    def initialize_and_optimize_4_segment_model(self, spacing_weight=0.01, smoothness_weight=0.005):
-        """
-        Performs the initial optimization of the 4-segment Bezier model.
-        """
-        if self.model is None or self.upper_data is None or self.lower_data is None:
-            self.log_message("Error: Airfoil data not loaded. Cannot generate 4-segment model.")
-            return False
-
-        self.log_message(f"Optimizing initial 4-segment Bezier model geometry with SLSQP...")
-        # Always use 'mse' for segment optimization
-        return self._perform_optimization(spacing_weight=spacing_weight, smoothness_weight=smoothness_weight)
-
-
     def _reset_state(self):
         """Resets the internal state of the core processor."""
-        self.model = None
         self.upper_data = None
         self.lower_data = None
         self.single_bezier_upper_poly_sharp = None
         self.single_bezier_lower_poly_sharp = None
-        self.last_4_seg_worst_error = None # Reset
         self.last_single_bezier_upper_error = None # Reset
         self.last_single_bezier_lower_error = None # Reset
 
 
     def _perform_optimization(self, spacing_weight=0.01, smoothness_weight=0.005):
         """
-        Helper method to run the optimization on the current 4-segment model.
+        Helper method to run the optimization on the current single Bezier model.
         """
-        if self.model is None or self.upper_data is None or self.lower_data is None:
-            self.log_message("Error: Model or data not loaded for 4-segment optimization.")
+        if self.upper_data is None or self.lower_data is None:
+            self.log_message("Error: Model or data not loaded for single Bezier optimization.")
             return False
 
-        self.log_message(f"Current control points per segment: {[len(p) for p in self.model.polygons]}")
-        initial_guess = self.model.get_variables()
+        initial_guess = self.single_bezier_upper_poly_sharp
 
         upper_te_tangent_vector, lower_te_tangent_vector = self._calculate_te_tangent(self.upper_data, self.lower_data)
         self.log_message(f"Calculated original data TE tangent for upper surface: {upper_te_tangent_vector}")
@@ -99,16 +78,13 @@ class CoreProcessor:
 
         # Always use SLSQP with MSE for segment optimization
         self.log_message("Running optimization with SLSQP (MSE error)...")
-        constraints = self.model.get_constraints(
-            upper_te_tangent_vector=upper_te_tangent_vector,
-            lower_te_tangent_vector=lower_te_tangent_vector
-        )
+        constraints = None # No constraints for single Bezier
 
         result = minimize(
             objective_function,
             initial_guess,
             args=(
-                self.model,
+                self.single_bezier_upper_poly_sharp,
                 self.upper_data,
                 self.lower_data,
                 spacing_weight,
@@ -119,51 +95,49 @@ class CoreProcessor:
         )
 
         if not result.success:
-            self.log_message(f"Optimization of 4-segment model failed with SLSQP: {result.message}")
-            self.last_4_seg_worst_error = None # Set to None on failure
-            self.last_4_seg_worst_error_mse = None
-            self.last_4_seg_worst_error_icp = None
+            self.log_message(f"Optimization of single Bezier model failed with SLSQP: {result.message}")
+            self.last_single_bezier_upper_error = None # Set to None on failure
+            self.last_single_bezier_upper_error_mse = None
+            self.last_single_bezier_upper_error_icp = None
             return False
         else:
-            self.model.set_variables(result.x)
+            self.single_bezier_upper_poly_sharp = result.x
             # Calculate both MSE and ICP errors for display
-            seg_err_mse = calculate_segment_errors(self.model, self.upper_data, self.lower_data, error_function="mse")
-            seg_err_icp = calculate_segment_errors(self.model, self.upper_data, self.lower_data, error_function="icp")
-            self.last_4_seg_worst_error_mse = np.max(seg_err_mse)
-            self.last_4_seg_worst_error_icp = np.max(seg_err_icp)
-            self.log_message("Final fitting errors for 4-segment Bezier segments (sum of squared differences):")
-            self.log_message(f"  - S1 (Upper Front): {seg_err_mse[0]:.2e}")
-            self.log_message(f"  - S2 (Upper Rear):  {seg_err_mse[1]:.2e}")
-            self.log_message(f"  - S3 (Lower Front): {seg_err_mse[2]:.2e}")
-            self.log_message(f"  - S4 (Lower Rear):  {seg_err_mse[3]:.2e}")
-            self.log_message("4-segment model optimization complete with SLSQP.")
+            self.last_single_bezier_upper_error_mse = calculate_single_bezier_fitting_error(
+                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="mse"
+            )
+            self.last_single_bezier_upper_error_icp = calculate_single_bezier_fitting_error(
+                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="icp"
+            )
+            self.log_message("Final fitting errors for single Bezier curve (sum of squared differences):")
+            self.log_message(f"  - Upper: MSE: {self.last_single_bezier_upper_error_mse:.2e}, ICP: {self.last_single_bezier_upper_error_icp:.2e}")
+            self.log_message("Single Bezier model optimization complete with SLSQP.")
             return True
 
 
     def refine_airfoil_iteratively(self, num_refinements, spacing_weight=0.01, smoothness_weight=0.005, error_function="mse"):
         """
-        Iteratively adds control points to the worst segments of the 4-segment model and re-optimizes.
+        Iteratively adds control points to the single Bezier model and re-optimizes.
         """
-        if self.model is None:
-            self.log_message("Error: No 4-segment model initialized for refinement.")
+        if self.single_bezier_upper_poly_sharp is None:
+            self.log_message("Error: No single Bezier model initialized for refinement.")
             return False
 
-        self.log_message(f"--- Starting {num_refinements} refinement step(s) for the 4-segment model ---")
+        self.log_message(f"--- Starting {num_refinements} refinement step(s) for the single Bezier model ---")
         for i in range(num_refinements):
             self.log_message(f"--- Refinement Step {i+1}/{num_refinements} ---")
 
-            segment_errors = calculate_segment_errors(self.model, self.upper_data, self.lower_data, error_function=error_function)
             # Sort segments by error, descending
-            segment_indices_by_error = np.argsort(-segment_errors)
+            segment_errors = calculate_segment_errors(self.single_bezier_upper_poly_sharp, self.upper_data, self.lower_data, error_function=error_function)
             # Find the first segment that is not at max degree
             refined = False
-            for seg_idx in segment_indices_by_error:
-                current_degree = len(self.model.polygons[seg_idx]) - 1
+            for seg_idx in range(len(self.single_bezier_upper_poly_sharp) - 1):
+                current_degree = len(self.single_bezier_upper_poly_sharp[seg_idx]) - 1
                 if current_degree < config.MAX_BEZIER_DEGREE:
                     self.log_message(f"Current segment errors: {np.array2string(segment_errors, precision=2, separator=', ')}")
                     self.log_message(f"Refining segment: {seg_idx + 1} (error: {segment_errors[seg_idx]:.2e}, degree: {current_degree})")
-                    self.model.add_point_to_segment(seg_idx)
-                    self.log_message(f"Added control point to segment {seg_idx + 1}. New points per segment: {[len(p) for p in self.model.polygons]}")
+                    self.single_bezier_upper_poly_sharp = add_point_to_bezier_segment(self.single_bezier_upper_poly_sharp, seg_idx)
+                    self.log_message(f"Added control point to segment {seg_idx + 1}. New points per segment: {[len(p) for p in self.single_bezier_upper_poly_sharp]}")
                     refined = True
                     break
             if not refined:
@@ -173,7 +147,7 @@ class CoreProcessor:
             if not self._perform_optimization(spacing_weight=spacing_weight, smoothness_weight=smoothness_weight):
                 self.log_message("Optimization failed during refinement, stopping.")
                 return False
-        self.log_message("--- 4-segment model refinement complete ---")
+        self.log_message("--- Single Bezier model refinement complete ---")
         return True
 
     def _calculate_te_tangent(self, upper_data, lower_data):
@@ -209,52 +183,6 @@ class CoreProcessor:
     # ------------------------------------------------------------------
     # Trailing-edge thickening helpers (shared by CLI and GUI)
     # ------------------------------------------------------------------
-
-    def apply_te_thickening_to_polygons(self, polygons_to_thicken, te_thickness):
-        """Return new polygons with trailing-edge thickening applied.
-
-        The algorithm mirrors the behaviour previously implemented in
-        ``AirfoilProcessor`` so that both CLI and GUI paths share the
-        same geometry logic.
-        """
-        import copy as _copy
-
-        if te_thickness < 1e-9:
-            return polygons_to_thicken  # No significant thickening
-
-        polygons_to_thicken = _copy.deepcopy(polygons_to_thicken)
-
-        # Extract relevant points for scaling
-        upper_te_point = polygons_to_thicken[1][-1]
-        lower_te_point = polygons_to_thicken[3][-1]
-        upper_shared_vertex = polygons_to_thicken[1][0]
-        lower_shared_vertex = polygons_to_thicken[3][0]
-
-        # Calculate target y-coordinates for the new trailing edge
-        target_upper_te_y = te_thickness / 2.0
-        target_lower_te_y = -te_thickness / 2.0
-
-        # Scale y-coordinates of inner control points for S2 (upper rear)
-        original_dy_upper = upper_te_point[1] - upper_shared_vertex[1]
-        new_dy_upper = target_upper_te_y - upper_shared_vertex[1]
-        s_upper = new_dy_upper / original_dy_upper if abs(original_dy_upper) > 1e-9 else 1.0
-        for i in range(1, len(polygons_to_thicken[1]) - 1):
-            polygons_to_thicken[1][i][1] = upper_shared_vertex[1] + s_upper * (
-                polygons_to_thicken[1][i][1] - upper_shared_vertex[1]
-            )
-        polygons_to_thicken[1][-1][1] = target_upper_te_y  # Fix the last point
-
-        # Scale y-coordinates of inner control points for S4 (lower rear)
-        original_dy_lower = lower_te_point[1] - lower_shared_vertex[1]
-        new_dy_lower = target_lower_te_y - lower_shared_vertex[1]
-        s_lower = new_dy_lower / original_dy_lower if abs(original_dy_lower) > 1e-9 else 1.0
-        for i in range(1, len(polygons_to_thicken[3]) - 1):
-            polygons_to_thicken[3][i][1] = lower_shared_vertex[1] + s_lower * (
-                polygons_to_thicken[3][i][1] - lower_shared_vertex[1]
-            )
-        polygons_to_thicken[3][-1][1] = target_lower_te_y  # Fix the last point
-
-        return polygons_to_thicken
 
     def apply_te_thickening_to_single_bezier(self, single_bezier_polygons_copy, te_thickness):
         """Return copies of single-Bezier polygons with TE thickening applied."""
@@ -419,7 +347,7 @@ class CoreProcessor:
         """
         self.log_message(f"--- Starting Airfoil Processing for '{os.path.basename(dat_file)}' ---")
 
-        # 1. Load data and initialize 4-segment model
+        # 1. Load data and initialize single Bezier model
         if not self.load_airfoil_data_and_initialize_model(dat_file):
             self.log_message("Full process aborted due to data loading failure.")
             return False
@@ -449,17 +377,17 @@ class CoreProcessor:
                 self.log_message("Exporting sharp single Bezier model.")
             is_merged_export = True
         else:
-            # 2. Optimize 4-segment model (initial and refinements)
-            if not self.initialize_and_optimize_4_segment_model(spacing_weight=spacing_weight, smoothness_weight=smoothness_weight):
-                self.log_message("Full process aborted due to initial 4-segment optimization failure.")
+            # 2. Optimize single Bezier model (initial and refinements)
+            if not self._perform_optimization(spacing_weight=spacing_weight, smoothness_weight=smoothness_weight):
+                self.log_message("Full process aborted due to initial single Bezier optimization failure.")
                 return False
             if refinement_steps > 0:
                 if not self.refine_airfoil_iteratively(refinement_steps, spacing_weight=spacing_weight, smoothness_weight=smoothness_weight):
-                    self.log_message("Full process aborted due to 4-segment refinement failure.")
+                    self.log_message("Full process aborted due to single Bezier refinement failure.")
                     return False
-            polygons_to_export = self.model.polygons
+            polygons_to_export = [self.single_bezier_upper_poly_sharp, self.single_bezier_lower_poly_sharp]
             is_merged_export = False
-            self.log_message("Exporting 4-segment Bezier model.")
+            self.log_message("Exporting single Bezier model.")
 
         # ------------------------------------------------------------------
         # 3. Determine default output filename (if not provided)

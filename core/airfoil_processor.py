@@ -4,7 +4,6 @@ from PySide6.QtCore import QObject, Signal
 import logging
 
 from core.core_logic import CoreProcessor
-from core.optimization_core import calculate_segment_errors
 from utils.bezier_utils import general_bezier_curve, bezier_derivative, bezier_curvature
 
 
@@ -31,9 +30,7 @@ class AirfoilProcessor(QObject):
         super().__init__(parent)
 
         self.core_processor = CoreProcessor(logger_func=self.log_message.emit)
-        self._is_4_segment_optimized = False # True if 4-segment model has been optimized
         self._is_thickened = False # True if thickening is currently applied
-        self._thickened_model_polygons = None # Stores thickened 4-segment polygons
         self._thickened_single_bezier_polygons = None # Stores thickened single Bezier polygons
         self._last_plot_data = None # Cache for the last plot data dictionary
 
@@ -43,9 +40,7 @@ class AirfoilProcessor(QObject):
         Loads airfoil data and initializes the AirfoilModel.
         Resets internal flags and state.
         """
-        self._is_4_segment_optimized = False
         self._is_thickened = False
-        self._thickened_model_polygons = None
         self._thickened_single_bezier_polygons = None
         self._last_plot_data = None
         self.core_processor._reset_state()
@@ -57,49 +52,6 @@ class AirfoilProcessor(QObject):
         else:
             self.log_message.emit("Failed to load or initialize airfoil data.")
             return False
-
-    def generate_initial_segments(self, spacing_weight=0.01, smoothness_weight=0.005):
-        """
-        Generates and optimizes the initial 4-segment Bezier model.
-        """
-        if self.core_processor.model is None:
-            self.log_message.emit("Error: Please load an airfoil file first.")
-            return False
-
-        self.log_message.emit(f"Generating initial 4-segment Bezier model using SLSQP (MSE error)...")
-        # Always use 'mse' for segment optimization
-        if self.core_processor.initialize_and_optimize_4_segment_model(spacing_weight, smoothness_weight):
-            self._is_4_segment_optimized = True
-            self.log_message.emit("Initial 4-segment model generated and optimized.")
-            self._request_plot_update()
-            return True
-        else:
-            self.log_message.emit("Failed to generate initial 4-segment model.")
-            return False
-
-    def refine_airfoil(self, spacing_weight=0.01, smoothness_weight=0.005):
-        """
-        Adds one control point to the worst-fitting segment of the 4-segment model and re-optimizes.
-        """
-        if not self._is_4_segment_optimized or self.core_processor.model is None:
-            self.log_message.emit("Error: Please generate the initial 4-segment model first before refining.")
-            return
-
-        # Always use 'mse' for segment error calculation
-        segment_errors = calculate_segment_errors(self.core_processor.model, self.core_processor.upper_data, self.core_processor.lower_data, error_function="mse")
-        worst_segment_idx = np.argmax(segment_errors)
-        self.log_message.emit(f"Current segment errors (sum of squared differences): {np.array2string(segment_errors, precision=2, separator=', ')}")
-        self.log_message.emit(f"Refining worst-fitting segment: {worst_segment_idx + 1} (error: {segment_errors[worst_segment_idx]:.2e})...")
-
-        self.core_processor.model.add_point_to_segment(worst_segment_idx)
-        self.log_message.emit(f"Added control point to segment {worst_segment_idx + 1}. New points per segment: {[len(p) for p in self.core_processor.model.polygons]}")
-
-        self.log_message.emit(f"Re-optimizing 4-segment model after refinement using SLSQP (MSE error)...")
-        if self.core_processor.refine_airfoil_iteratively(1, spacing_weight, smoothness_weight):
-            self.log_message.emit("4-segment model re-optimized successfully.")
-            self._request_plot_update()
-        else:
-            self.log_message.emit("Optimization failed during refinement.")
 
     def build_single_bezier_model(self, regularization_weight, error_function="mse"):
         """
@@ -136,16 +88,6 @@ class AirfoilProcessor(QObject):
             te_thickness = te_thickness_percent / 100.0
             self.log_message.emit(f"Applying {te_thickness_percent:.2f}% trailing edge thickness...")
 
-            # Thickening for 4-segment model
-            if self._is_4_segment_optimized and self.core_processor.model:
-                self._thickened_model_polygons = self.core_processor.apply_te_thickening_to_polygons(
-                    copy.deepcopy(self.core_processor.model.polygons),
-                    te_thickness,
-                )
-            else:
-                self._thickened_model_polygons = None
-                self.log_message.emit("Warning: 4-segment model not optimized, cannot apply thickening to it.")
-
             # Thickening for single Bezier model
             if self.core_processor.single_bezier_upper_poly_sharp is not None and \
                self.core_processor.single_bezier_lower_poly_sharp is not None:
@@ -160,7 +102,7 @@ class AirfoilProcessor(QObject):
             else:
                 self.log_message.emit("Warning: Sharp single Bezier model not built, cannot apply thickening to it.")
 
-            if self._thickened_model_polygons or self._thickened_single_bezier_polygons:
+            if self._thickened_single_bezier_polygons:
                 self._is_thickened = True
                 self.log_message.emit("Thickening applied successfully.")
             else:
@@ -170,7 +112,6 @@ class AirfoilProcessor(QObject):
             # Remove thickening
             self.log_message.emit("Removing trailing edge thickening...")
             self._is_thickened = False
-            self._thickened_model_polygons = None
             self._thickened_single_bezier_polygons = None
             self.log_message.emit("Thickening removed. Displaying sharp models.")
 
@@ -186,22 +127,6 @@ class AirfoilProcessor(QObject):
 
         # Re-calculate comb data using the last known polygons but with new parameters
         updated_plot_data = self._last_plot_data.copy()
-
-        # Determine which polygons to use (thickened or sharp) for the 4-segment comb
-        polygons_4_seg = None
-        if updated_plot_data.get('thickened_model_polygons') is not None:
-            polygons_4_seg = updated_plot_data['thickened_model_polygons']
-        elif updated_plot_data.get('model_polygons_sharp') is not None:
-            polygons_4_seg = updated_plot_data['model_polygons_sharp']
-
-        if polygons_4_seg:
-            updated_plot_data['comb_4_segment'] = self._calculate_curvature_comb_data(
-                polygons_4_seg,
-                num_points_per_segment=density,
-                scale_factor=scale
-            )
-        else:
-            updated_plot_data['comb_4_segment'] = None # Ensure it's cleared if no model
 
         # Determine which polygons to use for the single Bezier comb
         polygons_single_bezier = []
@@ -283,37 +208,18 @@ class AirfoilProcessor(QObject):
             'lower_data': self.core_processor.lower_data,
             'upper_te_tangent_vector': upper_te_tangent_vector,
             'lower_te_tangent_vector': lower_te_tangent_vector,
-            'worst_4_seg_error': None,
-            'worst_4_seg_error_mse': None,
-            'worst_4_seg_error_icp': None,
             'worst_single_bezier_upper_error': None,
             'worst_single_bezier_upper_error_mse': None,
             'worst_single_bezier_upper_error_icp': None,
             'worst_single_bezier_lower_error': None,
             'worst_single_bezier_lower_error_mse': None,
             'worst_single_bezier_lower_error_icp': None,
-            'model_polygons_sharp': None,
-            'thickened_model_polygons': None,
             'single_bezier_upper_poly': None,
             'single_bezier_lower_poly': None,
             'thickened_single_bezier_upper_poly': None,
             'thickened_single_bezier_lower_poly': None,
-            'comb_4_segment': None,
             'comb_single_bezier': None,
         }
-
-        # --- Populate 4-Segment Model Data ---
-        if self._is_4_segment_optimized and self.core_processor.model:
-            plot_data['model_polygons_sharp'] = self.core_processor.model.polygons
-            plot_data['worst_4_seg_error'] = self.core_processor.last_4_seg_worst_error
-            plot_data['worst_4_seg_error_mse'] = getattr(self.core_processor, 'last_4_seg_worst_error_mse', None)
-            plot_data['worst_4_seg_error_icp'] = getattr(self.core_processor, 'last_4_seg_worst_error_icp', None)
-
-            if self._is_thickened and self._thickened_model_polygons:
-                plot_data['thickened_model_polygons'] = self._thickened_model_polygons
-                plot_data['comb_4_segment'] = self._calculate_curvature_comb_data(self._thickened_model_polygons)
-            else:
-                plot_data['comb_4_segment'] = self._calculate_curvature_comb_data(self.core_processor.model.polygons)
 
         # --- Populate Single Bezier Model Data ---
         if self.core_processor.single_bezier_upper_poly_sharp is not None:

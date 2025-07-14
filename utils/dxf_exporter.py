@@ -25,6 +25,7 @@ def export_curves_to_dxf(polygons, chord_length_mm, logger_func, thickened):
 
         logger_func(f"Preparing DXF export with chord length: {chord_length_mm:.2f} mm...")
 
+        # Only use ezdxf.new('R2000') for DXF creation. Do not import 'new' directly from ezdxf.
         doc = ezdxf.new('R2000')
         # Set drawing units to millimetres, matching the test generator script
         doc.header["$INSUNITS"] = 4  # 4 = millimetres in DXF spec
@@ -51,21 +52,6 @@ def export_curves_to_dxf(polygons, chord_length_mm, logger_func, thickened):
                 degree=degree,
                 dxfattribs={"layer": "AIRFOIL_CURVE", "color": color},
             )
-
-        # Connect the trailing and leading edges based on the 'thickened' flag
-        if thickened and len(scaled_polygons) == 2:
-            # Single Bezier case: Connect upper and lower curves' TE and LE
-            upper_poly, lower_poly = scaled_polygons
-            msp.add_line(upper_poly[-1], lower_poly[-1], dxfattribs={'layer': 'TRAILING_EDGE_CONNECTOR', 'color': 2}) # Yellow
-            msp.add_line(upper_poly[0], lower_poly[0], dxfattribs={'layer': 'LEADING_EDGE_CONNECTOR', 'color': 3}) # Green
-        elif not thickened and len(scaled_polygons) == 4:
-            # 4-segment case: connect S2 and S4 (trailing edge)
-            # S1, S2, S3, S4 are the four segments. S2's last point connects to S4's last point for the TE.
-            # Only S2 (upper rear) and S4 (lower rear) are needed for the TE connector
-            s2 = scaled_polygons[1]
-            s4 = scaled_polygons[3]
-            msp.add_line(s2[-1], s4[-1], dxfattribs={'layer': 'TRAILING_EDGE_CONNECTOR', 'color': 2}) # Yellow
-            # Leading edge is implicitly connected at (0,0).
 
         logger_func(f"DXF document successfully created in memory.")
         return doc
