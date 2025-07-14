@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -40,8 +41,9 @@ jobs:
           pip install -r requirements.txt pyinstaller
 
       - name: Build EXE (${{ matrix.arch }})
+        env:
+          PYTHONOPTIMIZE: 2
         run: |
-          set PYTHONOPTIMIZE=2
           pyinstaller --onefile --noconsole \
             --clean --strip \
             --upx-dir "C:\Program Files\upx" \
@@ -62,6 +64,7 @@ jobs:
 
   release:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
