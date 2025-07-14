@@ -62,6 +62,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: AirfoilDesigner
+          path: dist
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
@@ -70,4 +71,4 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
-          files: AirfoilDesigner/AirfoilDesigner.exe
+          files: dist/AirfoilDesigner.exe
