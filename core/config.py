@@ -8,8 +8,6 @@ algorithms or UI widgets.
 from __future__ import annotations
 
 # ---- Optimisation weights -------------------------------------------------
-DEFAULT_SPACING_WEIGHT: float = 0.01
-DEFAULT_SMOOTHNESS_WEIGHT: float = 0.005
 DEFAULT_REGULARIZATION_WEIGHT: float = 0.01
 
 # ---- Geometry & Model -----------------------------------------------------
@@ -44,9 +42,6 @@ PAPER_FIXED_X_LOWER = [
 # ---- Manufacturing / Export defaults -------------------------------------
 DEFAULT_CHORD_LENGTH_MM: float = 200.0
 DEFAULT_TE_THICKNESS_PERCENT: float = 0.0
-
-# Maximum allowed degree for any Bezier segment (for downstream CAD usability)
-MAX_BEZIER_DEGREE: int = 9
 
 # ---- Optimiser settings ---------------------------------------------------
 SLSQP_OPTIONS = {
