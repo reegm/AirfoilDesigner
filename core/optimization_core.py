@@ -244,6 +244,8 @@ def build_coupled_venkatamaran_beziers(
     remain fixed to the Venkataraman paper.  The function returns a tuple
     ``(upper_ctrl_pts, lower_ctrl_pts)``.
     """
+    logging.info("Building coupled G2 Bezier curves using the " + error_function + " error function")
+
     # Fixed abscissae from the paper
     paper_fixed_x_upper = np.array([0.0, 0.0, 0.11422, 0.25294, 0.37581, 0.49671, 0.61942, 0.74701, 0.88058, 1.0])
     paper_fixed_x_lower = np.array([0.0, 0.0, 0.12325, 0.25314, 0.37519, 0.49569, 0.61975, 0.74391, 0.87391, 1.0])

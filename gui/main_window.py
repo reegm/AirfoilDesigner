@@ -287,6 +287,7 @@ class AirfoilDesignerApp(QMainWindow):
         try:
             te_thickness_percent = float(self.te_thickness_input.text()) / (float(self.chord_length_input.text()) / 100.0)
             self.processor.toggle_thickening(te_thickness_percent)
+            self._comb_params_changed()  # Ensure comb settings are reapplied after thickening
         except ValueError:
             self.processor.log_message.emit("Error: Invalid TE Thickness. Please enter a number.")
         except Exception as e:

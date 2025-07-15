@@ -138,8 +138,14 @@ class AirfoilProcessor(QObject):
 
         # Determine which polygons to use for the single Bezier comb
         polygons_single_bezier = []
-        upper_poly = updated_plot_data.get('thickened_single_bezier_upper_poly') or updated_plot_data.get('single_bezier_upper_poly')
-        lower_poly = updated_plot_data.get('thickened_single_bezier_lower_poly') or updated_plot_data.get('single_bezier_lower_poly')
+        
+        upper_poly = updated_plot_data.get('thickened_single_bezier_upper_poly')
+        if upper_poly is None:
+            upper_poly = updated_plot_data.get('single_bezier_upper_poly')
+
+        lower_poly = updated_plot_data.get('thickened_single_bezier_lower_poly')
+        if lower_poly is None:
+            lower_poly = updated_plot_data.get('single_bezier_lower_poly')
 
         if upper_poly is not None and lower_poly is not None:
             polygons_single_bezier = [upper_poly, lower_poly]
