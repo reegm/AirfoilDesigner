@@ -85,7 +85,7 @@ class AirfoilProcessor(QObject):
 
     def toggle_thickening(self, te_thickness_percent):
         """
-        Applies or removes trailing edge thickening for both 4-segment and single Bezier models.
+        Applies or removes trailing edge thickening.
         """
         if self.core_processor.upper_data is None or self.core_processor.lower_data is None:
             self.log_message.emit("Error: Please load an airfoil file first to apply/remove thickening.")

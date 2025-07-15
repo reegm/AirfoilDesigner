@@ -31,19 +31,14 @@ class AirfoilPlotWidget(pg.PlotWidget):
                      worst_4_seg_error=None, worst_4_seg_error_mse=None, worst_4_seg_error_icp=None,
                      worst_single_bezier_upper_error=None, worst_single_bezier_upper_error_mse=None, worst_single_bezier_upper_error_icp=None,
                      worst_single_bezier_lower_error=None, worst_single_bezier_lower_error_mse=None, worst_single_bezier_lower_error_icp=None,
-                     comb_4_segment=None, comb_single_bezier=None):
+                     comb_single_bezier=None):
         self.clear() # Clear all items to ensure no remnants
         self.addLegend(offset=(30, 10)) # Re-add legend after clearing
         self.plot_items = {} # Clear stored items
 
         # Define colors for plotting
         COLOR_ORIGINAL_DATA = (135, 206, 250, 200) # SkyBlue
-        COLOR_UPPER_4SEG_CURVE = pg.mkPen((0, 200, 0), width=1.5) # Bright Green
-        COLOR_LOWER_4SEG_CURVE = pg.mkPen((200, 0, 200), width=1.5) # Magenta
-        COLOR_4SEG_POLYGON = pg.mkPen((150, 150, 150), width=1, style=Qt.PenStyle.DotLine) # Lighter Gray
-        COLOR_4SEG_SYMBOL = pg.mkBrush((255, 255, 0, 200)) # Yellow
-        COLOR_4SEG_SYMBOL_PEN = pg.mkPen((200, 200, 0)) # Darker Yellow
-
+        
         COLOR_SINGLE_UPPER_CURVE = pg.mkPen('blue', width=2.0)
         COLOR_SINGLE_LOWER_CURVE = pg.mkPen('cyan', width=2.0)
         COLOR_SINGLE_POLYGON = pg.mkPen((0, 0, 200), width=1, style=Qt.PenStyle.DashLine) # Darker Blue
@@ -58,7 +53,6 @@ class AirfoilPlotWidget(pg.PlotWidget):
         COLOR_TE_TANGENT_UPPER = pg.mkPen('red', width=2, style=Qt.PenStyle.SolidLine)
         COLOR_TE_TANGENT_LOWER = pg.mkPen('purple', width=2, style=Qt.PenStyle.SolidLine)
 
-        COLOR_4SEG_COMB = pg.mkPen((100, 255, 100), width=1) # Light Green
         COLOR_SINGLE_BEZIER_COMB = pg.mkPen((100, 150, 255), width=1) # Light Blue
 
         # Plot Original Data points
@@ -144,20 +138,6 @@ class AirfoilPlotWidget(pg.PlotWidget):
         # Display errors
         # Unused parameters are kept for API compatibility but silenced for linters.
         _ = (worst_4_seg_error, worst_single_bezier_upper_error, worst_single_bezier_lower_error)
-
-        # For 4-segment model
-        mse_4seg = worst_4_seg_error_mse
-        icp_4seg = worst_4_seg_error_icp
-        if mse_4seg is not None or icp_4seg is not None:
-            error_html = '<div style="text-align: right; color: #00C800; font-size: 10pt;">'
-            if mse_4seg is not None:
-                error_html += f'MSE 4-Seg: {mse_4seg:.2e}<br>'
-            if icp_4seg is not None:
-                error_html += f'ICP 4-Seg: {icp_4seg:.2e}'
-            error_html += '</div>'
-            text_item = pg.TextItem(html=error_html, anchor=(1, 1))
-            self.addItem(text_item)
-            self.plot_items['4-Seg Error Text'] = text_item
 
         # For single Bezier model
         mse_single_upper = worst_single_bezier_upper_error_mse

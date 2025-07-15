@@ -35,8 +35,8 @@ def export_curves_to_dxf(polygons, chord_length_mm, logger_func):
         # Scale all polygons by the desired chord length
         scaled_polygons = [[p * chord_length_mm for p in poly] for poly in polygons]
 
-        # Define colors for different segments for better visualization in CAD software
-        colors = [1, 5, 2, 6] # Red, Blue, Yellow, Magenta
+        # Define colors for different elements for better visualization in CAD software
+        colors = [1, 5, 2] # Red, Blue, Yellow, Magenta
 
         for i, poly in enumerate(scaled_polygons):
             color = colors[i % len(colors)]
