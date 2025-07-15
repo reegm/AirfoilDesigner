@@ -7,20 +7,21 @@ import logging
 def calculate_icp_error(data_points, curve_points, return_max_error=False):
     """
     Calculates the sum of squared Euclidean distances from each data point to the closest point on the curve.
-    If return_max_error is True, also returns the maximum pointwise error (not squared).
+    If return_max_error is True, also returns the maximum pointwise error (not squared) and its index.
     Args:
         data_points (np.ndarray): (N, 2) array of data points.
         curve_points (np.ndarray): (M, 2) array of points sampled along the curve.
-        return_max_error (bool): If True, also return the maximum pointwise error.
+        return_max_error (bool): If True, also return the maximum pointwise error and its index.
     Returns:
-        float or (float, float): Sum of squared distances, and optionally the max pointwise error.
+        float or (float, float, int): Sum of squared distances, and optionally the max pointwise error and its index.
     """
     dists = np.linalg.norm(data_points[:, None, :] - curve_points[None, :, :], axis=2)
     min_dists = np.min(dists, axis=1)
     sum_sq = np.sum(min_dists ** 2)
     if return_max_error:
         max_error = np.max(min_dists)
-        return sum_sq, max_error
+        max_error_idx = np.argmax(min_dists)
+        return sum_sq, max_error, max_error_idx
     return sum_sq
 
 
@@ -66,7 +67,7 @@ def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_func
     """
     Calculates the fitting error for a single Bezier curve.
     error_function: "mse" or "icp"
-    If return_max_error is True and error_function=="icp", returns (sum, max_error).
+    If return_max_error is True and error_function=="icp", returns (sum, max_error, max_error_idx).
     """
     num_points_curve = 200
     curve_points = general_bezier_curve(np.linspace(0, 1, num_points_curve), bezier_poly)

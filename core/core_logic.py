@@ -28,6 +28,8 @@ class CoreProcessor:
         self.airfoil_name = None  # Stores profile name from .dat
         self.last_single_bezier_upper_max_error = None # Stores error for single upper Bezier
         self.last_single_bezier_lower_max_error = None # Stores error for single lower Bezier
+        self.last_single_bezier_upper_max_error_idx = None # Stores index of worst fit for single upper Bezier
+        self.last_single_bezier_lower_max_error_idx = None # Stores index of worst fit for single lower Bezier
 
 
     def log_message(self, message):
@@ -61,6 +63,8 @@ class CoreProcessor:
         self.single_bezier_lower_poly_sharp = None
         self.last_single_bezier_upper_max_error = None # Reset
         self.last_single_bezier_lower_max_error = None # Reset
+        self.last_single_bezier_upper_max_error_idx = None # Reset
+        self.last_single_bezier_lower_max_error_idx = None # Reset
 
 
     def _perform_optimization(self, spacing_weight=0.01, smoothness_weight=0.005):
@@ -244,14 +248,16 @@ class CoreProcessor:
                 )
 
             # Calculate and store both MSE and ICP errors for single Bezier curves
-            icp_sum_upper, icp_max_upper = calculate_single_bezier_fitting_error(
+            icp_sum_upper, icp_max_upper, icp_max_upper_idx = calculate_single_bezier_fitting_error(
                 np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="icp", return_max_error=True
             )
             self.last_single_bezier_upper_max_error = icp_max_upper
-            icp_sum_lower, icp_max_lower = calculate_single_bezier_fitting_error(
+            self.last_single_bezier_upper_max_error_idx = icp_max_upper_idx
+            icp_sum_lower, icp_max_lower, icp_max_lower_idx = calculate_single_bezier_fitting_error(
                 np.array(self.single_bezier_lower_poly_sharp), self.lower_data, error_function="icp", return_max_error=True
             )
             self.last_single_bezier_lower_max_error = icp_max_lower
+            self.last_single_bezier_lower_max_error_idx = icp_max_lower_idx
             
             self.log_message("Sharp single Bezier curves built successfully.")
             return True

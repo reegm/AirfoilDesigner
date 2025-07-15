@@ -29,6 +29,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
                      thickened_single_bezier_upper_poly=None, thickened_single_bezier_lower_poly=None,
                      upper_te_tangent_vector=None, lower_te_tangent_vector=None,
                      worst_single_bezier_upper_max_error=None, worst_single_bezier_lower_max_error=None,
+                     worst_single_bezier_upper_max_error_idx=None, worst_single_bezier_lower_max_error_idx=None,
                      comb_single_bezier=None,
                      chord_length_mm=None):
         self.clear() # Clear all items to ensure no remnants
@@ -139,6 +140,8 @@ class AirfoilPlotWidget(pg.PlotWidget):
         # For single Bezier model
         max_single_upper = worst_single_bezier_upper_max_error
         max_single_lower = worst_single_bezier_lower_max_error
+        max_single_upper_idx = worst_single_bezier_upper_max_error_idx
+        max_single_lower_idx = worst_single_bezier_lower_max_error_idx
         if (max_single_upper is not None and max_single_lower is not None and chord_length_mm is not None):
             error_html = '<div style="text-align: right; color: #00BFFF; font-size: 10pt;">'
             max_upper_mm = max_single_upper * chord_length_mm
@@ -148,6 +151,16 @@ class AirfoilPlotWidget(pg.PlotWidget):
             text_item = pg.TextItem(html=error_html, anchor=(1, 1))
             self.addItem(text_item)
             self.plot_items['Single Bezier Error Text'] = text_item
+        # Plot marker for worst-fit data point (upper)
+        if max_single_upper_idx is not None and 0 <= max_single_upper_idx < len(upper_data):
+            pt = upper_data[max_single_upper_idx]
+            marker = self.plot([pt[0]], [pt[1]], pen=None, symbol='o', symbolSize=16, symbolBrush=None, symbolPen=pg.mkPen((255,0,0,255), width=3), name='Worst Upper Error')
+            self.plot_items['Worst Upper Error Marker'] = marker
+        # Plot marker for worst-fit data point (lower)
+        if max_single_lower_idx is not None and 0 <= max_single_lower_idx < len(lower_data):
+            pt = lower_data[max_single_lower_idx]
+            marker = self.plot([pt[0]], [pt[1]], pen=None, symbol='o', symbolSize=16, symbolBrush=None, symbolPen=pg.mkPen((255,0,0,255), width=3), name='Worst Lower Error')
+            self.plot_items['Worst Lower Error Marker'] = marker
 
         self._update_error_text_positions()
 

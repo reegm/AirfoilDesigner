@@ -230,7 +230,9 @@ class AirfoilProcessor(QObject):
             plot_data['single_bezier_upper_poly'] = self.core_processor.single_bezier_upper_poly_sharp
             plot_data['single_bezier_lower_poly'] = self.core_processor.single_bezier_lower_poly_sharp
             plot_data['worst_single_bezier_upper_max_error'] = getattr(self.core_processor, 'last_single_bezier_upper_max_error', None)
+            plot_data['worst_single_bezier_upper_max_error_idx'] = getattr(self.core_processor, 'last_single_bezier_upper_max_error_idx', None)
             plot_data['worst_single_bezier_lower_max_error'] = getattr(self.core_processor, 'last_single_bezier_lower_max_error', None)
+            plot_data['worst_single_bezier_lower_max_error_idx'] = getattr(self.core_processor, 'last_single_bezier_lower_max_error_idx', None)
 
             if self._is_thickened and self._thickened_single_bezier_polygons:
                 plot_data['thickened_single_bezier_upper_poly'] = self._thickened_single_bezier_polygons[0]
