@@ -4,19 +4,24 @@ from utils.bezier_utils import general_bezier_curve
 from scipy.special import comb
 import logging
 
-def calculate_icp_error(data_points, curve_points):
+def calculate_icp_error(data_points, curve_points, return_max_error=False):
     """
     Calculates the sum of squared Euclidean distances from each data point to the closest point on the curve.
+    If return_max_error is True, also returns the maximum pointwise error (not squared).
     Args:
         data_points (np.ndarray): (N, 2) array of data points.
         curve_points (np.ndarray): (M, 2) array of points sampled along the curve.
+        return_max_error (bool): If True, also return the maximum pointwise error.
     Returns:
-        float: Sum of squared distances.
+        float or (float, float): Sum of squared distances, and optionally the max pointwise error.
     """
-    # For each data point, find the closest curve point
     dists = np.linalg.norm(data_points[:, None, :] - curve_points[None, :, :], axis=2)
     min_dists = np.min(dists, axis=1)
-    return np.sum(min_dists ** 2)
+    sum_sq = np.sum(min_dists ** 2)
+    if return_max_error:
+        max_error = np.max(min_dists)
+        return sum_sq, max_error
+    return sum_sq
 
 
 def calculate_iterative_icp_error(data_points, model, polygons, max_iterations=10, tol=1e-6):
@@ -57,16 +62,17 @@ def calculate_iterative_icp_error(data_points, model, polygons, max_iterations=1
     return prev_error if prev_error is not None else 0.0
 
 
-def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_function="mse"):
+def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_function="mse", return_max_error=False):
     """
     Calculates the fitting error for a single Bezier curve.
     error_function: "mse" or "icp"
+    If return_max_error is True and error_function=="icp", returns (sum, max_error).
     """
     num_points_curve = 200
     curve_points = general_bezier_curve(np.linspace(0, 1, num_points_curve), bezier_poly)
     curve_sorted = curve_points[np.argsort(curve_points[:, 0])]
     if error_function == "icp":
-        return calculate_icp_error(original_data, curve_sorted)
+        return calculate_icp_error(original_data, curve_sorted, return_max_error=return_max_error)
     else:
         interp_y = np.interp(original_data[:, 0], curve_sorted[:, 0], curve_sorted[:, 1])
         error = np.sum((interp_y - original_data[:, 1])**2)

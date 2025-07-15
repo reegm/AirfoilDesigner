@@ -216,12 +216,8 @@ class AirfoilProcessor(QObject):
             'lower_data': self.core_processor.lower_data,
             'upper_te_tangent_vector': upper_te_tangent_vector,
             'lower_te_tangent_vector': lower_te_tangent_vector,
-            'worst_single_bezier_upper_error': None,
-            'worst_single_bezier_upper_error_mse': None,
-            'worst_single_bezier_upper_error_icp': None,
-            'worst_single_bezier_lower_error': None,
-            'worst_single_bezier_lower_error_mse': None,
-            'worst_single_bezier_lower_error_icp': None,
+            'worst_single_bezier_upper_max_error': None,
+            'worst_single_bezier_lower_max_error': None,
             'single_bezier_upper_poly': None,
             'single_bezier_lower_poly': None,
             'thickened_single_bezier_upper_poly': None,
@@ -233,12 +229,8 @@ class AirfoilProcessor(QObject):
         if self.core_processor.single_bezier_upper_poly_sharp is not None:
             plot_data['single_bezier_upper_poly'] = self.core_processor.single_bezier_upper_poly_sharp
             plot_data['single_bezier_lower_poly'] = self.core_processor.single_bezier_lower_poly_sharp
-            plot_data['worst_single_bezier_upper_error'] = self.core_processor.last_single_bezier_upper_error
-            plot_data['worst_single_bezier_upper_error_mse'] = getattr(self.core_processor, 'last_single_bezier_upper_error_mse', None)
-            plot_data['worst_single_bezier_upper_error_icp'] = getattr(self.core_processor, 'last_single_bezier_upper_error_icp', None)
-            plot_data['worst_single_bezier_lower_error'] = self.core_processor.last_single_bezier_lower_error
-            plot_data['worst_single_bezier_lower_error_mse'] = getattr(self.core_processor, 'last_single_bezier_lower_error_mse', None)
-            plot_data['worst_single_bezier_lower_error_icp'] = getattr(self.core_processor, 'last_single_bezier_lower_error_icp', None)
+            plot_data['worst_single_bezier_upper_max_error'] = getattr(self.core_processor, 'last_single_bezier_upper_max_error', None)
+            plot_data['worst_single_bezier_lower_max_error'] = getattr(self.core_processor, 'last_single_bezier_lower_max_error', None)
 
             if self._is_thickened and self._thickened_single_bezier_polygons:
                 plot_data['thickened_single_bezier_upper_poly'] = self._thickened_single_bezier_polygons[0]

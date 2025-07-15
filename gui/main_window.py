@@ -178,7 +178,16 @@ class AirfoilDesignerApp(QMainWindow):
         """Slot to receive plot data from the processor and update the canvas and button states."""
         self._last_plot_data = plot_data.copy() # Store for re-plotting
 
-        self.plot_canvas.plot_airfoil(**plot_data)
+        chord_length_mm = None
+        try:
+            chord_length_mm = float(self.chord_length_input.text())
+        except Exception:
+            chord_length_mm = None
+
+        self.plot_canvas.plot_airfoil(
+            **plot_data,
+            chord_length_mm=chord_length_mm,
+        )
         self._update_button_states()
 
     def _update_button_states(self):

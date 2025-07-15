@@ -28,10 +28,9 @@ class AirfoilPlotWidget(pg.PlotWidget):
                      single_bezier_upper_poly=None, single_bezier_lower_poly=None,
                      thickened_single_bezier_upper_poly=None, thickened_single_bezier_lower_poly=None,
                      upper_te_tangent_vector=None, lower_te_tangent_vector=None,
-                     worst_4_seg_error=None, worst_4_seg_error_mse=None, worst_4_seg_error_icp=None,
-                     worst_single_bezier_upper_error=None, worst_single_bezier_upper_error_mse=None, worst_single_bezier_upper_error_icp=None,
-                     worst_single_bezier_lower_error=None, worst_single_bezier_lower_error_mse=None, worst_single_bezier_lower_error_icp=None,
-                     comb_single_bezier=None):
+                     worst_single_bezier_upper_max_error=None, worst_single_bezier_lower_max_error=None,
+                     comb_single_bezier=None,
+                     chord_length_mm=None):
         self.clear() # Clear all items to ensure no remnants
         self.addLegend(offset=(30, 10)) # Re-add legend after clearing
         self.plot_items = {} # Clear stored items
@@ -136,20 +135,15 @@ class AirfoilPlotWidget(pg.PlotWidget):
                     pen=COLOR_TE_TANGENT_LOWER, name='TE Tangent (Lower)')
 
         # Display errors
-        # Unused parameters are kept for API compatibility but silenced for linters.
-        _ = (worst_4_seg_error, worst_single_bezier_upper_error, worst_single_bezier_lower_error)
-
+        
         # For single Bezier model
-        mse_single_upper = worst_single_bezier_upper_error_mse
-        icp_single_upper = worst_single_bezier_upper_error_icp
-        mse_single_lower = worst_single_bezier_lower_error_mse
-        icp_single_lower = worst_single_bezier_lower_error_icp
-        if (mse_single_upper is not None or icp_single_upper is not None or mse_single_lower is not None or icp_single_lower is not None):
+        max_single_upper = worst_single_bezier_upper_max_error
+        max_single_lower = worst_single_bezier_lower_max_error
+        if (max_single_upper is not None and max_single_lower is not None and chord_length_mm is not None):
             error_html = '<div style="text-align: right; color: #00BFFF; font-size: 10pt;">'
-            if mse_single_upper is not None and mse_single_lower is not None:
-                error_html += f'MSE Single Bezier (U/L): {mse_single_upper:.2e} / {mse_single_lower:.2e}<br>'
-            if icp_single_upper is not None and icp_single_lower is not None:
-                error_html += f'ICP Single Bezier (U/L): {icp_single_upper:.2e} / {icp_single_lower:.2e}'
+            max_upper_mm = max_single_upper * chord_length_mm
+            max_lower_mm = max_single_lower * chord_length_mm
+            error_html += f'Max Error (U/L): {max_upper_mm:.3f} mm / {max_lower_mm:.3f} mm'
             error_html += '</div>'
             text_item = pg.TextItem(html=error_html, anchor=(1, 1))
             self.addItem(text_item)

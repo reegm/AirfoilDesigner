@@ -26,8 +26,8 @@ class CoreProcessor:
         self.single_bezier_lower_poly_sharp = None # Stores the sharp single Bezier lower control polygon
 
         self.airfoil_name = None  # Stores profile name from .dat
-        self.last_single_bezier_upper_error = None # Stores error for single upper Bezier
-        self.last_single_bezier_lower_error = None # Stores error for single lower Bezier
+        self.last_single_bezier_upper_max_error = None # Stores error for single upper Bezier
+        self.last_single_bezier_lower_max_error = None # Stores error for single lower Bezier
 
 
     def log_message(self, message):
@@ -59,8 +59,8 @@ class CoreProcessor:
         self.lower_data = None
         self.single_bezier_upper_poly_sharp = None
         self.single_bezier_lower_poly_sharp = None
-        self.last_single_bezier_upper_error = None # Reset
-        self.last_single_bezier_lower_error = None # Reset
+        self.last_single_bezier_upper_max_error = None # Reset
+        self.last_single_bezier_lower_max_error = None # Reset
 
 
     def _perform_optimization(self, spacing_weight=0.01, smoothness_weight=0.005):
@@ -97,21 +97,11 @@ class CoreProcessor:
 
         if not result.success:
             self.log_message(f"Optimization of single Bezier model failed with SLSQP: {result.message}")
-            self.last_single_bezier_upper_error = None # Set to None on failure
-            self.last_single_bezier_upper_error_mse = None
-            self.last_single_bezier_upper_error_icp = None
+            self.last_single_bezier_upper_max_error = None # Set to None on failure
+            self.last_single_bezier_lower_max_error = None
             return False
         else:
             self.single_bezier_upper_poly_sharp = result.x
-            # Calculate both MSE and ICP errors for display
-            self.last_single_bezier_upper_error_mse = calculate_single_bezier_fitting_error(
-                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="mse"
-            )
-            self.last_single_bezier_upper_error_icp = calculate_single_bezier_fitting_error(
-                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="icp"
-            )
-            self.log_message("Final fitting errors for single Bezier curve (sum of squared differences):")
-            self.log_message(f"  - Upper: MSE: {self.last_single_bezier_upper_error_mse:.2e}, ICP: {self.last_single_bezier_upper_error_icp:.2e}")
             self.log_message("Single Bezier model optimization complete with SLSQP.")
             return True
 
@@ -254,37 +244,23 @@ class CoreProcessor:
                 )
 
             # Calculate and store both MSE and ICP errors for single Bezier curves
-            self.last_single_bezier_upper_error_mse = calculate_single_bezier_fitting_error(
-                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="mse"
+            icp_sum_upper, icp_max_upper = calculate_single_bezier_fitting_error(
+                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="icp", return_max_error=True
             )
-            self.last_single_bezier_upper_error_icp = calculate_single_bezier_fitting_error(
-                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="icp"
+            self.last_single_bezier_upper_max_error = icp_max_upper
+            icp_sum_lower, icp_max_lower = calculate_single_bezier_fitting_error(
+                np.array(self.single_bezier_lower_poly_sharp), self.lower_data, error_function="icp", return_max_error=True
             )
-            self.last_single_bezier_lower_error_mse = calculate_single_bezier_fitting_error(
-                np.array(self.single_bezier_lower_poly_sharp), self.lower_data, error_function="mse"
-            )
-            self.last_single_bezier_lower_error_icp = calculate_single_bezier_fitting_error(
-                np.array(self.single_bezier_lower_poly_sharp), self.lower_data, error_function="icp"
-            )
-            # For backward compatibility, keep the last used error as the default
-            if error_function == "mse":
-                self.last_single_bezier_upper_error = self.last_single_bezier_upper_error_mse
-                self.last_single_bezier_lower_error = self.last_single_bezier_lower_error_mse
-            else:
-                self.last_single_bezier_upper_error = self.last_single_bezier_upper_error_icp
-                self.last_single_bezier_lower_error = self.last_single_bezier_lower_error_icp
+            self.last_single_bezier_lower_max_error = icp_max_lower
+            
             self.log_message("Sharp single Bezier curves built successfully.")
             return True
         except Exception as e:
             self.log_message(f"Error during sharp single Bezier curve building: {e}")
             self.single_bezier_upper_poly_sharp = None
             self.single_bezier_lower_poly_sharp = None
-            self.last_single_bezier_upper_error = None # Set to None on failure
-            self.last_single_bezier_lower_error = None # Set to None on failure
-            self.last_single_bezier_upper_error_mse = None
-            self.last_single_bezier_upper_error_icp = None
-            self.last_single_bezier_lower_error_mse = None
-            self.last_single_bezier_lower_error_icp = None
+            self.last_single_bezier_upper_max_error = None
+            self.last_single_bezier_lower_max_error = None
             return False
 
     def export_to_dxf(self, polygons_to_export, chord_length_mm, merged_flag):
