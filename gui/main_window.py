@@ -4,7 +4,7 @@ import copy
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QFileDialog, QSizePolicy,
-    QSlider, QComboBox, QGroupBox
+    QSlider, QComboBox, QGroupBox, QCheckBox
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -84,6 +84,13 @@ class AirfoilDesignerApp(QMainWindow):
         error_func_layout.addWidget(self.error_func_dropdown)
         error_func_layout.addStretch(1)
         single_group_layout.addLayout(error_func_layout)
+
+        # G2 Continuity checkbox
+        g2_layout = QHBoxLayout()
+        self.g2_checkbox = QCheckBox("Enforce G2 at LE")
+        g2_layout.addWidget(self.g2_checkbox)
+        g2_layout.addStretch(1)
+        single_group_layout.addLayout(g2_layout)
         # Single Bezier button
         self.build_single_bezier_button = QPushButton("Build Single Bezier Model")
         self.build_single_bezier_button.clicked.connect(self._build_single_bezier_action)
@@ -267,7 +274,8 @@ class AirfoilDesignerApp(QMainWindow):
         try:
             regularization_weight = float(self.single_bezier_reg_weight_input.text())
             error_function = self.error_func_dropdown.currentText().lower()
-            self.processor.build_single_bezier_model(regularization_weight, error_function=error_function)
+            g2_flag = self.g2_checkbox.isChecked()
+            self.processor.build_single_bezier_model(regularization_weight, error_function=error_function, enforce_g2=g2_flag)
             self._comb_params_changed()
         except ValueError:
             self.processor.log_message.emit("Error: Invalid input for regularization weight. Please enter a number.")

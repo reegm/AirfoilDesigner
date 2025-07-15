@@ -11,7 +11,8 @@ The graphical front‑end is implemented with Qt 6.
 * Input data is normalised to satisfy constraints.  
 * Automatic fitting of a **single ninth‑order Bézier** representation with fixed abscissae, matching the 16‑parameter scheme proposed by Venkataraman (2017).  
 * Curvature Comb.
-* Trailing‑edge thickening and chord‑length scaling prior to export.  
+* Trailing‑edge thickening and chord‑length scaling prior to export.
+* G2 continuity option for the leading edge (upper & lower curves share curvature)
 * Direct export to DXF (millimetres) for CAD/CAM workflows.  
 * Cross‑platform GUI built with PySide 6; the legacy console script remains for batch automation.
 
@@ -60,7 +61,6 @@ python run_gui.py
 
 ## Roadmap
 
-* Add G2 constraints for the leading edge
 * Investigate optimizing abcsisse for single segment model
   
 

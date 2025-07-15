@@ -6,7 +6,11 @@ from scipy.optimize import minimize
 
 # Central configuration constants
 from core import config
-from core.optimization_core import build_single_venkatamaran_bezier, calculate_single_bezier_fitting_error
+from core.optimization_core import (
+    build_single_venkatamaran_bezier,
+    build_coupled_venkatamaran_beziers,
+    calculate_single_bezier_fitting_error,
+)
 from utils.data_loader import load_airfoil_data, find_shoulder_x_coords
 from utils.dxf_exporter import export_curves_to_dxf
 
@@ -170,7 +174,7 @@ class CoreProcessor:
 
         return [upper_poly, lower_poly]
 
-    def build_single_bezier_model(self, regularization_weight, error_function="mse"):
+    def build_single_bezier_model(self, regularization_weight, error_function="mse", enforce_g2=False):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
@@ -200,7 +204,22 @@ class CoreProcessor:
         lower_te_point_final = np.array([1.0, -te_thickness_for_build / 2.0])
 
         try:
-            if error_function == "icp_iter_single":
+            if enforce_g2:
+                # --- Coupled optimisation with G2 continuity ---
+                self.single_bezier_upper_poly_sharp, self.single_bezier_lower_poly_sharp = build_coupled_venkatamaran_beziers(
+                    original_upper_data=self.upper_data,
+                    original_lower_data=self.lower_data,
+                    regularization_weight=regularization_weight,
+                    start_point_upper=upper_le_point,
+                    end_point_upper=upper_te_point_final,
+                    start_point_lower=lower_le_point,
+                    end_point_lower=lower_te_point_final,
+                    te_tangent_vector_upper=upper_te_tangent_vector,
+                    te_tangent_vector_lower=lower_te_tangent_vector,
+                    error_function=error_function,
+                )
+
+            elif error_function == "icp_iter_single":
                 from core.optimization_core import calculate_iterative_icp_error_single_bezier
                 self.log_message("Running true iterative ICP for single Bezier upper curve...")
                 paper_fixed_x_coords_upper = np.array([0.0, 0.0, 0.11422, 0.25294, 0.37581, 0.49671, 0.61942, 0.74701, 0.88058, 1.0])

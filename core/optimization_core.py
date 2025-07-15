@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.optimize import minimize
-from utils.bezier_utils import general_bezier_curve
+from utils.bezier_utils import general_bezier_curve, leading_edge_curvature
 from scipy.special import comb
 import logging
 from core import config
@@ -220,3 +220,121 @@ def calculate_iterative_icp_error_single_bezier(data_points, control_points, max
     # Return final control polygon and error
     final_control_poly = np.column_stack([control_points_x, y_ctrl])
     return final_control_poly, (prev_error if prev_error is not None else 0.0)
+
+# -----------------------------------------------------------------------------
+# Coupled optimiser enforcing G2 continuity at the leading edge
+# -----------------------------------------------------------------------------
+
+def build_coupled_venkatamaran_beziers(
+    original_upper_data,
+    original_lower_data,
+    regularization_weight,
+    start_point_upper,
+    end_point_upper,
+    start_point_lower,
+    end_point_lower,
+    te_tangent_vector_upper,
+    te_tangent_vector_lower,
+    error_function="mse",
+):
+    """Build upper and lower single-segment Bézier curves simultaneously while
+    enforcing G2 continuity (equal curvature) at the leading edge.
+
+    Only the *y*-coordinates of the inner control points are optimised; *x*-values
+    remain fixed to the Venkataraman paper.  The function returns a tuple
+    ``(upper_ctrl_pts, lower_ctrl_pts)``.
+    """
+    # Fixed abscissae from the paper
+    paper_fixed_x_upper = np.array([0.0, 0.0, 0.11422, 0.25294, 0.37581, 0.49671, 0.61942, 0.74701, 0.88058, 1.0])
+    paper_fixed_x_lower = np.array([0.0, 0.0, 0.12325, 0.25314, 0.37519, 0.49569, 0.61975, 0.74391, 0.87391, 1.0])
+
+    inner_x_upper = paper_fixed_x_upper[1:-1]  # 8 values
+    inner_x_lower = paper_fixed_x_lower[1:-1]
+    n_inner = len(inner_x_upper)
+
+    # Initial guesses by interpolation of raw data
+    init_y_upper = np.interp(inner_x_upper, original_upper_data[:, 0], original_upper_data[:, 1])
+    init_y_lower = np.interp(inner_x_lower, original_lower_data[:, 0], original_lower_data[:, 1])
+    initial_guess = np.concatenate([init_y_upper, init_y_lower])
+
+    # --- Helper to build full control polygons from variable vector ----------
+    def _assemble_polygons(var_y):
+        y_u = var_y[:n_inner]
+        y_l = var_y[n_inner:]
+
+        # Upper polygon
+        ctrl_upper = [start_point_upper]
+        ctrl_upper += [np.array([inner_x_upper[i], y_u[i]]) for i in range(n_inner)]
+        ctrl_upper.append(end_point_upper)
+
+        # Lower polygon
+        ctrl_lower = [start_point_lower]
+        ctrl_lower += [np.array([inner_x_lower[i], y_l[i]]) for i in range(n_inner)]
+        ctrl_lower.append(end_point_lower)
+
+        return np.array(ctrl_upper), np.array(ctrl_lower)
+
+    # --- Objective -----------------------------------------------------------
+    def objective(var_y):
+        ctrl_u, ctrl_l = _assemble_polygons(var_y)
+        err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function=error_function)
+        err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function=error_function)
+
+        # Smoothness (second diff) penalty
+        def _smooth(ctrl):
+            if len(ctrl) <= 2:
+                return 0.0
+            return np.sum(np.diff(ctrl[:, 1], n=2) ** 2)
+
+        smooth = _smooth(ctrl_u) + _smooth(ctrl_l)
+        return err_u + err_l + regularization_weight * smooth
+
+    # --- Constraints ---------------------------------------------------------
+    constraints = []
+
+    # Trailing-edge tangency (upper)
+    tx_u, ty_u = te_tangent_vector_upper
+    px_n_u, py_n_u = end_point_upper
+    px_n1_u = inner_x_upper[-1]
+
+    if not np.isclose(tx_u, 0.0):
+        def _te_tan_upper(var_y):
+            y_nm1 = var_y[n_inner - 1]  # last inner y of upper
+            return y_nm1 * tx_u - (py_n_u * tx_u - (px_n_u - px_n1_u) * ty_u)
+        constraints.append({"type": "eq", "fun": _te_tan_upper})
+
+    # Trailing-edge tangency (lower)
+    tx_l, ty_l = te_tangent_vector_lower
+    px_n_l, py_n_l = end_point_lower
+    px_n1_l = inner_x_lower[-1]
+
+    if not np.isclose(tx_l, 0.0):
+        def _te_tan_lower(var_y):
+            y_nm1_l = var_y[-1]  # last element corresponds to lower inner trailing point
+            return y_nm1_l * tx_l - (py_n_l * tx_l - (px_n_l - px_n1_l) * ty_l)
+        constraints.append({"type": "eq", "fun": _te_tan_lower})
+
+    # G2 continuity at LE: curvature_upper + curvature_lower == 0
+    def _g2_constraint(var_y):
+        ctrl_u, ctrl_l = _assemble_polygons(var_y)
+        return leading_edge_curvature(ctrl_u) + leading_edge_curvature(ctrl_l)
+
+    constraints.append({"type": "eq", "fun": _g2_constraint})
+
+    # --- Optimise ------------------------------------------------------------
+    result = minimize(
+        objective,
+        initial_guess,
+        method="SLSQP",
+        constraints=constraints,
+        options=config.SLSQP_OPTIONS,
+    )
+
+    if not result.success:
+        logging.warning("Coupled Bezier build failed. Using initial guess. Reason: %s", result.message)
+        var_y_final = initial_guess
+    else:
+        var_y_final = result.x
+
+    ctrl_upper_final, ctrl_lower_final = _assemble_polygons(var_y_final)
+    return ctrl_upper_final, ctrl_lower_final

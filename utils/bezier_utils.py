@@ -100,3 +100,16 @@ def bezier_curvature(t, points):
     curvature = np.divide(numerator, denominator, out=np.zeros_like(numerator), where=denominator!=0)
 
     return curvature
+
+def leading_edge_curvature(points):
+    """Return the curvature at the leading edge (``t = 0``) of a Bézier curve.
+
+    The helper wraps :func:`bezier_curvature` while ensuring that the return
+    value is always a plain ``float`` regardless of whether the underlying
+    function returns a scalar or a 1-element array.
+    """
+    curv = bezier_curvature(0.0, points)
+    # ``bezier_curvature`` may return either a scalar or a (1,) ndarray.
+    if np.isscalar(curv):
+        return float(curv)
+    return float(np.asarray(curv).ravel()[0])
