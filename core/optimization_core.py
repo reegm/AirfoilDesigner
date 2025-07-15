@@ -3,6 +3,7 @@ from scipy.optimize import minimize
 from utils.bezier_utils import general_bezier_curve
 from scipy.special import comb
 import logging
+from core import config
 
 def calculate_icp_error(data_points, curve_points, return_max_error=False):
     """
@@ -25,7 +26,7 @@ def calculate_icp_error(data_points, curve_points, return_max_error=False):
     return sum_sq
 
 
-def calculate_iterative_icp_error(data_points, model, polygons, max_iterations=10, tol=1e-6):
+def calculate_iterative_icp_error(data_points, model, polygons, max_iterations=None, tol=None):
     """
     Performs a true iterative ICP loop:
     1. For each data point, find the closest point on the current curve.
@@ -33,6 +34,10 @@ def calculate_iterative_icp_error(data_points, model, polygons, max_iterations=1
     3. Update the curve and repeat.
     Returns the final sum of squared distances.
     """
+    if max_iterations is None:
+        max_iterations = config.ICP_OPTIONS["max_iterations"]
+    if tol is None:
+        tol = config.ICP_OPTIONS["tol"]
     # 'model' is currently unused because this simplified ICP routine only computes
     # the fitting error. The variable is kept to maintain API compatibility.
     _ = model
@@ -115,7 +120,8 @@ def build_single_venkatamaran_bezier(original_data, num_control_points_new,
         
         # Geometric error
         fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function=error_function)
-        
+        if isinstance(fitting_error, tuple):
+            fitting_error = fitting_error[0]
         # Smoothness penalty (second derivative of control polygon)
         smoothness_penalty = 0.0
         if len(control_points) > 2:
@@ -179,11 +185,15 @@ def fit_bezier_y_least_squares(data_points, control_points_x, t_corr, y_corr):
     y_ctrl, *_ = np.linalg.lstsq(B, y_corr, rcond=None)
     return y_ctrl
 
-def calculate_iterative_icp_error_single_bezier(data_points, control_points, max_iterations=10, tol=1e-6):
+def calculate_iterative_icp_error_single_bezier(data_points, control_points, max_iterations=None, tol=None):
     """
     Simplified iterative ICP fitting for a single Bezier curve.
     Currently returns the final control points without modifying x-coordinates.
     """
+    if max_iterations is None:
+        max_iterations = config.ICP_OPTIONS["max_iterations"]
+    if tol is None:
+        tol = config.ICP_OPTIONS["tol"]
     _ = data_points  # Placeholder to retain API compatibility while silencing linter.
     n = len(control_points) - 1
     control_points_x = np.array([pt[0] for pt in control_points])

@@ -112,6 +112,18 @@ class AirfoilPlotWidget(pg.PlotWidget):
             )
             self.plot_items['Single Bezier Curvature Comb'] = comb_item
 
+            # --- Add polyline connecting the outer tips of the comb hairs ---
+            # Each hair segment is [base, tip], so tips are the second point of each segment
+            comb_tips = np.array([hair[1] for hair in comb_single_bezier])
+            # Plot the polyline through all tips in order
+            comb_tips_item = self.plot(
+                comb_tips[:, 0], comb_tips[:, 1],
+                pen=pg.mkPen((0, 120, 255, 180), width=2, style=Qt.PenStyle.DotLine),
+                name='Comb Tips Polyline',
+                connect='all'
+            )
+            self.plot_items['Comb Tips Polyline'] = comb_tips_item
+
         # Plot Trailing Edge Tangent Vectors (only once, as they are derived from original data)
         tangent_length = 0.05
 
@@ -151,16 +163,47 @@ class AirfoilPlotWidget(pg.PlotWidget):
             text_item = pg.TextItem(html=error_html, anchor=(1, 1))
             self.addItem(text_item)
             self.plot_items['Single Bezier Error Text'] = text_item
-        # Plot marker for worst-fit data point (upper)
-        if max_single_upper_idx is not None and 0 <= max_single_upper_idx < len(upper_data):
+            
+        # # Plot marker for worst-fit data point (upper)
+        # marker_upper = None
+        # marker_lower = None
+        # if max_single_upper_idx is not None and 0 <= max_single_upper_idx < len(upper_data):
+        #     pt = upper_data[max_single_upper_idx]
+        #     marker_upper = self.plot([pt[0]], [pt[1]], pen=None, symbol='o', symbolSize=16, symbolBrush=None, symbolPen=pg.mkPen((255,0,0,255), width=3), name='Worst Error Markers')
+        # if max_single_lower_idx is not None and 0 <= max_single_lower_idx < len(lower_data):
+        #     pt = lower_data[max_single_lower_idx]
+        #     # Only add to legend if marker_upper is None (so only one legend entry)
+        #     marker_lower = self.plot([pt[0]], [pt[1]], pen=None, symbol='o', symbolSize=16, symbolBrush=None, symbolPen=pg.mkPen((255,0,0,255), width=3), name=('Worst Error Markers' if marker_upper is None else None))
+        # # Store both markers under a single key
+        # markers = []
+        # if marker_upper is not None:
+        #     markers.append(marker_upper)
+        # if marker_lower is not None:
+        #     markers.append(marker_lower)
+        # if markers:
+        #     self.plot_items['Worst Error Markers'] = markers
+
+        # --- collect worst‑error points ---
+        x_err, y_err = [], []
+        if max_single_upper_idx is not None:
             pt = upper_data[max_single_upper_idx]
-            marker = self.plot([pt[0]], [pt[1]], pen=None, symbol='o', symbolSize=16, symbolBrush=None, symbolPen=pg.mkPen((255,0,0,255), width=3), name='Worst Upper Error')
-            self.plot_items['Worst Upper Error Marker'] = marker
-        # Plot marker for worst-fit data point (lower)
-        if max_single_lower_idx is not None and 0 <= max_single_lower_idx < len(lower_data):
+            x_err.append(pt[0]);  y_err.append(pt[1])
+
+        if max_single_lower_idx is not None:
             pt = lower_data[max_single_lower_idx]
-            marker = self.plot([pt[0]], [pt[1]], pen=None, symbol='o', symbolSize=16, symbolBrush=None, symbolPen=pg.mkPen((255,0,0,255), width=3), name='Worst Lower Error')
-            self.plot_items['Worst Lower Error Marker'] = marker
+            x_err.append(pt[0]);  y_err.append(pt[1])
+
+        # --- one PlotDataItem for both markers ---
+        if x_err:
+            marker_item = self.plot(
+                x_err, y_err,
+                pen=None,
+                symbol='o', symbolSize=16,
+                symbolBrush=None,
+                symbolPen=pg.mkPen((255, 0, 0), width=3),
+                name='Max Error Markers'      # single legend entry
+            )
+            self.plot_items['Max Error Markers'] = marker_item
 
         self._update_error_text_positions()
 

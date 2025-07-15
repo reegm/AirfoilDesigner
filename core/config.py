@@ -46,6 +46,12 @@ DEFAULT_TE_THICKNESS_MM: float = 0.0
 # ---- Optimiser settings ---------------------------------------------------
 SLSQP_OPTIONS = {
     "disp": False,
-    "maxiter": 2000,
-    "ftol": 1e-9,
+    "maxiter": 5000,
+    "ftol": 1e-12,
+} 
+
+# ICP optimizer settings
+ICP_OPTIONS = {
+    "max_iterations": 100,
+    "tol": 1e-12,
 } 
