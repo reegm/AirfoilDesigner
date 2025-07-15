@@ -161,16 +161,18 @@ class AirfoilProcessor(QObject):
     def _calculate_curvature_comb_data(self, polygons, num_points_per_segment=40, scale_factor=0.05):
         """
         Calculates the curvature comb lines for a set of Bezier polygons.
-        Returns a list of individual hair line segments for plotting as separate hairs.
+        Returns a list of lists, where each inner list contains the hair segments for one polygon.
         """
         if not polygons:
             return None
 
-        all_comb_hairs = []
+        all_polygons_combs = []
 
         for poly in polygons:
+            poly_comb_hairs = []
             poly = np.array(poly)
             if poly.shape[0] < 2:
+                all_polygons_combs.append([]) # Append empty list for this polygon
                 continue
 
             t_vals = np.linspace(0, 1, num_points_per_segment)
@@ -196,9 +198,11 @@ class AirfoilProcessor(QObject):
             # Create individual hair segments as separate line data
             for j in range(num_points_per_segment):
                 hair_segment = np.array([curve_points[j], end_points[j]])
-                all_comb_hairs.append(hair_segment)
+                poly_comb_hairs.append(hair_segment)
+            
+            all_polygons_combs.append(poly_comb_hairs)
 
-        return all_comb_hairs if all_comb_hairs else None
+        return all_polygons_combs if all_polygons_combs else None
 
 
     def _request_plot_update(self):

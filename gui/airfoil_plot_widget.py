@@ -53,7 +53,9 @@ class AirfoilPlotWidget(pg.PlotWidget):
         COLOR_TE_TANGENT_UPPER = pg.mkPen('red', width=2, style=Qt.PenStyle.SolidLine)
         COLOR_TE_TANGENT_LOWER = pg.mkPen('purple', width=2, style=Qt.PenStyle.SolidLine)
 
-        COLOR_SINGLE_BEZIER_COMB = pg.mkPen((100, 150, 255), width=1) # Light Blue
+        # Comb colors
+        COLOR_SINGLE_BEZIER_COMB = pg.mkPen((220, 220, 220), width=1) # Very light grey
+        COLOR_COMB_OUTLINE = pg.mkPen('yellow', width=2, style=Qt.PenStyle.DotLine)
 
         # Plot Original Data points
         self.plot_items['Original Data'] = [
@@ -101,28 +103,43 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 self.plot_items['Control Polygons (Single Bezier)'].append(item)
 
         # Plot Curvature Comb for Single Bezier model
-        if comb_single_bezier is not None and len(comb_single_bezier) > 0:
-            # Reshape the list of hair segments into a single array
-            comb_array = np.concatenate(comb_single_bezier)
-            # Plot all hairs as a single item with disconnected lines
-            comb_item = self.plot(
-                comb_array[:, 0], comb_array[:, 1],
-                pen=COLOR_SINGLE_BEZIER_COMB, name='Single Bezier Curvature Comb',
-                connect='pairs'
-            )
-            self.plot_items['Single Bezier Curvature Comb'] = comb_item
+        if comb_single_bezier is not None and any(comb_single_bezier):
+            self.plot_items['Single Bezier Curvature Comb'] = []
+            self.plot_items['Comb Tips Polyline'] = []
 
-            # --- Add polyline connecting the outer tips of the comb hairs ---
-            # Each hair segment is [base, tip], so tips are the second point of each segment
-            comb_tips = np.array([hair[1] for hair in comb_single_bezier])
-            # Plot the polyline through all tips in order
-            comb_tips_item = self.plot(
-                comb_tips[:, 0], comb_tips[:, 1],
-                pen=pg.mkPen((0, 120, 255, 180), width=2, style=Qt.PenStyle.DotLine),
-                name='Comb Tips Polyline',
-                connect='all'
-            )
-            self.plot_items['Comb Tips Polyline'] = comb_tips_item
+            for i, comb_segments in enumerate(comb_single_bezier):
+                if not comb_segments:
+                    continue
+
+                # --- Plot comb hairs ---
+                comb_array = np.concatenate(comb_segments)
+                comb_item = self.plot(
+                    comb_array[:, 0], comb_array[:, 1],
+                    pen=COLOR_SINGLE_BEZIER_COMB,
+                    name=f'Single Bezier Curvature Comb {i+1}',
+                    connect='pairs'
+                )
+                self.plot_items['Single Bezier Curvature Comb'].append(comb_item)
+
+                # --- Plot polyline connecting tips ---
+                comb_tips = np.array([hair[1] for hair in comb_segments])
+                segments_to_plot = []
+                for j in range(len(comb_tips) - 1):
+                    p1 = comb_tips[j]
+                    p2 = comb_tips[j+1]
+                    if p1[1] != 0 or p2[1] != 0:
+                        segments_to_plot.append(p1)
+                        segments_to_plot.append(p2)
+                
+                if segments_to_plot:
+                    segments_array = np.array(segments_to_plot)
+                    comb_tips_item = self.plot(
+                        segments_array[:, 0], segments_array[:, 1],
+                        pen=COLOR_COMB_OUTLINE,
+                        name=f'Comb Tips Polyline {i+1}',
+                        connect='pairs'
+                    )
+                    self.plot_items['Comb Tips Polyline'].append(comb_tips_item)
 
         # Plot Trailing Edge Tangent Vectors (only once, as they are derived from original data)
         tangent_length = 0.05
@@ -164,25 +181,6 @@ class AirfoilPlotWidget(pg.PlotWidget):
             self.addItem(text_item)
             self.plot_items['Single Bezier Error Text'] = text_item
             
-        # # Plot marker for worst-fit data point (upper)
-        # marker_upper = None
-        # marker_lower = None
-        # if max_single_upper_idx is not None and 0 <= max_single_upper_idx < len(upper_data):
-        #     pt = upper_data[max_single_upper_idx]
-        #     marker_upper = self.plot([pt[0]], [pt[1]], pen=None, symbol='o', symbolSize=16, symbolBrush=None, symbolPen=pg.mkPen((255,0,0,255), width=3), name='Worst Error Markers')
-        # if max_single_lower_idx is not None and 0 <= max_single_lower_idx < len(lower_data):
-        #     pt = lower_data[max_single_lower_idx]
-        #     # Only add to legend if marker_upper is None (so only one legend entry)
-        #     marker_lower = self.plot([pt[0]], [pt[1]], pen=None, symbol='o', symbolSize=16, symbolBrush=None, symbolPen=pg.mkPen((255,0,0,255), width=3), name=('Worst Error Markers' if marker_upper is None else None))
-        # # Store both markers under a single key
-        # markers = []
-        # if marker_upper is not None:
-        #     markers.append(marker_upper)
-        # if marker_lower is not None:
-        #     markers.append(marker_lower)
-        # if markers:
-        #     self.plot_items['Worst Error Markers'] = markers
-
         # --- collect worst‑error points ---
         x_err, y_err = [], []
         if max_single_upper_idx is not None:
