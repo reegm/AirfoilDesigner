@@ -104,8 +104,8 @@ class AirfoilDesignerApp(QMainWindow):
         general_group_layout.addLayout(chord_length_layout)
         # TE Thickness
         te_thickness_layout = QHBoxLayout()
-        te_thickness_layout.addWidget(QLabel("TE Thickness (%):"))
-        self.te_thickness_input = QLineEdit(str(config.DEFAULT_TE_THICKNESS_PERCENT))
+        te_thickness_layout.addWidget(QLabel("TE Thickness (mm):"))
+        self.te_thickness_input = QLineEdit(str(config.DEFAULT_TE_THICKNESS_MM))
         self.te_thickness_input.setFixedWidth(80)
         te_thickness_layout.addWidget(self.te_thickness_input)
         te_thickness_layout.addStretch(1)
@@ -184,7 +184,7 @@ class AirfoilDesignerApp(QMainWindow):
     def _update_button_states(self):
         """Updates the enabled/disabled state and text of buttons based on processor state."""
         is_file_loaded = self.processor.core_processor.upper_data is not None
-        is_single_bezier_built = self.processor.core_processor.single_bezier_upper_poly_sharp is not None
+        is_model_built = self.processor.core_processor.single_bezier_upper_poly_sharp is not None
         is_thickened = self.processor._is_thickened
         is_trailing_edge_thickened = False
         if hasattr(self.processor, 'is_trailing_edge_thickened'):
@@ -192,22 +192,22 @@ class AirfoilDesignerApp(QMainWindow):
 
         # "Build Single Bezier Model" button
         self.build_single_bezier_button.setEnabled(is_file_loaded)
-        is_any_model_built = is_single_bezier_built
+        
 
         # "Apply Thickening" / "Remove Thickening" button
         # Disable if trailing edge is thickened in the original data
-        self.toggle_thickening_button.setEnabled(is_any_model_built and not is_trailing_edge_thickened)
+        self.toggle_thickening_button.setEnabled(is_model_built and not is_trailing_edge_thickened)
         if is_thickened:
             self.toggle_thickening_button.setText("Remove Thickening")
         else:
             self.toggle_thickening_button.setText("Apply Thickening")
 
         # Export DXF buttons
-        self.export_single_bezier_dxf_button.setEnabled(is_single_bezier_built)
+        self.export_single_bezier_dxf_button.setEnabled(is_model_built)
 
         # Comb sliders
-        self.comb_scale_slider.setEnabled(is_any_model_built)
-        self.comb_density_slider.setEnabled(is_any_model_built)
+        self.comb_scale_slider.setEnabled(is_model_built)
+        self.comb_density_slider.setEnabled(is_model_built)
 
     def _load_airfoil_file_action(self):
         """Handles the 'Load Airfoil File' button click."""
@@ -267,7 +267,7 @@ class AirfoilDesignerApp(QMainWindow):
     def _toggle_thickening_action(self):
         """Handles the 'Apply Thickening' / 'Remove Thickening' button click."""
         try:
-            te_thickness_percent = float(self.te_thickness_input.text())
+            te_thickness_percent = float(self.te_thickness_input.text()) / (float(self.chord_length_input.text()) / 100.0)
             self.processor.toggle_thickening(te_thickness_percent)
         except ValueError:
             self.processor.log_message.emit("Error: Invalid TE Thickness. Please enter a number.")
