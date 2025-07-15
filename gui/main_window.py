@@ -224,7 +224,7 @@ class AirfoilDesignerApp(QMainWindow):
 
         if file_path:
             self.file_path_label.setText(os.path.basename(file_path))
-            self.plot_canvas._first_plot_done = False # Reset zoom for new file
+            # self.plot_canvas._first_plot_done = False # Reset zoom for new file
             try:
                 if self.processor.load_airfoil_data_and_initialize_model(file_path):
                     self.processor.log_message.emit(f"Successfully loaded '{os.path.basename(file_path)}'.")
@@ -268,6 +268,7 @@ class AirfoilDesignerApp(QMainWindow):
             regularization_weight = float(self.single_bezier_reg_weight_input.text())
             error_function = self.error_func_dropdown.currentText().lower()
             self.processor.build_single_bezier_model(regularization_weight, error_function=error_function)
+            self._comb_params_changed()
         except ValueError:
             self.processor.log_message.emit("Error: Invalid input for regularization weight. Please enter a number.")
         except Exception as e:
