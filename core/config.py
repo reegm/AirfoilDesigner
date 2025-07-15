@@ -41,7 +41,7 @@ PAPER_FIXED_X_LOWER = [
 
 # ---- Manufacturing / Export defaults -------------------------------------
 DEFAULT_CHORD_LENGTH_MM: float = 200.0
-DEFAULT_TE_THICKNESS_PERCENT: float = 0.0
+DEFAULT_TE_THICKNESS_MM: float = 0.0
 
 # ---- Optimiser settings ---------------------------------------------------
 SLSQP_OPTIONS = {
