@@ -331,8 +331,7 @@ class CoreProcessor:
         dxf_doc = export_curves_to_dxf(
             polygons_to_export,
             chord_length_mm,
-            self.log_message,
-            thickened=merged_flag
+            self.log_message
         )
 
         if dxf_doc:

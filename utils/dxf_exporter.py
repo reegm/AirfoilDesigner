@@ -1,7 +1,8 @@
 import ezdxf
 import traceback
+import numpy as np
 
-def export_curves_to_dxf(polygons, chord_length_mm, logger_func, thickened):
+def export_curves_to_dxf(polygons, chord_length_mm, logger_func):
     """
     Exports a list of Bezier curves to a DXF file.
 
@@ -52,6 +53,13 @@ def export_curves_to_dxf(polygons, chord_length_mm, logger_func, thickened):
                 degree=degree,
                 dxfattribs={"layer": "AIRFOIL_CURVE", "color": color},
             )
+
+        # Add trailing edge connector if required
+        if len(scaled_polygons):
+            upper_poly, lower_poly = scaled_polygons
+            # only if the airfoil is not sharp
+            if not np.allclose(upper_poly[-1], lower_poly[-1]):
+                msp.add_line(upper_poly[-1], lower_poly[-1], dxfattribs={'layer': 'TRAILING_EDGE_CONNECTOR', 'color': 2}) # Yellow
 
         logger_func(f"DXF document successfully created in memory.")
         return doc

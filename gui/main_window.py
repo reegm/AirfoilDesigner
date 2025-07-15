@@ -316,8 +316,7 @@ class AirfoilDesignerApp(QMainWindow):
         dxf_doc = export_curves_to_dxf(
             polygons_to_export,
             chord_length_mm,
-            self.processor.log_message.emit,
-            thickened=is_merged_export
+            self.processor.log_message.emit
         )
 
         if dxf_doc:
