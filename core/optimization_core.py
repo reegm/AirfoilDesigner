@@ -172,21 +172,39 @@ def build_single_venkatamaran_bezier(original_data, num_control_points_new,
     control_points.append(end_point)
     return np.array(control_points)
 
-def fit_bezier_y_least_squares(data_points, control_points_x, t_corr, y_corr):
+def fit_bezier_y_least_squares(data_points, control_points_x, t_corr, y_corr, regularization_weight: float = 0.0):
     """
-    Given data points, fixed x-coordinates of control points, and correspondences (t_corr, y_corr),
-    fit the y-coordinates of the control points using least squares.
+    Least-squares fit of the *y* coordinates of control points while keeping *x* fixed.
+
+    Minimises  ||B y - y_corr||²  +  λ ||D y||²  where D is the second-difference
+    operator encouraging smooth control-point variation.  λ = ``regularization_weight``.
     """
-    _ = data_points  # Unused in current implementation; kept for API consistency.
-    n = len(control_points_x) - 1
-    # Build Bernstein basis matrix
+    _ = data_points  # Kept for API compatibility; not used here.
+
+    n = len(control_points_x) - 1  # Bézier order
     binom_coeffs = np.array([comb(n, i) for i in range(n + 1)])
     B = np.array([binom_coeffs * (1 - t)**(n - np.arange(n + 1)) * t**np.arange(n + 1) for t in t_corr])
-    # Solve B @ y_ctrl = y_corr
-    y_ctrl, *_ = np.linalg.lstsq(B, y_corr, rcond=None)
+
+    if regularization_weight > 1e-12:
+        # Build second-difference matrix D of size (n-1) x (n+1)
+        rows = []
+        for i in range(1, n):
+            row = np.zeros(n + 1)
+            row[i - 1] = 1.0
+            row[i] = -2.0
+            row[i + 1] = 1.0
+            rows.append(row)
+        D = np.vstack(rows)
+
+        B_aug = np.vstack([B, np.sqrt(regularization_weight) * D])
+        y_aug = np.concatenate([y_corr, np.zeros(D.shape[0])])
+        y_ctrl, *_ = np.linalg.lstsq(B_aug, y_aug, rcond=None)
+    else:
+        y_ctrl, *_ = np.linalg.lstsq(B, y_corr, rcond=None)
+
     return y_ctrl
 
-def calculate_iterative_icp_error_single_bezier(data_points, control_points, max_iterations=None, tol=None):
+def calculate_iterative_icp_error_single_bezier(data_points, control_points, max_iterations=None, tol=None, regularization_weight: float = 0.0):
     """
     Simplified iterative ICP fitting for a single Bezier curve.
     Currently returns the final control points without modifying x-coordinates.
@@ -211,9 +229,13 @@ def calculate_iterative_icp_error_single_bezier(data_points, control_points, max
         t_corr = t_dense[closest_idx]
         y_corr = data_points[:, 1]
         # Step 3: Fit y_ctrl to y_corr at t_corr
-        y_ctrl_new = fit_bezier_y_least_squares(data_points, control_points_x, t_corr, y_corr)
+        y_ctrl_new = fit_bezier_y_least_squares(data_points, control_points_x, t_corr, y_corr, regularization_weight)
         # Step 4: Check convergence
-        error = np.sum((curve_dense[closest_idx, 1] - y_corr) ** 2)
+        # Combine geometric error and smoothness penalty for convergence check
+        smooth_pen = 0.0
+        if regularization_weight > 1e-12 and len(y_ctrl_new) > 2:
+            smooth_pen = regularization_weight * np.sum(np.diff(y_ctrl_new, n=2) ** 2)
+        error = np.sum((curve_dense[closest_idx, 1] - y_corr) ** 2) + smooth_pen
         if prev_error is not None and abs(prev_error - error) < tol:
             break
         y_ctrl = y_ctrl_new

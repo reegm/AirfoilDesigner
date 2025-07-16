@@ -358,7 +358,9 @@ class CoreProcessor:
                 upper_poly.append(upper_te_point_final)
                 upper_poly = np.array(upper_poly)
                 # Fit y-coords using ICP
-                final_upper_poly, icp_error_upper = calculate_iterative_icp_error_single_bezier(self.upper_data, upper_poly)
+                final_upper_poly, icp_error_upper = calculate_iterative_icp_error_single_bezier(
+                    self.upper_data, upper_poly, regularization_weight=regularization_weight
+                )
                 self.single_bezier_upper_poly_sharp = final_upper_poly
                 self.log_message(f"Final ICP error (upper) after iterative fit: {icp_error_upper:.2e}")
 
@@ -368,7 +370,9 @@ class CoreProcessor:
                 lower_poly += [np.array([x, 0.0]) for x in paper_fixed_x_coords_lower[1:-1]]
                 lower_poly.append(lower_te_point_final)
                 lower_poly = np.array(lower_poly)
-                final_lower_poly, icp_error_lower = calculate_iterative_icp_error_single_bezier(self.lower_data, lower_poly)
+                final_lower_poly, icp_error_lower = calculate_iterative_icp_error_single_bezier(
+                    self.lower_data, lower_poly, regularization_weight=regularization_weight
+                )
                 self.single_bezier_lower_poly_sharp = final_lower_poly
                 self.log_message(f"Final ICP error (lower) after iterative fit: {icp_error_lower:.2e}")
             else:

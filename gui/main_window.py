@@ -171,10 +171,6 @@ class AirfoilDesignerApp(QMainWindow):
         plot_area_layout.addWidget(self.plot_canvas)
         main_layout.addLayout(plot_area_layout, 3)
 
-        # Connect error function dropdown to enable/disable reg weight
-        self.error_func_dropdown.currentTextChanged.connect(self._update_single_bezier_reg_weight_state)
-        self._update_single_bezier_reg_weight_state()
-
     # --- GUI Action Methods ---
 
     def _log_to_display(self, message):
@@ -352,10 +348,3 @@ class AirfoilDesignerApp(QMainWindow):
                 self.processor.log_message.emit("Single Bezier DXF export cancelled by user.")
         else:
             self.processor.log_message.emit("Single Bezier DXF export failed during document creation.")
-
-    def _update_single_bezier_reg_weight_state(self):
-        """Enable or disable the single Bezier reg. weight input based on error function selection."""
-        if self.error_func_dropdown.currentText() == "icp_iter_single":
-            self.single_bezier_reg_weight_input.setEnabled(False)
-        else:
-            self.single_bezier_reg_weight_input.setEnabled(True) 
