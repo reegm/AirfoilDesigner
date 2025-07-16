@@ -74,30 +74,48 @@ class CoreProcessor:
     def _calculate_te_tangent(self, upper_data, lower_data):
         """
         Calculates the approximate trailing edge tangent vectors from the original data.
-        Returns two normalized vectors: (upper_te_tangent_vector, lower_te_tangent_vector).
+        Instead of relying on a single segment (last two points), this implementation
+        averages the direction vectors obtained from the last *NUM_POINTS_AVG* segments
+        (TE minus the preceding points).  This provides a tangent estimate that is
+        less sensitive to noise in any individual data point.
+
+        Returns two normalised vectors: (upper_te_tangent_vector, lower_te_tangent_vector).
         """
-        upper_te_tangent_vector = np.array([1.0, 0.0]) # Default to horizontal
-        lower_te_tangent_vector = np.array([1.0, 0.0]) # Default to horizontal
+        NUM_POINTS_AVG = 3  # Number of points *before* the TE to include in the average
 
-        if len(upper_data) >= 2:
-            upper_te_vec = upper_data[-1] - upper_data[-2]
-            norm_upper = np.linalg.norm(upper_te_vec)
-            if norm_upper > 1e-9:
-                upper_te_tangent_vector = upper_te_vec / norm_upper
-            else:
-                self.log_message("Warning: Upper TE tangent vector from data is near zero. Defaulting to horizontal.")
-        else:
-            self.log_message("Warning: Not enough upper data points to calculate TE tangent. Defaulting to horizontal.")
+        def _surface_tangent(surface_data: np.ndarray, label: str):
+            """Compute TE tangent using a linear fit through the last few points."""
+            n_pts = len(surface_data)
+            if n_pts < 2:
+                self.log_message(f"Warning: Not enough {label.lower()} data points to calculate TE tangent. Defaulting to horizontal.")
+                return np.array([1.0, 0.0])
 
-        if len(lower_data) >= 2:
-            lower_te_vec = lower_data[-1] - lower_data[-2]
-            norm_lower = np.linalg.norm(lower_te_vec)
-            if norm_lower > 1e-9:
-                lower_te_tangent_vector = lower_te_vec / norm_lower
+            # Use the last NUM_POINTS_AVG+1 points (including TE) for a robust straight-line fit
+            num_fit = min(NUM_POINTS_AVG + 1, n_pts)
+            pts = surface_data[-num_fit:]
+            x_vals, y_vals = pts[:, 0], pts[:, 1]
+
+            # Guard against duplicate x values which would break polyfit
+            if np.allclose(x_vals, x_vals[0]):
+                self.log_message(f"Warning: Degenerate TE x-values for {label.lower()} surface. Defaulting to horizontal.")
+                return np.array([1.0, 0.0])
+
+            try:
+                slope, _ = np.polyfit(x_vals, y_vals, 1)
+            except Exception as _e:
+                self.log_message(f"Warning: Polyfit failed for {label.lower()} TE tangent ( {_e} ). Defaulting to horizontal.")
+                return np.array([1.0, 0.0])
+
+            vec = np.array([1.0, slope])  # Vector with guaranteed x-component
+            norm = np.linalg.norm(vec)
+            if norm > 1e-9:
+                return vec / norm
             else:
-                self.log_message("Warning: Lower TE tangent vector from data is near zero. Defaulting to horizontal.")
-        else:
-            self.log_message("Warning: Not enough lower data points to calculate TE tangent. Defaulting to horizontal.")
+                self.log_message(f"Warning: {label} TE tangent vector from data is near zero after fit. Defaulting to horizontal.")
+                return np.array([1.0, 0.0])
+
+        upper_te_tangent_vector = _surface_tangent(upper_data, "Upper")
+        lower_te_tangent_vector = _surface_tangent(lower_data, "Lower")
 
         return upper_te_tangent_vector, lower_te_tangent_vector
 
@@ -280,10 +298,26 @@ class CoreProcessor:
             return False
 
         num_control_points_single_bezier = config.NUM_CONTROL_POINTS_SINGLE_BEZIER  # From central config
-        te_thickness_for_build = 0.0 # Always build a sharp version initially
+        # Preserve original trailing-edge thickness if the loaded airfoil is thickened.
+        if self.thickened:
+            # Thickness is the vertical gap between final upper and lower data points.
+            y_te_upper = float(self.upper_data[-1, 1])
+            y_te_lower = float(self.lower_data[-1, 1])
+            te_thickness_for_build = abs(y_te_upper - y_te_lower)
+            # Guard against numerical noise
+            if te_thickness_for_build < 1e-9:
+                te_thickness_for_build = 0.0
+                self.log_message("Warning: Detected TE marked as thickened but thickness ≈ 0. Building sharp TE instead.")
+            else:
+                self.log_message(
+                    f"Detected thickened trailing edge in input (thickness = {te_thickness_for_build:.6f}). Building model with thick TE."
+                )
+        else:
+            te_thickness_for_build = 0.0  # Build sharp trailing edge when input is sharp
 
         self.log_message("-" * 20)
-        self.log_message(f"Building sharp single Bezier curves (Order {num_control_points_single_bezier - 1})...")
+        te_desc = "thick" if te_thickness_for_build > 1e-9 else "sharp"
+        self.log_message(f"Building {te_desc} single Bezier curves (Order {num_control_points_single_bezier - 1})...")
 
         upper_te_tangent_vector, lower_te_tangent_vector = self._calculate_te_tangent(self.upper_data, self.lower_data)
         self.log_message(f"Calculated original data TE tangent for single Bezier upper: {upper_te_tangent_vector}")
