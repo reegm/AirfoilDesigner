@@ -55,3 +55,9 @@ ICP_OPTIONS = {
     "max_iterations": 100,
     "tol": 1e-12,
 } 
+
+# ---- Sampling & Debugging -----------------------------------------------
+# Number of sample points used when evaluating Bezier curves for error
+# calculations (e.g. ICP error). Higher numbers give more accurate error
+# estimates at the cost of performance.
+NUM_POINTS_CURVE_ERROR: int = 1000

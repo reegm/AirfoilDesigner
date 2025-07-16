@@ -22,6 +22,26 @@ def calculate_icp_error(data_points, curve_points, return_max_error=False):
     if return_max_error:
         max_error = np.max(min_dists)
         max_error_idx = np.argmax(min_dists)
+
+        # Optional detailed debug output
+        if config.DEBUG_PRINT_MAX_ERROR_DETAILS:
+            probe_pt = data_points[max_error_idx]
+            # Vertical-only discrepancy at probe x-position (sign ignored)
+            try:
+                interp_y = np.interp(probe_pt[0], curve_points[:, 0], curve_points[:, 1])
+                vertical_error = abs(probe_pt[1] - interp_y)
+            except Exception:
+                vertical_error = float('nan')
+
+            logging.debug(
+                "Max-error probe | idx=%d | eucl=%.5e | vertical=%.5e | (x,y)=(%.5f, %.5f)",
+                max_error_idx,
+                max_error,
+                vertical_error,
+                probe_pt[0],
+                probe_pt[1],
+            )
+
         return sum_sq, max_error, max_error_idx
     return sum_sq
 
@@ -74,7 +94,8 @@ def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_func
     error_function: "mse" or "icp"
     If return_max_error is True and error_function=="icp", returns (sum, max_error, max_error_idx).
     """
-    num_points_curve = 200
+    # Number of sample points pulled from central configuration for accuracy
+    num_points_curve = config.NUM_POINTS_CURVE_ERROR
     curve_points = general_bezier_curve(np.linspace(0, 1, num_points_curve), bezier_poly)
     curve_sorted = curve_points[np.argsort(curve_points[:, 0])]
     if error_function == "icp":
