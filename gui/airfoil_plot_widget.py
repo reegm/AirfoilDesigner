@@ -41,14 +41,28 @@ class AirfoilPlotWidget(pg.PlotWidget):
         
         COLOR_SINGLE_UPPER_CURVE = pg.mkPen('blue', width=2.0)
         COLOR_SINGLE_LOWER_CURVE = pg.mkPen('cyan', width=2.0)
+
+        # Upper Single Bezier Polygon Colors
         COLOR_SINGLE_POLYGON = pg.mkPen((0, 0, 200), width=1, style=Qt.PenStyle.DashLine) # Darker Blue
         COLOR_SINGLE_SYMBOL = pg.mkBrush((100, 100, 255, 200)) # Brighter Blue
         COLOR_SINGLE_SYMBOL_PEN = pg.mkPen((80, 80, 200)) # Darker Blue
 
+        # Lower Single Bezier Polygon Colors (Brighter)
+        COLOR_SINGLE_LOWER_POLYGON = pg.mkPen((80, 80, 255), width=1, style=Qt.PenStyle.DashLine)
+        COLOR_SINGLE_LOWER_SYMBOL = pg.mkBrush((150, 150, 255, 200))
+        COLOR_SINGLE_LOWER_SYMBOL_PEN = pg.mkPen((120, 120, 255))
+
         COLOR_THICKENED_CURVE = pg.mkPen('darkorange', width=2.5)
+
+        # Upper Thickened Polygon Colors
         COLOR_THICKENED_POLYGON = pg.mkPen((255, 165, 0), width=1, style=Qt.PenStyle.DotLine) # Orange
         COLOR_THICKENED_SYMBOL = pg.mkBrush((255, 100, 0, 200)) # Brighter Orange
         COLOR_THICKENED_SYMBOL_PEN = pg.mkPen((200, 80, 0)) # Darker Orange
+
+        # Lower Thickened Polygon Colors (Brighter)
+        COLOR_THICKENED_LOWER_POLYGON = pg.mkPen((255, 200, 0), width=1, style=Qt.PenStyle.DotLine)
+        COLOR_THICKENED_LOWER_SYMBOL = pg.mkBrush((255, 140, 0, 200))
+        COLOR_THICKENED_LOWER_SYMBOL_PEN = pg.mkPen((255, 120, 40))
 
         COLOR_TE_TANGENT_UPPER = pg.mkPen('red', width=2, style=Qt.PenStyle.SolidLine)
         COLOR_TE_TANGENT_LOWER = pg.mkPen('purple', width=2, style=Qt.PenStyle.SolidLine)
@@ -58,31 +72,39 @@ class AirfoilPlotWidget(pg.PlotWidget):
         COLOR_COMB_OUTLINE = pg.mkPen('yellow', width=2, style=Qt.PenStyle.DotLine)
 
         # Plot Original Data points
-        self.plot_items['Original Data'] = [
-            self.plot(upper_data[:, 0], upper_data[:, 1], pen=None, symbol='o', symbolSize=5,
-                      symbolBrush=pg.mkBrush(COLOR_ORIGINAL_DATA), name='Original Data (Upper)'),
-            self.plot(lower_data[:, 0], lower_data[:, 1], pen=None, symbol='o', symbolSize=5,
-                      symbolBrush=pg.mkBrush(COLOR_ORIGINAL_DATA), name='Original Data (Lower)')
-        ]
+        all_original_data = np.concatenate([upper_data, lower_data])
+        self.plot_items['Original Data'] = self.plot(
+            all_original_data[:, 0], all_original_data[:, 1],
+            pen=None, symbol='o', symbolSize=5,
+            symbolBrush=pg.mkBrush(COLOR_ORIGINAL_DATA), name='Original Data'
+        )
 
         # Plot Single Bezier Curves (prioritize thickened if available)
         if thickened_single_bezier_upper_poly is not None and thickened_single_bezier_lower_poly is not None:
             curves_thickened_single_upper = general_bezier_curve(np.linspace(0, 1, 100), np.array(thickened_single_bezier_upper_poly))
             curves_thickened_single_lower = general_bezier_curve(np.linspace(0, 1, 100), np.array(thickened_single_bezier_lower_poly))
 
-            self.plot_items['Thickened Single Bezier Airfoil'] = [
+            self.plot_items['Thickened Airfoil'] = [
                 self.plot(curves_thickened_single_upper[:, 0], curves_thickened_single_upper[:, 1],
-                          pen=COLOR_THICKENED_CURVE, name='Thickened Single Bezier Airfoil - Upper'),
+                          pen=COLOR_THICKENED_CURVE, name='Thickened Airfoil - Upper'),
                 self.plot(curves_thickened_single_lower[:, 0], curves_thickened_single_lower[:, 1],
-                          pen=COLOR_THICKENED_CURVE, name='Thickened Single Bezier Airfoil - Lower')
+                          pen=COLOR_THICKENED_CURVE, name='Thickened Airfoil - Lower')
             ]
-            self.plot_items['Control Polygons (Thickened Single)'] = []
+            self.plot_items['Control Polygons (Thickened)'] = []
             for p_idx, p in enumerate([thickened_single_bezier_upper_poly, thickened_single_bezier_lower_poly]):
+                if p_idx == 0: # Upper
+                    pen = COLOR_THICKENED_POLYGON
+                    symbol_brush = COLOR_THICKENED_SYMBOL
+                    symbol_pen = COLOR_THICKENED_SYMBOL_PEN
+                else: # Lower
+                    pen = COLOR_THICKENED_LOWER_POLYGON
+                    symbol_brush = COLOR_THICKENED_LOWER_SYMBOL
+                    symbol_pen = COLOR_THICKENED_LOWER_SYMBOL_PEN
                 item = self.plot(np.array(p)[:, 0], np.array(p)[:, 1],
-                          pen=COLOR_THICKENED_POLYGON, symbol='x', symbolSize=7,
-                          symbolBrush=COLOR_THICKENED_SYMBOL, symbolPen=COLOR_THICKENED_SYMBOL_PEN,
-                          name=f'Control Poly Thickened Single {p_idx+1}')
-                self.plot_items['Control Polygons (Thickened Single)'].append(item)
+                          pen=pen, symbol='x', symbolSize=7,
+                          symbolBrush=symbol_brush, symbolPen=symbol_pen,
+                          name=f'Control Poly Thickened {p_idx+1}')
+                self.plot_items['Control Polygons (Thickened)'].append(item)
 
         elif single_bezier_upper_poly is not None and single_bezier_lower_poly is not None:
             curves_single_upper = general_bezier_curve(np.linspace(0, 1, 100), np.array(single_bezier_upper_poly))
@@ -90,56 +112,68 @@ class AirfoilPlotWidget(pg.PlotWidget):
 
             self.plot_items['Single Bezier Airfoil'] = [
                 self.plot(curves_single_upper[:, 0], curves_single_upper[:, 1],
-                          pen=COLOR_SINGLE_UPPER_CURVE, name=f'Single Bezier Airfoil (Order 9) - Upper'),
+                          pen=COLOR_SINGLE_UPPER_CURVE, name=f'Single Bezier Airfoil - Upper'),
                 self.plot(curves_single_lower[:, 0], curves_single_lower[:, 1],
-                          pen=COLOR_SINGLE_LOWER_CURVE, name=f'Single Bezier Airfoil (Order 9) - Lower')
+                          pen=COLOR_SINGLE_LOWER_CURVE, name=f'Single Bezier Airfoil - Lower')
             ]
             self.plot_items['Control Polygons (Single Bezier)'] = []
             for p_idx, p in enumerate([single_bezier_upper_poly, single_bezier_lower_poly]):
+                if p_idx == 0: # Upper
+                    pen = COLOR_SINGLE_POLYGON
+                    symbol_brush = COLOR_SINGLE_SYMBOL
+                    symbol_pen = COLOR_SINGLE_SYMBOL_PEN
+                else: # Lower
+                    pen = COLOR_SINGLE_LOWER_POLYGON
+                    symbol_brush = COLOR_SINGLE_LOWER_SYMBOL
+                    symbol_pen = COLOR_SINGLE_LOWER_SYMBOL_PEN
                 item = self.plot(np.array(p)[:, 0], np.array(p)[:, 1],
-                          pen=COLOR_SINGLE_POLYGON, symbol='x', symbolSize=7,
-                          symbolBrush=COLOR_SINGLE_SYMBOL, symbolPen=COLOR_SINGLE_SYMBOL_PEN,
+                          pen=pen, symbol='x', symbolSize=7,
+                          symbolBrush=symbol_brush, symbolPen=symbol_pen,
                           name=f'Control Poly Single {p_idx+1}')
                 self.plot_items['Control Polygons (Single Bezier)'].append(item)
 
         # Plot Curvature Comb for Single Bezier model
         if comb_single_bezier is not None and any(comb_single_bezier):
-            self.plot_items['Single Bezier Curvature Comb'] = []
-            self.plot_items['Comb Tips Polyline'] = []
+            all_comb_hairs = []
+            all_comb_tips_segments = []
 
-            for i, comb_segments in enumerate(comb_single_bezier):
+            for comb_segments in comb_single_bezier:
                 if not comb_segments:
                     continue
 
-                # --- Plot comb hairs ---
-                comb_array = np.concatenate(comb_segments)
-                comb_item = self.plot(
-                    comb_array[:, 0], comb_array[:, 1],
-                    pen=COLOR_SINGLE_BEZIER_COMB,
-                    name=f'Single Bezier Curvature Comb {i+1}',
-                    connect='pairs'
-                )
-                self.plot_items['Single Bezier Curvature Comb'].append(comb_item)
+                all_comb_hairs.extend(comb_segments)
 
-                # --- Plot polyline connecting tips ---
                 comb_tips = np.array([hair[1] for hair in comb_segments])
-                segments_to_plot = []
                 for j in range(len(comb_tips) - 1):
                     p1 = comb_tips[j]
                     p2 = comb_tips[j+1]
                     if p1[1] != 0 or p2[1] != 0:
-                        segments_to_plot.append(p1)
-                        segments_to_plot.append(p2)
-                
-                if segments_to_plot:
-                    segments_array = np.array(segments_to_plot)
-                    comb_tips_item = self.plot(
+                        all_comb_tips_segments.append(p1)
+                        all_comb_tips_segments.append(p2)
+
+            if all_comb_hairs:
+                comb_array = np.concatenate(all_comb_hairs)
+                main_comb_item = self.plot(
+                    comb_array[:, 0], comb_array[:, 1],
+                    pen=COLOR_SINGLE_BEZIER_COMB,
+                    name='Curvature Comb',
+                    connect='pairs'
+                )
+                self.plot_items['Curvature Comb'] = [main_comb_item]
+
+                if all_comb_tips_segments:
+                    segments_array = np.array(all_comb_tips_segments)
+                    tips_item = self.plot(
                         segments_array[:, 0], segments_array[:, 1],
                         pen=COLOR_COMB_OUTLINE,
-                        name=f'Comb Tips Polyline {i+1}',
                         connect='pairs'
                     )
-                    self.plot_items['Comb Tips Polyline'].append(comb_tips_item)
+                    self.plot_items['Comb Tips Polyline'] = [tips_item]
+
+                    main_comb_item.visibleChanged.connect(
+                        lambda: tips_item.setVisible(main_comb_item.isVisible())
+                    )
+                    tips_item.setVisible(main_comb_item.isVisible())
 
         # Plot Trailing Edge Tangent Vectors (only once, as they are derived from original data)
         tangent_length = 0.05
@@ -199,9 +233,9 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 symbol='o', symbolSize=16,
                 symbolBrush=None,
                 symbolPen=pg.mkPen((255, 0, 0), width=3),
-                name='Max Error Markers'      # single legend entry
+                name='Max. Error Markers'      # single legend entry
             )
-            self.plot_items['Max Error Markers'] = marker_item
+            self.plot_items['Max. Error Markers'] = marker_item
 
         self._update_error_text_positions()
 
