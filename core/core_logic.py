@@ -204,7 +204,7 @@ class CoreProcessor:
 
         lower_poly[-1][1] = -te_thickness / 2.0
 
-        ------------------------------------------------
+        # ------------------------------------------------
         try:
             self._log_max_curvature_difference(single_bezier_polygons_copy, [upper_poly, lower_poly])
         except Exception as _e:
