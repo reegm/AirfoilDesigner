@@ -52,8 +52,8 @@ SLSQP_OPTIONS = {
 
 # ICP optimizer settings
 ICP_OPTIONS = {
-    "max_iterations": 100,
-    "tol": 1e-12,
+    "max_iterations": 10,
+    "tol": 1e-9,
 } 
 
 # ---- Sampling & Debugging -----------------------------------------------

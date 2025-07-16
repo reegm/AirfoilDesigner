@@ -287,11 +287,12 @@ class CoreProcessor:
             )
         )
 
-    def build_single_bezier_model(self, regularization_weight, error_function="mse", enforce_g2=False):
+    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
         Thickening is applied separately for display.
+        Only 'icp' error function is supported.
         """
         if self.upper_data is None or self.lower_data is None:
             self.log_message("Error: Original airfoil data not loaded. Cannot build single Bezier model.")

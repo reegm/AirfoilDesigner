@@ -70,20 +70,15 @@ def calculate_iterative_icp_error(data_points, model, polygons, max_iterations=N
 
 def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_function="icp", return_max_error=False):
     """
-    Calculates the fitting error for a single Bezier curve.
-    error_function: "mse" or "icp"
-    If return_max_error is True and error_function=="icp", returns (sum, max_error, max_error_idx).
+    Calculates the fitting error between a Bezier curve and the original data using the specified error function.
+    Only 'icp' is supported.
+    If return_max_error is True, returns (sum, max_error, max_error_idx).
     """
-    # Number of sample points pulled from central configuration for accuracy
     num_points_curve = config.NUM_POINTS_CURVE_ERROR
     curve_points = general_bezier_curve(np.linspace(0, 1, num_points_curve), bezier_poly)
     curve_sorted = curve_points[np.argsort(curve_points[:, 0])]
-    if error_function == "icp":
-        return calculate_icp_error(original_data, curve_sorted, return_max_error=return_max_error)
-    else:
-        interp_y = np.interp(original_data[:, 0], curve_sorted[:, 0], curve_sorted[:, 1])
-        error = np.sum((interp_y - original_data[:, 1])**2)
-        return error
+    # Only ICP is supported
+    return calculate_icp_error(original_data, curve_sorted, return_max_error=return_max_error)
 
 def build_single_venkatamaran_bezier(original_data, num_control_points_new,
                                  start_point, end_point, is_upper_surface,
@@ -258,7 +253,7 @@ def build_coupled_venkatamaran_beziers(
     end_point_lower,
     te_tangent_vector_upper,
     te_tangent_vector_lower,
-    error_function="mse",
+    error_function="icp",
 ):
     """Build upper and lower single-segment Bézier curves simultaneously while
     enforcing G2 continuity (equal curvature) at the leading edge.

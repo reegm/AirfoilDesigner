@@ -4,7 +4,7 @@ import copy
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QFileDialog, QSizePolicy,
-    QSlider, QComboBox, QGroupBox, QCheckBox
+    QSlider, QComboBox, QGroupBox, QCheckBox, QProgressDialog
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -57,7 +57,7 @@ class AirfoilDesignerApp(QMainWindow):
         file_group_layout.addLayout(file_layout)
         # Export buttons
         export_layout = QHBoxLayout()
-        self.export_single_bezier_dxf_button = QPushButton("Export Single Bezier DXF")
+        self.export_single_bezier_dxf_button = QPushButton("Export DXF")
         self.export_single_bezier_dxf_button.clicked.connect(self._export_single_bezier_dxf_action)
         export_layout.addWidget(self.export_single_bezier_dxf_button)
         file_group_layout.addLayout(export_layout)
@@ -65,41 +65,31 @@ class AirfoilDesignerApp(QMainWindow):
         control_panel_layout.addWidget(file_group)
 
         # --- Single Bezier Settings Panel ---
-        single_group = QGroupBox("Single Bezier Settings")
+        single_group = QGroupBox("Optimizer Settings")
         single_group_layout = QVBoxLayout()
         # Regularization Weight
         single_bezier_reg_weight_layout = QHBoxLayout()
-        single_bezier_reg_weight_layout.addWidget(QLabel("Single Bezier Reg. Weight:"))
+        single_bezier_reg_weight_layout.addWidget(QLabel("Control Point Smoothing:"))
         self.single_bezier_reg_weight_input = QLineEdit(str(config.DEFAULT_REGULARIZATION_WEIGHT))
         self.single_bezier_reg_weight_input.setFixedWidth(80)
         single_bezier_reg_weight_layout.addWidget(self.single_bezier_reg_weight_input)
         single_bezier_reg_weight_layout.addStretch(1)
         single_group_layout.addLayout(single_bezier_reg_weight_layout)
-        # Error Function
-        error_func_layout = QHBoxLayout()
-        error_func_layout.addWidget(QLabel("Single Bezier Error Function:"))
-        self.error_func_dropdown = QComboBox()
-        self.error_func_dropdown.addItems(["icp_iter_single", "mse" ])
-        self.error_func_dropdown.setCurrentIndex(0)
-        error_func_layout.addWidget(self.error_func_dropdown)
-        error_func_layout.addStretch(1)
-        single_group_layout.addLayout(error_func_layout)
-
         # G2 Continuity checkbox
         g2_layout = QHBoxLayout()
-        self.g2_checkbox = QCheckBox("Enforce G2 at LE")
+        self.g2_checkbox = QCheckBox("Enforce G2 at leading edge")
         g2_layout.addWidget(self.g2_checkbox)
         g2_layout.addStretch(1)
         single_group_layout.addLayout(g2_layout)
         # Single Bezier button
-        self.build_single_bezier_button = QPushButton("Build Single Bezier Model")
+        self.build_single_bezier_button = QPushButton("Generate Airfoil")
         self.build_single_bezier_button.clicked.connect(self._build_single_bezier_action)
         single_group_layout.addWidget(self.build_single_bezier_button)
         single_group.setLayout(single_group_layout)
         control_panel_layout.addWidget(single_group)
 
         # --- General Parameters Panel ---
-        general_group = QGroupBox("General Parameters")
+        general_group = QGroupBox("Airfoil Parameters")
         general_group_layout = QVBoxLayout()
         # Chord Length
         chord_length_layout = QHBoxLayout()
@@ -265,11 +255,19 @@ class AirfoilDesignerApp(QMainWindow):
 
     def _build_single_bezier_action(self):
         """
-        Handles the 'Build Single Bezier Model' button click.
+        Handles the 'Generate Airfoil' button click.
+        Shows a modal progress dialog while processing.
         """
+        progress = QProgressDialog("Generating airfoil...", "", 0, 0, self)
+        progress.setWindowTitle("Please Wait")
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.setCancelButton(None)
+        progress.show()
+        QApplication.processEvents()  # Ensure dialog appears
         try:
             regularization_weight = float(self.single_bezier_reg_weight_input.text())
-            error_function = self.error_func_dropdown.currentText().lower()
+            error_function = "icp"  # Always use ICP
             g2_flag = self.g2_checkbox.isChecked()
             self.processor.build_single_bezier_model(regularization_weight, error_function=error_function, enforce_g2=g2_flag)
             self._comb_params_changed()
@@ -277,6 +275,8 @@ class AirfoilDesignerApp(QMainWindow):
             self.processor.log_message.emit("Error: Invalid input for regularization weight. Please enter a number.")
         except Exception as e:
             self.processor.log_message.emit(f"Error building single Bezier model: {e}")
+        finally:
+            progress.close()
 
     def _toggle_thickening_action(self):
         """Handles the 'Apply Thickening' / 'Remove Thickening' button click."""

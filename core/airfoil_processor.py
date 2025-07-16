@@ -61,10 +61,11 @@ class AirfoilProcessor(QObject):
         """Returns True if the loaded airfoil has a thickened trailing edge."""
         return self._is_trailing_edge_thickened
 
-    def build_single_bezier_model(self, regularization_weight, error_function="mse", enforce_g2=False):
+    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False):
         """
         Builds the single Bezier model (upper and lower) using the core processor.
         This always builds a sharp version; thickening is applied separately for display.
+        Only 'icp' error function is supported.
         """
         if self.core_processor.upper_data is None or self.core_processor.lower_data is None:
             self.log_message.emit("Error: Please load an airfoil file first before building the single Bezier model.")

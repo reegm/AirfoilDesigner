@@ -46,7 +46,7 @@ python run_gui.py
 
 1. **Open** a `.dat` file.  
 2. **Build Single Bezier Model** Generates the single‑segment ninth‑order model.  
-3. **Select error function** Chose between minimum squared error or euclidean iterative closest point.
+3. **Error function**: Uses the euclidean iterative closest point (ICP) method for fitting.
 4. **Regularization Weight** Set optimizer penalty for uneven control point flow. 
 7. **Export DXF**, specifying chord length and trailing‑edge thickness.
 
