@@ -68,7 +68,7 @@ def calculate_iterative_icp_error(data_points, model, polygons, max_iterations=N
     return prev_error if prev_error is not None else 0.0
 
 
-def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_function="mse", return_max_error=False):
+def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_function="icp", return_max_error=False):
     """
     Calculates the fitting error for a single Bezier curve.
     error_function: "mse" or "icp"
@@ -87,7 +87,7 @@ def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_func
 
 def build_single_venkatamaran_bezier(original_data, num_control_points_new,
                                  start_point, end_point, is_upper_surface,
-                                 le_tangent_vector, te_tangent_vector, regularization_weight=0.01, error_function="mse"):
+                                 le_tangent_vector, te_tangent_vector, regularization_weight=0.01, error_function="icp"):
     """
     Builds a single Bezier curve using the Venkataraman method.
     Optimizes only the y-coordinates of the inner control points.

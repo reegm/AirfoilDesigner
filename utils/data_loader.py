@@ -153,10 +153,10 @@ def load_airfoil_data(filename, logger_func=print):
                 break
         if len(sample_coords) >= 3:
             # Only check if x goes up or down from first to last sample
-            if sample_coords[-1] > sample_coords[0] and abs(sample_coords[0]) < 1e-3 and abs(sample_coords[-1] - 1.0) < 1e-2:
+            if sample_coords[-1] > sample_coords[0]: #and abs(sample_coords[0]) < 1e-3 and abs(sample_coords[-1] - 1.0) < 1e-2:
                 is_lednicer = True
                 logger_func(f"Detected Lednicer format for '{airfoil_name}' (by x slope).")
-            elif sample_coords[-1] < sample_coords[0] and abs(sample_coords[0] - 1.0) < 1e-2 and abs(sample_coords[-1]) < 1e-3:
+            elif sample_coords[-1] < sample_coords[0]: # and abs(sample_coords[0] - 1.0) < 1e-2 and abs(sample_coords[-1]) < 1e-3:
                 is_lednicer = False
                 logger_func(f"Detected Selig-like format for '{airfoil_name}' (by x slope).")
             else:
@@ -188,14 +188,13 @@ def load_airfoil_data(filename, logger_func=print):
         logger_func(f"Detected Selig-like format for '{airfoil_name}'.")
         coords_str = lines[coords_start_line:]
         all_coords = np.array([list(map(float, line.split())) for line in coords_str if line])
-        # Find the index of the leading edge (x=0.0)
-        le_index = -1
-        for i, x in enumerate(all_coords[:, 0]):
-            if abs(x - 0.0) < 1e-9:
-                le_index = i
-                break
-        if le_index == -1:
-            raise ValueError(f"Leading edge (x=0.0) not found in Selig-like data for '{filename}'. Ensure data is normalized.")
+        
+        # Find the index of the leading edge (minimum x)
+        le_index = int(np.argmin(all_coords[:, 0]))
+        le_x = all_coords[le_index, 0]
+        if le_index == 0 or le_index == len(all_coords) - 1:
+            raise ValueError(f"Leading edge (min x) found at start or end of data in '{filename}', input may be malformed.")
+
         # Selig-like data usually lists points from upper TE, around LE, to lower TE.
         upper_surface_raw = all_coords[:le_index + 1] # Upper surface (TE to LE order)
         lower_surface = all_coords[le_index:] # Lower surface (LE to TE order)
