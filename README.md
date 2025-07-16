@@ -70,7 +70,6 @@ Contributions are welcome.
 
 ## Citation
 
-If this software is used in academic work, please cite the underlying parameterisation papers:
 
 ```text
 Venkataraman, P. “A New Procedure for Airfoil Definition.” AIAA‑95‑1875, 1995.
