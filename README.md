@@ -1,6 +1,6 @@
-# AirfoilDesigner
+# Airfoil Designer
 
-AirfoilDesigner is a Python toolkit for reverse‑engineering, parameterising, and exporting airfoils using Bézier‐curve formulations derived from the work of Venkataraman (1995, 2017).  
+Airfoil Designer is a Python-based utility for importing airfoil .dat files and exporting clean Bézier curves, based on Venkataraman’s work (1995, 2017)  
 The graphical front‑end is implemented with Qt 6.
 
 ---
@@ -14,7 +14,7 @@ The graphical front‑end is implemented with Qt 6.
 * Trailing‑edge thickening and chord‑length scaling prior to export.
 * G2 continuity option for the leading edge (upper & lower curves share curvature)
 * Direct export to DXF (millimetres) for CAD/CAM workflows.  
-* Cross‑platform GUI built with PySide 6; the legacy console script remains for batch automation.
+* Cross‑platform GUI built with PySide 6.
 
 ---
 
@@ -45,10 +45,10 @@ python run_gui.py
 ```
 
 1. **Open** a `.dat` file.  
-2. **Build Single Bezier Model** Generates the single‑segment ninth‑order model.  
-3. **Error function**: Uses the euclidean iterative closest point (ICP) method for fitting.
-4. **Regularization Weight** Set optimizer penalty for uneven control point flow. 
-7. **Export DXF**, specifying chord length and trailing‑edge thickness.
+2. **Generate Airfoil** Generates the single‑segment ninth‑order model.  
+3. **Regularization Weight** Set optimizer penalty for uneven control point flow. Set to 0 for the best fit, 0.001 is a good starting point for a smooth control point flow.
+7. **Enforce G2** Ensure G2 continuity across the leading edge. Comes with a slight penalty in the overall fit.
+8. **Export DXF** Using the specified chord length and trailing‑edge thickness, if applied.
 
 ---
 
