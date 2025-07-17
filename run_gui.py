@@ -1,12 +1,14 @@
 import sys
 from PySide6.QtWidgets import QApplication
-from gui.main_window import AirfoilDesignerApp
+from gui.main_window import MainWindow
+from gui.controller import MainController
 
 
 def main() -> None:
     """Launch the Qt GUI application."""
     app = QApplication(sys.argv)
-    window = AirfoilDesignerApp()
+    window = MainWindow()
+    controller = MainController(window)
     window.show()
     sys.exit(app.exec())
 
