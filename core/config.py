@@ -8,7 +8,7 @@ algorithms or UI widgets.
 from __future__ import annotations
 
 # ---- Optimisation weights -------------------------------------------------
-DEFAULT_REGULARIZATION_WEIGHT: float = 0.01
+DEFAULT_REGULARIZATION_WEIGHT: float = 0.0
 
 # ---- Geometry & Model -----------------------------------------------------
 NUM_CONTROL_POINTS_SINGLE_BEZIER: int = 10  # Order-9 Bezier (per Venkataraman 2017)
@@ -60,4 +60,4 @@ ICP_OPTIONS = {
 # Number of sample points used when evaluating Bezier curves for error
 # calculations (e.g. ICP error). Higher numbers give more accurate error
 # estimates at the cost of performance.
-NUM_POINTS_CURVE_ERROR: int = 1000
+NUM_POINTS_CURVE_ERROR: int = 10000
