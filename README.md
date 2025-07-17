@@ -47,6 +47,7 @@ python run_gui.py
 1. **Open** a `.dat` file.  
 2. **Generate Airfoil** Generates the single‑segment ninth‑order model.  
 3. **Regularization Weight** Set optimizer penalty for uneven control point flow. Set to 0 for the best fit, 0.001 is a good starting point for a smooth control point flow.
+4. **Curve Error Points** Number of samples on the curve used for optimization and error calculation. Higher values improve the fit, but increase processing time. 
 7. **Enforce G2** Ensure G2 continuity across the leading edge. Comes with a slight penalty in the overall fit.
 8. **Export DXF** Using the specified chord length and trailing‑edge thickness, if applied.
 
