@@ -67,6 +67,7 @@ class AirfoilProcessor(QObject):
         This always builds a sharp version; thickening is applied separately for display.
         Only 'icp' error function is supported.
         """
+        import time  # <-- Add import for timing
         if self.core_processor.upper_data is None or self.core_processor.lower_data is None:
             self.log_message.emit("Error: Please load an airfoil file first before building the single Bezier model.")
             return False
@@ -76,8 +77,25 @@ class AirfoilProcessor(QObject):
         self._thickened_single_bezier_polygons = None
 
         self.log_message.emit("Building single Bezier model...")
-        if self.core_processor.build_single_bezier_model(regularization_weight, error_function=error_function, enforce_g2=enforce_g2, num_points_curve_error=num_points_curve_error):
-            self.log_message.emit("Single Bezier model built successfully.")
+        start_time = time.perf_counter()  # Start timing
+        result = self.core_processor.build_single_bezier_model(
+            regularization_weight,
+            error_function=error_function,
+            enforce_g2=enforce_g2,
+            num_points_curve_error=num_points_curve_error
+        )
+        elapsed = time.perf_counter() - start_time  # End timing
+        if result:
+            self.log_message.emit(f"Single Bezier model built successfully. ({elapsed:.3f} seconds)")
+            # Log error values displayed in the graph
+            upper_err = getattr(self.core_processor, 'last_single_bezier_upper_max_error', None)
+            upper_idx = getattr(self.core_processor, 'last_single_bezier_upper_max_error_idx', None)
+            lower_err = getattr(self.core_processor, 'last_single_bezier_lower_max_error', None)
+            lower_idx = getattr(self.core_processor, 'last_single_bezier_lower_max_error_idx', None)
+            if upper_err is not None and upper_idx is not None:
+                self.log_message.emit(f"Upper max error: {upper_err:.4e} at index {upper_idx}")
+            if lower_err is not None and lower_idx is not None:
+                self.log_message.emit(f"Lower max error: {lower_err:.4e} at index {lower_idx}")
             self._request_plot_update()
             return True
         else:
