@@ -68,13 +68,16 @@ def calculate_iterative_icp_error(data_points, model, polygons, max_iterations=N
     return prev_error if prev_error is not None else 0.0
 
 
-def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_function="icp", return_max_error=False):
+def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_function="icp", return_max_error=False, num_points_curve_error=None):
     """
     Calculates the fitting error between a Bezier curve and the original data using the specified error function.
     Only 'icp' is supported.
     If return_max_error is True, returns (sum, max_error, max_error_idx).
     """
-    num_points_curve = config.NUM_POINTS_CURVE_ERROR
+    if num_points_curve_error is None:
+        num_points_curve = config.NUM_POINTS_CURVE_ERROR
+    else:
+        num_points_curve = num_points_curve_error
     curve_points = general_bezier_curve(np.linspace(0, 1, num_points_curve), bezier_poly)
     curve_sorted = curve_points[np.argsort(curve_points[:, 0])]
     # Only ICP is supported
@@ -82,7 +85,7 @@ def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_func
 
 def build_single_venkatamaran_bezier(original_data, num_control_points_new,
                                  start_point, end_point, is_upper_surface,
-                                 le_tangent_vector, te_tangent_vector, regularization_weight=0.01, error_function="icp"):
+                                 le_tangent_vector, te_tangent_vector, regularization_weight=0.01, error_function="icp", num_points_curve_error=None):
     """
     Builds a single Bezier curve using the Venkataraman method.
     Optimizes only the y-coordinates of the inner control points.
@@ -115,7 +118,7 @@ def build_single_venkatamaran_bezier(original_data, num_control_points_new,
         control_points = np.array(control_points)
         
         # Geometric error
-        fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function=error_function)
+        fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function=error_function, num_points_curve_error=num_points_curve_error)
         if isinstance(fitting_error, tuple):
             fitting_error = fitting_error[0]
         # Smoothness penalty (second derivative of control polygon)

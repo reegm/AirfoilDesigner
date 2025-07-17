@@ -75,6 +75,14 @@ class AirfoilDesignerApp(QMainWindow):
         single_bezier_reg_weight_layout.addWidget(self.single_bezier_reg_weight_input)
         single_bezier_reg_weight_layout.addStretch(1)
         single_group_layout.addLayout(single_bezier_reg_weight_layout)
+        # Curve Error Points
+        curve_error_points_layout = QHBoxLayout()
+        curve_error_points_layout.addWidget(QLabel("Curve Error Points:"))
+        self.curve_error_points_input = QLineEdit(str(config.NUM_POINTS_CURVE_ERROR))
+        self.curve_error_points_input.setFixedWidth(80)
+        curve_error_points_layout.addWidget(self.curve_error_points_input)
+        curve_error_points_layout.addStretch(1)
+        single_group_layout.addLayout(curve_error_points_layout)
         # G2 Continuity checkbox
         g2_layout = QHBoxLayout()
         self.g2_checkbox = QCheckBox("Enforce G2 at leading edge")
@@ -267,12 +275,13 @@ class AirfoilDesignerApp(QMainWindow):
         QApplication.processEvents()  # Ensure dialog appears
         try:
             regularization_weight = float(self.single_bezier_reg_weight_input.text())
+            num_points_curve_error = int(self.curve_error_points_input.text())
             error_function = "icp"  # Always use ICP
             g2_flag = self.g2_checkbox.isChecked()
-            self.processor.build_single_bezier_model(regularization_weight, error_function=error_function, enforce_g2=g2_flag)
+            self.processor.build_single_bezier_model(regularization_weight, error_function=error_function, enforce_g2=g2_flag, num_points_curve_error=num_points_curve_error)
             self._comb_params_changed()
         except ValueError:
-            self.processor.log_message.emit("Error: Invalid input for regularization weight. Please enter a number.")
+            self.processor.log_message.emit("Error: Invalid input for regularization weight or curve error points. Please enter valid numbers.")
         except Exception as e:
             self.processor.log_message.emit(f"Error building single Bezier model: {e}")
         finally:

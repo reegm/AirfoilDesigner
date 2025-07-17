@@ -287,7 +287,7 @@ class CoreProcessor:
             )
         )
 
-    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False):
+    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False, num_points_curve_error=None):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
@@ -387,7 +387,8 @@ class CoreProcessor:
                     le_tangent_vector=le_tangent_upper,
                     te_tangent_vector=upper_te_tangent_vector,
                     regularization_weight=regularization_weight,
-                    error_function=error_function
+                    error_function=error_function,
+                    num_points_curve_error=num_points_curve_error
                 )
 
                 self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
@@ -399,17 +400,18 @@ class CoreProcessor:
                     le_tangent_vector=le_tangent_lower,
                     te_tangent_vector=lower_te_tangent_vector,
                     regularization_weight=regularization_weight,
-                    error_function=error_function
+                    error_function=error_function,
+                    num_points_curve_error=num_points_curve_error
                 )
 
             # Calculate and store both MSE and ICP errors for single Bezier curves
             icp_sum_upper, icp_max_upper, icp_max_upper_idx = calculate_single_bezier_fitting_error(
-                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="icp", return_max_error=True
+                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="icp", return_max_error=True, num_points_curve_error=num_points_curve_error
             )
             self.last_single_bezier_upper_max_error = icp_max_upper
             self.last_single_bezier_upper_max_error_idx = icp_max_upper_idx
             icp_sum_lower, icp_max_lower, icp_max_lower_idx = calculate_single_bezier_fitting_error(
-                np.array(self.single_bezier_lower_poly_sharp), self.lower_data, error_function="icp", return_max_error=True
+                np.array(self.single_bezier_lower_poly_sharp), self.lower_data, error_function="icp", return_max_error=True, num_points_curve_error=num_points_curve_error
             )
             self.last_single_bezier_lower_max_error = icp_max_lower
             self.last_single_bezier_lower_max_error_idx = icp_max_lower_idx
