@@ -29,10 +29,11 @@ class AirfoilProcessor(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.core_processor = CoreProcessor(logger_func=self.log_message.emit)
+        self.core_processor = CoreProcessor(self.log_message.emit)
         self._is_thickened = False # True if thickening is currently applied
         self._thickened_single_bezier_polygons = None # Stores thickened single Bezier polygons
         self._last_plot_data = None # Cache for the last plot data dictionary
+        self._current_te_vector_points = None  # Store current TE vector points setting
         self._is_trailing_edge_thickened = False # True if original airfoil has thickened TE
 
 
@@ -61,20 +62,20 @@ class AirfoilProcessor(QObject):
         """Returns True if the loaded airfoil has a thickened trailing edge."""
         return self._is_trailing_edge_thickened
 
-    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False, num_points_curve_error=None):
+    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False, num_points_curve_error=None, te_vector_points=None):
         """
-        Builds the single Bezier model (upper and lower) using the core processor.
-        This always builds a sharp version; thickening is applied separately for display.
+        Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
+        This method always builds a sharp (thickness 0) single Bezier curve.
+        Thickening is applied separately for display.
         Only 'icp' error function is supported.
         """
         import time  # <-- Add import for timing
         if self.core_processor.upper_data is None or self.core_processor.lower_data is None:
-            self.log_message.emit("Error: Please load an airfoil file first before building the single Bezier model.")
+            self.log_message.emit("Error: Original airfoil data not loaded. Cannot build single Bezier model.")
             return False
 
-        # Reset any previous thickening state for single Bezier when rebuilding
-        self._is_thickened = False
-        self._thickened_single_bezier_polygons = None
+        # Store the TE vector points setting for future plot updates
+        self._current_te_vector_points = te_vector_points
 
         self.log_message.emit("Building single Bezier model...")
         start_time = time.perf_counter()  # Start timing
@@ -82,7 +83,8 @@ class AirfoilProcessor(QObject):
             regularization_weight,
             error_function=error_function,
             enforce_g2=enforce_g2,
-            num_points_curve_error=num_points_curve_error
+            num_points_curve_error=num_points_curve_error,
+            te_vector_points=te_vector_points
         )
         elapsed = time.perf_counter() - start_time  # End timing
         if result:
@@ -152,8 +154,11 @@ class AirfoilProcessor(QObject):
             self.log_message.emit("Cannot update comb parameters: no model has been generated yet.")
             return
 
-        # Re-calculate comb data using the last known polygons but with new parameters
         updated_plot_data = self._last_plot_data.copy()
+
+        # Use stored TE tangent vectors from core_processor
+        upper_te_tangent_vector = self.core_processor.upper_te_tangent_vector
+        lower_te_tangent_vector = self.core_processor.lower_te_tangent_vector
 
         # Determine which polygons to use for the single Bezier comb
         polygons_single_bezier = []
@@ -236,9 +241,9 @@ class AirfoilProcessor(QObject):
             self.log_message.emit("No airfoil data available to plot.")
             return
 
-        upper_te_tangent_vector, lower_te_tangent_vector = self.core_processor._calculate_te_tangent(
-            self.core_processor.upper_data, self.core_processor.lower_data
-        )
+        # Use stored TE tangent vectors from core_processor
+        upper_te_tangent_vector = self.core_processor.upper_te_tangent_vector
+        lower_te_tangent_vector = self.core_processor.lower_te_tangent_vector
 
         plot_data = {
             'upper_data': self.core_processor.upper_data,
@@ -275,3 +280,27 @@ class AirfoilProcessor(QObject):
 
         self._last_plot_data = plot_data.copy()
         self.plot_update_requested.emit(plot_data)
+
+    def recalculate_te_vectors_and_update_plot(self, te_vector_points):
+        """
+        Recalculate the trailing edge tangent vectors using the specified number of points
+        and update the plot. Does not rebuild the Bezier model.
+        """
+        if self.core_processor.upper_data is None or self.core_processor.lower_data is None:
+            self.log_message.emit("Error: No airfoil data loaded. Cannot recalculate TE vectors.")
+            return
+        upper_te_tangent_vector, lower_te_tangent_vector = self.core_processor._calculate_te_tangent(
+            self.core_processor.upper_data, self.core_processor.lower_data, te_vector_points
+        )
+        # Update the stored TE tangent vectors in CoreProcessor
+        self.core_processor.upper_te_tangent_vector = upper_te_tangent_vector
+        self.core_processor.lower_te_tangent_vector = lower_te_tangent_vector
+        plot_data = {
+            'upper_data': self.core_processor.upper_data,
+            'lower_data': self.core_processor.lower_data,
+            'upper_te_tangent_vector': upper_te_tangent_vector,
+            'lower_te_tangent_vector': lower_te_tangent_vector,
+            # The rest of the plot data is left as None or not updated
+        }
+        self.plot_update_requested.emit(plot_data)
+        self.log_message.emit(f"Trailing edge vectors recalculated with {te_vector_points} points.")

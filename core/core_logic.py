@@ -29,6 +29,8 @@ class CoreProcessor:
         self.thickened = False # Stores whether the trailing edge is thickened in the original data
         self.single_bezier_upper_poly_sharp = None # Stores the sharp single Bezier upper control polygon
         self.single_bezier_lower_poly_sharp = None # Stores the sharp single Bezier lower control polygon
+        self.upper_te_tangent_vector = None  # Store calculated TE tangent vector for upper surface
+        self.lower_te_tangent_vector = None  # Store calculated TE tangent vector for lower surface
 
         self.airfoil_name = None  # Stores profile name from .dat
         self.last_single_bezier_upper_max_error = None # Stores error for single upper Bezier
@@ -53,6 +55,9 @@ class CoreProcessor:
             self.log_message(f"Detected initial upper shoulder X-coordinate: {initial_upper_shoulder_x:.4f}")
             self.log_message(f"Detected initial lower shoulder X-coordinate: {initial_lower_shoulder_x:.4f}")
 
+            # Calculate and store TE tangent vectors
+            self.upper_te_tangent_vector, self.lower_te_tangent_vector = self._calculate_te_tangent(self.upper_data, self.lower_data)
+
             # No model initialization needed for single Bezier
             return True
         except Exception as e:
@@ -70,18 +75,31 @@ class CoreProcessor:
         self.last_single_bezier_lower_max_error = None # Reset
         self.last_single_bezier_upper_max_error_idx = None # Reset
         self.last_single_bezier_lower_max_error_idx = None # Reset
+        self.upper_te_tangent_vector = None
+        self.lower_te_tangent_vector = None
 
-    def _calculate_te_tangent(self, upper_data, lower_data):
+    def _calculate_te_tangent(self, upper_data, lower_data, num_points_avg=None):
         """
         Calculates the approximate trailing edge tangent vectors from the original data.
         Instead of relying on a single segment (last two points), this implementation
-        averages the direction vectors obtained from the last *NUM_POINTS_AVG* segments
+        averages the direction vectors obtained from the last *num_points_avg* segments
         (TE minus the preceding points).  This provides a tangent estimate that is
         less sensitive to noise in any individual data point.
 
+        Parameters
+        ----------
+        upper_data : np.ndarray
+            Upper surface data points
+        lower_data : np.ndarray
+            Lower surface data points
+        num_points_avg : int, optional
+            Number of points *before* the TE to include in the average. Defaults to config.DEFAULT_TE_VECTOR_POINTS.
+
         Returns two normalised vectors: (upper_te_tangent_vector, lower_te_tangent_vector).
         """
-        NUM_POINTS_AVG = 3  # Number of points *before* the TE to include in the average
+        if num_points_avg is None:
+            from core import config
+            num_points_avg = config.DEFAULT_TE_VECTOR_POINTS
 
         def _surface_tangent(surface_data: np.ndarray, label: str):
             """Compute TE tangent using a linear fit through the last few points."""
@@ -90,8 +108,8 @@ class CoreProcessor:
                 self.log_message(f"Warning: Not enough {label.lower()} data points to calculate TE tangent. Defaulting to horizontal.")
                 return np.array([1.0, 0.0])
 
-            # Use the last NUM_POINTS_AVG+1 points (including TE) for a robust straight-line fit
-            num_fit = min(NUM_POINTS_AVG + 1, n_pts)
+            # Use the last num_points_avg+1 points (including TE) for a robust straight-line fit
+            num_fit = min(num_points_avg + 1, n_pts)
             pts = surface_data[-num_fit:]
             x_vals, y_vals = pts[:, 0], pts[:, 1]
 
@@ -287,7 +305,7 @@ class CoreProcessor:
             )
         )
 
-    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False, num_points_curve_error=None):
+    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False, num_points_curve_error=None, te_vector_points=None):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
@@ -320,9 +338,18 @@ class CoreProcessor:
         te_desc = "thick" if te_thickness_for_build > 1e-9 else "sharp"
         self.log_message(f"Building {te_desc} single Bezier curves (Order {num_control_points_single_bezier - 1})...")
 
-        upper_te_tangent_vector, lower_te_tangent_vector = self._calculate_te_tangent(self.upper_data, self.lower_data)
-        self.log_message(f"Calculated original data TE tangent for single Bezier upper: {upper_te_tangent_vector}")
-        self.log_message(f"Calculated original data TE tangent for single Bezier lower: {lower_te_tangent_vector}")
+        # Use stored TE tangent vectors unless te_vector_points is explicitly provided
+        if te_vector_points is not None:
+            upper_te_tangent_vector, lower_te_tangent_vector = self._calculate_te_tangent(self.upper_data, self.lower_data, te_vector_points)
+            # Optionally update stored values if you want to always keep the latest
+            self.upper_te_tangent_vector = upper_te_tangent_vector
+            self.lower_te_tangent_vector = lower_te_tangent_vector
+        else:
+            upper_te_tangent_vector = self.upper_te_tangent_vector
+            lower_te_tangent_vector = self.lower_te_tangent_vector
+
+        self.log_message(f"Using TE tangent for single Bezier upper: {upper_te_tangent_vector}")
+        self.log_message(f"Using TE tangent for single Bezier lower: {lower_te_tangent_vector}")
 
         le_tangent_upper = np.array([0.0, 1.0]) # Vertical tangent at LE for upper surface
         le_tangent_lower = np.array([0.0, -1.0]) # Vertical tangent at LE for lower surface

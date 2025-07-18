@@ -61,3 +61,7 @@ ICP_OPTIONS = {
 # calculations (e.g. ICP error). Higher numbers give more accurate error
 # estimates at the cost of performance.
 NUM_POINTS_CURVE_ERROR: int = 3000
+
+# Number of points used for trailing edge vector calculations
+# Higher numbers provide more robust tangent estimates but may be less sensitive to local geometry
+DEFAULT_TE_VECTOR_POINTS: int = 3

@@ -59,6 +59,7 @@ class MainController(QObject):
         opt = self.window.optimizer_panel
         opt.build_single_bezier_button.clicked.disconnect()
         opt.build_single_bezier_button.clicked.connect(self._generate_or_abort_action)
+        opt.recalculate_button.clicked.connect(self._recalculate_te_vectors_action)
 
         airfoil = self.window.airfoil_settings_panel
         airfoil.toggle_thickening_button.clicked.connect(self._toggle_thickening_action)
@@ -117,6 +118,10 @@ class MainController(QObject):
                 self.processor.log_message.emit(
                     f"Successfully loaded '{os.path.basename(file_path)}'."
                 )
+                # Reset TE vector points dropdown and disable recalc button
+                opt = self.window.optimizer_panel
+                opt.te_vector_points_combo.setCurrentText(str(opt.default_te_vector_points))
+                opt.disable_recalc_button()
             else:
                 self.processor.log_message.emit(
                     f"Failed to load '{os.path.basename(file_path)}'. Check file format and content."
@@ -148,10 +153,11 @@ class MainController(QObject):
         try:
             regularization_weight = float(opt.single_bezier_reg_weight_input.text())
             num_points_curve_error = int(opt.curve_error_points_input.text())
+            te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
         except ValueError:
             self.processor.log_message.emit(
-                "Error: Invalid input for regularization weight or curve error points. Please enter valid numbers."
+                "Error: Invalid input for regularization weight, curve error points, or TE vector points. Please enter valid numbers."
             )
             return
         self._generation_queue = multiprocessing.Queue()
@@ -160,7 +166,8 @@ class MainController(QObject):
             self.processor.core_processor.lower_data,
             regularization_weight,
             g2_flag,
-            num_points_curve_error
+            num_points_curve_error,
+            te_vector_points
         )
         self._generation_process = multiprocessing.Process(
             target=_generation_worker,
@@ -217,6 +224,55 @@ class MainController(QObject):
             self.processor.log_message.emit(f"Generation process exited unexpectedly. (Elapsed time: {elapsed_time:.2f}s)")
             self._generation_start_time = None
             self._update_button_states()
+
+    # ------------------------------------------------------------------
+    def _recalculate_action(self) -> None:
+        """Handle *Recalculate* button - rebuilds the model with current settings."""
+        if self.processor.core_processor.upper_data is None or self.processor.core_processor.lower_data is None:
+            self.processor.log_message.emit("Error: No airfoil data loaded. Please load an airfoil file first.")
+            return
+        
+        opt = self.window.optimizer_panel
+        try:
+            regularization_weight = float(opt.single_bezier_reg_weight_input.text())
+            num_points_curve_error = int(opt.curve_error_points_input.text())
+            te_vector_points = int(opt.te_vector_points_combo.currentText())
+            g2_flag = opt.g2_checkbox.isChecked()
+        except ValueError:
+            self.processor.log_message.emit(
+                "Error: Invalid input values. Please check all numeric inputs."
+            )
+            return
+        
+        # Rebuild the model with current settings
+        success = self.processor.core_processor.build_single_bezier_model(
+            regularization_weight,
+            error_function="icp",
+            enforce_g2=g2_flag,
+            num_points_curve_error=num_points_curve_error,
+            te_vector_points=te_vector_points
+        )
+        
+        if success:
+            self.processor._request_plot_update()
+            self.processor.log_message.emit("Model recalculated successfully with new TE vector points setting.")
+        else:
+            self.processor.log_message.emit("Failed to recalculate model. Check the settings and try again.")
+
+    # ------------------------------------------------------------------
+    def _recalculate_te_vectors_action(self):
+        """Handle *Recalculate TE vectors* button - only recalculates TE vectors and updates plot."""
+        opt = self.window.optimizer_panel
+        try:
+            te_vector_points = int(opt.te_vector_points_combo.currentText())
+        except ValueError:
+            self.processor.log_message.emit("Error: Invalid TE vector points value.")
+            return
+        self.processor.recalculate_te_vectors_and_update_plot(te_vector_points)
+        # Disable the recalculate button until dropdown changes again
+        opt.disable_recalc_button()
+        # Update the default TE vector points to the new value
+        opt.set_default_te_vector_points(te_vector_points)
 
     # ------------------------------------------------------------------
     def _toggle_thickening_action(self) -> None:
@@ -351,6 +407,9 @@ class MainController(QObject):
         # Build button
         opt.build_single_bezier_button.setEnabled(is_file_loaded)
 
+        # Recalculate button
+        # Remove: opt.recalculate_button.setEnabled(is_file_loaded)
+
         # Thickening button
         airfoil.toggle_thickening_button.setEnabled(
             is_model_built and not is_trailing_edge_thickened
@@ -383,7 +442,7 @@ def _generation_worker(args, queue):
     """Worker function to run airfoil generation in a separate process."""
     import traceback
     try:
-        upper_data, lower_data, regularization_weight, g2_flag, num_points_curve_error = args
+        upper_data, lower_data, regularization_weight, g2_flag, num_points_curve_error, te_vector_points = args
         from core.core_logic import CoreProcessor
         processor = CoreProcessor()
         processor.upper_data = upper_data
@@ -392,7 +451,8 @@ def _generation_worker(args, queue):
             regularization_weight,
             error_function="icp",
             enforce_g2=g2_flag,
-            num_points_curve_error=num_points_curve_error
+            num_points_curve_error=num_points_curve_error,
+            te_vector_points=te_vector_points
         )
         if result:
             queue.put({
