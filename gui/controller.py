@@ -11,7 +11,9 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from PySide6.QtCore import Qt, QObject
+import multiprocessing
+import time
+from PySide6.QtCore import Qt, QObject, QTimer
 from PySide6.QtWidgets import (
     QFileDialog,
     QApplication,
@@ -33,6 +35,13 @@ class MainController(QObject):
 
         self.window = window
         self.processor = AirfoilProcessor()
+        self._generation_process = None
+        self._generation_queue = None
+        self._generation_timer = QTimer()
+        self._generation_timer.setInterval(200)  # ms
+        self._generation_timer.timeout.connect(self._check_generation_result)
+        self._is_generating = False
+        self._generation_start_time = None
 
         # ------------------------------------------------------------------
         # Wire up processor signals
@@ -48,7 +57,8 @@ class MainController(QObject):
         fp.export_dxf_button.clicked.connect(self._export_single_bezier_dxf_action)
 
         opt = self.window.optimizer_panel
-        opt.build_single_bezier_button.clicked.connect(self._build_single_bezier_action)
+        opt.build_single_bezier_button.clicked.disconnect()
+        opt.build_single_bezier_button.clicked.connect(self._generate_or_abort_action)
 
         airfoil = self.window.airfoil_settings_panel
         airfoil.toggle_thickening_button.clicked.connect(self._toggle_thickening_action)
@@ -119,38 +129,94 @@ class MainController(QObject):
             self._update_button_states()
 
     # ------------------------------------------------------------------
-    def _build_single_bezier_action(self) -> None:
-        """Handle *Generate Airfoil* button with modal progress dialog."""
-        progress = QProgressDialog("Generating airfoil...", "", 0, 0, self.window)
-        progress.setWindowTitle("Please Wait")
-        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-        progress.setMinimumDuration(0)
-        progress.setCancelButton(None)
-        progress.show()
-        QApplication.processEvents()
-
+    def _generate_or_abort_action(self):
         opt = self.window.optimizer_panel
+        if self._is_generating:
+            # Abort requested
+            if self._generation_process is not None:
+                self._generation_process.terminate()
+                self._generation_process = None
+            self._is_generating = False
+            opt.build_single_bezier_button.setText("Generate Airfoil")
+            self.window.status_log.stop_spinner()
+            elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
+            self.processor.log_message.emit(f"Generation aborted by user. (Elapsed time: {elapsed_time:.2f}s)")
+            self._generation_start_time = None
+            self._update_button_states()
+            return
+        # Start generation in a new process
         try:
             regularization_weight = float(opt.single_bezier_reg_weight_input.text())
             num_points_curve_error = int(opt.curve_error_points_input.text())
             g2_flag = opt.g2_checkbox.isChecked()
-
-            self.processor.build_single_bezier_model(
-                regularization_weight,
-                error_function="icp",
-                enforce_g2=g2_flag,
-                num_points_curve_error=num_points_curve_error,
-            )
-            self._comb_params_changed()
         except ValueError:
             self.processor.log_message.emit(
-                "Error: Invalid input for regularization weight or curve error points. "
-                "Please enter valid numbers."
+                "Error: Invalid input for regularization weight or curve error points. Please enter valid numbers."
             )
-        except Exception as exc:  # pragma: no cover – unexpected
-            self.processor.log_message.emit(f"Error building single Bezier model: {exc}")
-        finally:
-            progress.close()
+            return
+        self._generation_queue = multiprocessing.Queue()
+        args = (
+            self.processor.core_processor.upper_data,
+            self.processor.core_processor.lower_data,
+            regularization_weight,
+            g2_flag,
+            num_points_curve_error
+        )
+        self._generation_process = multiprocessing.Process(
+            target=_generation_worker,
+            args=(args, self._generation_queue)
+        )
+        self._generation_process.start()
+        self._is_generating = True
+        self._generation_start_time = time.time()
+        opt.build_single_bezier_button.setText("Abort")
+        self._generation_timer.start()
+        self._update_button_states()
+        self.processor.log_message.emit("Started airfoil generation in background process...")
+        self.window.status_log.start_spinner("Generating airfoil model")
+
+    def _check_generation_result(self):
+        if not self._is_generating:
+            self._generation_timer.stop()
+            return
+        if self._generation_queue is not None and not self._generation_queue.empty():
+            result = self._generation_queue.get()
+            self._generation_timer.stop()
+            self._is_generating = False
+            opt = self.window.optimizer_panel
+            opt.build_single_bezier_button.setText("Generate Airfoil")
+            self.window.status_log.stop_spinner()
+            self._generation_process = None
+            self._generation_queue = None
+            if isinstance(result, dict) and result.get("success") and result.get("upper_poly") is not None:
+                # Update processor state with new model
+                self.processor.core_processor.single_bezier_upper_poly_sharp = result["upper_poly"]
+                self.processor.core_processor.single_bezier_lower_poly_sharp = result["lower_poly"]
+                self.processor.core_processor.last_single_bezier_upper_max_error = result.get("upper_max_error")
+                self.processor.core_processor.last_single_bezier_upper_max_error_idx = result.get("upper_max_error_idx")
+                self.processor.core_processor.last_single_bezier_lower_max_error = result.get("lower_max_error")
+                self.processor.core_processor.last_single_bezier_lower_max_error_idx = result.get("lower_max_error_idx")
+                elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
+                self.processor.log_message.emit(f"Single Bezier model built successfully. (Elapsed time: {elapsed_time:.2f}s)")
+                self._generation_start_time = None
+                self.processor._request_plot_update()
+                self._comb_params_changed()
+            else:
+                self.processor.log_message.emit(result.get("error", "Failed to build single Bezier model."))
+            self._update_button_states()
+        elif self._generation_process is not None and not self._generation_process.is_alive():
+            # Process died without result
+            self._generation_timer.stop()
+            self._is_generating = False
+            opt = self.window.optimizer_panel
+            opt.build_single_bezier_button.setText("Generate Airfoil")
+            self.window.status_log.stop_spinner()
+            elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
+            self._generation_process = None
+            self._generation_queue = None
+            self.processor.log_message.emit(f"Generation process exited unexpectedly. (Elapsed time: {elapsed_time:.2f}s)")
+            self._generation_start_time = None
+            self._update_button_states()
 
     # ------------------------------------------------------------------
     def _toggle_thickening_action(self) -> None:
@@ -310,4 +376,35 @@ class MainController(QObject):
             sanitized = re.sub(r"[^A-Za-z0-9\-_]+", "_", profile_name)
             if sanitized:
                 return f"{sanitized}.dxf"
-        return "airfoil.dxf" 
+        return "airfoil.dxf"
+
+# --- Worker function for multiprocessing ---
+def _generation_worker(args, queue):
+    """Worker function to run airfoil generation in a separate process."""
+    import traceback
+    try:
+        upper_data, lower_data, regularization_weight, g2_flag, num_points_curve_error = args
+        from core.core_logic import CoreProcessor
+        processor = CoreProcessor()
+        processor.upper_data = upper_data
+        processor.lower_data = lower_data
+        result = processor.build_single_bezier_model(
+            regularization_weight,
+            error_function="icp",
+            enforce_g2=g2_flag,
+            num_points_curve_error=num_points_curve_error
+        )
+        if result:
+            queue.put({
+                "success": True,
+                "upper_poly": processor.single_bezier_upper_poly_sharp,
+                "lower_poly": processor.single_bezier_lower_poly_sharp,
+                "upper_max_error": getattr(processor, "last_single_bezier_upper_max_error", None),
+                "upper_max_error_idx": getattr(processor, "last_single_bezier_upper_max_error_idx", None),
+                "lower_max_error": getattr(processor, "last_single_bezier_lower_max_error", None),
+                "lower_max_error_idx": getattr(processor, "last_single_bezier_lower_max_error_idx", None),
+            })
+        else:
+            queue.put({"success": False, "error": "Failed to build single Bezier model."})
+    except Exception as e:
+        queue.put({"success": False, "error": f"Exception in worker: {e}\n{traceback.format_exc()}"}) 
