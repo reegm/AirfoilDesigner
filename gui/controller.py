@@ -155,6 +155,7 @@ class MainController(QObject):
             num_points_curve_error = int(opt.curve_error_points_input.text())
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
+            error_function = opt.error_function_combo.currentText()
         except ValueError:
             self.processor.log_message.emit(
                 "Error: Invalid input for regularization weight, curve error points, or TE vector points. Please enter valid numbers."
@@ -167,7 +168,8 @@ class MainController(QObject):
             regularization_weight,
             g2_flag,
             num_points_curve_error,
-            te_vector_points
+            te_vector_points,
+            error_function
         )
         self._generation_process = multiprocessing.Process(
             target=_generation_worker,
@@ -204,7 +206,29 @@ class MainController(QObject):
                 self.processor.core_processor.last_single_bezier_lower_max_error = result.get("lower_max_error")
                 self.processor.core_processor.last_single_bezier_lower_max_error_idx = result.get("lower_max_error_idx")
                 elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
-                self.processor.log_message.emit(f"Single Bezier model built successfully. (Elapsed time: {elapsed_time:.2f}s)")
+                
+                # Log success with error information
+                base_message = f"Single Bezier model built successfully. (Elapsed time: {elapsed_time:.2f}s)"
+                
+                # Add error information if available
+                upper_error = result.get("upper_max_error")
+                lower_error = result.get("lower_max_error")
+                if upper_error is not None and lower_error is not None:
+                    # Convert to chord percentage and mm if chord length is available
+                    try:
+                        chord_length_mm = float(self.window.airfoil_settings_panel.chord_length_input.text())
+                        upper_error_mm = upper_error * chord_length_mm
+                        lower_error_mm = lower_error * chord_length_mm
+                        error_message = f"\n  Upper surface max error: {upper_error:.6f} ({upper_error_mm:.3f}mm @ {chord_length_mm:.0f}mm chord)"
+                        error_message += f"\n  Lower surface max error: {lower_error:.6f} ({lower_error_mm:.3f}mm @ {chord_length_mm:.0f}mm chord)"
+                    except:
+                        # Fallback to just normalized units
+                        error_message = f"\n  Upper surface max error: {upper_error:.6f}"
+                        error_message += f"\n  Lower surface max error: {lower_error:.6f}"
+                    
+                    base_message += error_message
+                
+                self.processor.log_message.emit(base_message)
                 self._generation_start_time = None
                 self.processor._request_plot_update()
                 self._comb_params_changed()
@@ -238,6 +262,7 @@ class MainController(QObject):
             num_points_curve_error = int(opt.curve_error_points_input.text())
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
+            error_function = opt.error_function_combo.currentText()
         except ValueError:
             self.processor.log_message.emit(
                 "Error: Invalid input values. Please check all numeric inputs."
@@ -247,7 +272,7 @@ class MainController(QObject):
         # Rebuild the model with current settings
         success = self.processor.core_processor.build_single_bezier_model(
             regularization_weight,
-            error_function="icp",
+            error_function=error_function,
             enforce_g2=g2_flag,
             num_points_curve_error=num_points_curve_error,
             te_vector_points=te_vector_points
@@ -442,14 +467,14 @@ def _generation_worker(args, queue):
     """Worker function to run airfoil generation in a separate process."""
     import traceback
     try:
-        upper_data, lower_data, regularization_weight, g2_flag, num_points_curve_error, te_vector_points = args
+        upper_data, lower_data, regularization_weight, g2_flag, num_points_curve_error, te_vector_points, error_function = args
         from core.core_logic import CoreProcessor
         processor = CoreProcessor()
         processor.upper_data = upper_data
         processor.lower_data = lower_data
         result = processor.build_single_bezier_model(
             regularization_weight,
-            error_function="icp",
+            error_function=error_function,
             enforce_g2=g2_flag,
             num_points_curve_error=num_points_curve_error,
             te_vector_points=te_vector_points

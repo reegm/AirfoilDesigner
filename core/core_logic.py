@@ -9,6 +9,8 @@ from core import config
 from core.optimization_core import (
     build_single_venkatamaran_bezier,
     build_coupled_venkatamaran_beziers,
+    build_single_venkatamaran_bezier_minmax,
+    build_coupled_venkatamaran_beziers_minmax,
     calculate_single_bezier_fitting_error,
 )
 from utils.data_loader import load_airfoil_data, find_shoulder_x_coords
@@ -310,7 +312,7 @@ class CoreProcessor:
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
         Thickening is applied separately for display.
-        Only 'icp' error function is supported.
+        Supports multiple error functions: 'icp', 'orthogonal_conservative', 'orthogonal_fast', etc.
         """
         if self.upper_data is None or self.lower_data is None:
             self.log_message("Error: Original airfoil data not loaded. Cannot build single Bezier model.")
@@ -363,19 +365,49 @@ class CoreProcessor:
         try:
             if enforce_g2:
                 # --- Coupled optimisation with G2 continuity ---
-                self.log_message("Building coupled G2 Bezier curves...")
-                self.single_bezier_upper_poly_sharp, self.single_bezier_lower_poly_sharp = build_coupled_venkatamaran_beziers(
-                    original_upper_data=self.upper_data,
-                    original_lower_data=self.lower_data,
-                    regularization_weight=regularization_weight,
-                    start_point_upper=upper_le_point,
-                    end_point_upper=upper_te_point_final,
-                    start_point_lower=lower_le_point,
-                    end_point_lower=lower_te_point_final,
-                    te_tangent_vector_upper=upper_te_tangent_vector,
-                    te_tangent_vector_lower=lower_te_tangent_vector,
-                    error_function=error_function,
-                )
+                if error_function == "orthogonal_minmax":
+                    self.log_message("Building coupled G2 Bezier curves with minmax optimization...")
+                    self.single_bezier_upper_poly_sharp, self.single_bezier_lower_poly_sharp = build_coupled_venkatamaran_beziers_minmax(
+                        original_upper_data=self.upper_data,
+                        original_lower_data=self.lower_data,
+                        regularization_weight=regularization_weight,
+                        start_point_upper=upper_le_point,
+                        end_point_upper=upper_te_point_final,
+                        start_point_lower=lower_le_point,
+                        end_point_lower=lower_te_point_final,
+                        te_tangent_vector_upper=upper_te_tangent_vector,
+                        te_tangent_vector_lower=lower_te_tangent_vector,
+                        error_function=error_function,
+                    )
+                elif error_function in ["orthogonal_sum_squares", "orthogonal_conservative", "orthogonal_fast"]:
+                    optimization_type = "fast orthogonal distance" if error_function == "orthogonal_fast" else "orthogonal distance"
+                    self.log_message(f"Building coupled G2 Bezier curves with {optimization_type}...")
+                    self.single_bezier_upper_poly_sharp, self.single_bezier_lower_poly_sharp = build_coupled_venkatamaran_beziers(
+                        original_upper_data=self.upper_data,
+                        original_lower_data=self.lower_data,
+                        regularization_weight=regularization_weight,
+                        start_point_upper=upper_le_point,
+                        end_point_upper=upper_te_point_final,
+                        start_point_lower=lower_le_point,
+                        end_point_lower=lower_te_point_final,
+                        te_tangent_vector_upper=upper_te_tangent_vector,
+                        te_tangent_vector_lower=lower_te_tangent_vector,
+                        error_function=error_function,
+                    )
+                else:
+                    self.log_message("Building coupled G2 Bezier curves...")
+                    self.single_bezier_upper_poly_sharp, self.single_bezier_lower_poly_sharp = build_coupled_venkatamaran_beziers(
+                        original_upper_data=self.upper_data,
+                        original_lower_data=self.lower_data,
+                        regularization_weight=regularization_weight,
+                        start_point_upper=upper_le_point,
+                        end_point_upper=upper_te_point_final,
+                        start_point_lower=lower_le_point,
+                        end_point_lower=lower_te_point_final,
+                        te_tangent_vector_upper=upper_te_tangent_vector,
+                        te_tangent_vector_lower=lower_te_tangent_vector,
+                        error_function=error_function,
+                    )
 
             elif error_function == "icp_iter_single":
                 from core.optimization_core import calculate_iterative_icp_error_single_bezier
@@ -404,44 +436,115 @@ class CoreProcessor:
                 self.single_bezier_lower_poly_sharp = final_lower_poly
                 self.log_message(f"Final ICP error (lower) after iterative fit: {icp_error_lower:.2e}")
             else:
-                self.log_message("Running MSE optimization for single Bezier curves...")
-                self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
-                    original_data=self.upper_data,
-                    num_control_points_new=num_control_points_single_bezier,
-                    start_point=upper_le_point,
-                    end_point=upper_te_point_final,
-                    is_upper_surface=True,
-                    le_tangent_vector=le_tangent_upper,
-                    te_tangent_vector=upper_te_tangent_vector,
-                    regularization_weight=regularization_weight,
-                    error_function=error_function,
-                    num_points_curve_error=num_points_curve_error
-                )
+                if error_function == "orthogonal_minmax":
+                    self.log_message("Running minmax optimization for single Bezier curves...")
+                    self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier_minmax(
+                        original_data=self.upper_data,
+                        num_control_points_new=num_control_points_single_bezier,
+                        start_point=upper_le_point,
+                        end_point=upper_te_point_final,
+                        is_upper_surface=True,
+                        le_tangent_vector=le_tangent_upper,
+                        te_tangent_vector=upper_te_tangent_vector,
+                        regularization_weight=regularization_weight,
+                        error_function=error_function,
+                        num_points_curve_error=num_points_curve_error
+                    )
 
-                self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
-                    original_data=self.lower_data,
-                    num_control_points_new=num_control_points_single_bezier,
-                    start_point=lower_le_point,
-                    end_point=lower_te_point_final,
-                    is_upper_surface=False,
-                    le_tangent_vector=le_tangent_lower,
-                    te_tangent_vector=lower_te_tangent_vector,
-                    regularization_weight=regularization_weight,
-                    error_function=error_function,
-                    num_points_curve_error=num_points_curve_error
-                )
+                    self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier_minmax(
+                        original_data=self.lower_data,
+                        num_control_points_new=num_control_points_single_bezier,
+                        start_point=lower_le_point,
+                        end_point=lower_te_point_final,
+                        is_upper_surface=False,
+                        le_tangent_vector=le_tangent_lower,
+                        te_tangent_vector=lower_te_tangent_vector,
+                        regularization_weight=regularization_weight,
+                        error_function=error_function,
+                        num_points_curve_error=num_points_curve_error
+                    )
+                elif error_function in ["orthogonal_sum_squares", "orthogonal_conservative", "orthogonal_fast"]:
+                    optimization_type = "fast orthogonal distance" if error_function == "orthogonal_fast" else "orthogonal distance"
+                    self.log_message(f"Running {optimization_type} optimization for single Bezier curves...")
+                    self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
+                        original_data=self.upper_data,
+                        num_control_points_new=num_control_points_single_bezier,
+                        start_point=upper_le_point,
+                        end_point=upper_te_point_final,
+                        is_upper_surface=True,
+                        le_tangent_vector=le_tangent_upper,
+                        te_tangent_vector=upper_te_tangent_vector,
+                        regularization_weight=regularization_weight,
+                        error_function=error_function,
+                        num_points_curve_error=num_points_curve_error
+                    )
+
+                    self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
+                        original_data=self.lower_data,
+                        num_control_points_new=num_control_points_single_bezier,
+                        start_point=lower_le_point,
+                        end_point=lower_te_point_final,
+                        is_upper_surface=False,
+                        le_tangent_vector=le_tangent_lower,
+                        te_tangent_vector=lower_te_tangent_vector,
+                        regularization_weight=regularization_weight,
+                        error_function=error_function,
+                        num_points_curve_error=num_points_curve_error
+                    )
+                else:
+                    self.log_message("Running MSE optimization for single Bezier curves...")
+                    self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
+                        original_data=self.upper_data,
+                        num_control_points_new=num_control_points_single_bezier,
+                        start_point=upper_le_point,
+                        end_point=upper_te_point_final,
+                        is_upper_surface=True,
+                        le_tangent_vector=le_tangent_upper,
+                        te_tangent_vector=upper_te_tangent_vector,
+                        regularization_weight=regularization_weight,
+                        error_function=error_function,
+                        num_points_curve_error=num_points_curve_error
+                    )
+
+                    self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
+                        original_data=self.lower_data,
+                        num_control_points_new=num_control_points_single_bezier,
+                        start_point=lower_le_point,
+                        end_point=lower_te_point_final,
+                        is_upper_surface=False,
+                        le_tangent_vector=le_tangent_lower,
+                        te_tangent_vector=lower_te_tangent_vector,
+                        regularization_weight=regularization_weight,
+                        error_function=error_function,
+                        num_points_curve_error=num_points_curve_error
+                    )
 
             # Calculate and store both MSE and ICP errors for single Bezier curves
-            icp_sum_upper, icp_max_upper, icp_max_upper_idx = calculate_single_bezier_fitting_error(
+            upper_error_result = calculate_single_bezier_fitting_error(
                 np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="icp", return_max_error=True, num_points_curve_error=num_points_curve_error
             )
-            self.last_single_bezier_upper_max_error = icp_max_upper
-            self.last_single_bezier_upper_max_error_idx = icp_max_upper_idx
-            icp_sum_lower, icp_max_lower, icp_max_lower_idx = calculate_single_bezier_fitting_error(
+            # Ensure we have a tuple result for ICP with return_max_error=True
+            if isinstance(upper_error_result, tuple) and len(upper_error_result) == 3:
+                icp_sum_upper, icp_max_upper, icp_max_upper_idx = upper_error_result
+                self.last_single_bezier_upper_max_error = icp_max_upper
+                self.last_single_bezier_upper_max_error_idx = icp_max_upper_idx
+            else:
+                self.log_message("Warning: Unexpected return format from upper error calculation")
+                self.last_single_bezier_upper_max_error = None
+                self.last_single_bezier_upper_max_error_idx = None
+            
+            lower_error_result = calculate_single_bezier_fitting_error(
                 np.array(self.single_bezier_lower_poly_sharp), self.lower_data, error_function="icp", return_max_error=True, num_points_curve_error=num_points_curve_error
             )
-            self.last_single_bezier_lower_max_error = icp_max_lower
-            self.last_single_bezier_lower_max_error_idx = icp_max_lower_idx
+            # Ensure we have a tuple result for ICP with return_max_error=True
+            if isinstance(lower_error_result, tuple) and len(lower_error_result) == 3:
+                icp_sum_lower, icp_max_lower, icp_max_lower_idx = lower_error_result
+                self.last_single_bezier_lower_max_error = icp_max_lower
+                self.last_single_bezier_lower_max_error_idx = icp_max_lower_idx
+            else:
+                self.log_message("Warning: Unexpected return format from lower error calculation")
+                self.last_single_bezier_lower_max_error = None
+                self.last_single_bezier_lower_max_error_idx = None
             
             self.log_message("Sharp single Bezier curves built successfully.")
             return True

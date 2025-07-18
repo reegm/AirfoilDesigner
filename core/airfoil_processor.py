@@ -62,7 +62,7 @@ class AirfoilProcessor(QObject):
         """Returns True if the loaded airfoil has a thickened trailing edge."""
         return self._is_trailing_edge_thickened
 
-    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False, num_points_curve_error=None, te_vector_points=None):
+    def build_single_bezier_model(self, regularization_weight, error_function="orthogonal_minmax", enforce_g2=False, num_points_curve_error=None, te_vector_points=None):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.

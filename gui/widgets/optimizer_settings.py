@@ -39,6 +39,27 @@ class OptimizerSettingsWidget(QGroupBox):
         self.te_vector_points_combo.setCurrentText(str(self.default_te_vector_points))
         self.te_vector_points_combo.setFixedWidth(80)
 
+        # Error Function dropdown
+        self.error_function_combo = QComboBox()
+        self.error_function_combo.addItems([
+            "icp",
+            "orthogonal_fast",
+            "orthogonal_conservative", 
+            "orthogonal_sum_squares",
+            "orthogonal_minmax"
+        ])
+        self.error_function_combo.setCurrentText("icp")  # Default to fastest, most reliable method
+        self.error_function_combo.setFixedWidth(160)
+        
+        # Tooltips for error function dropdown
+        self.error_function_combo.setToolTip(
+            "ICP: Fastest method (~5-10s), good accuracy\n"
+            "Orthogonal Fast: Experimental, may be slower than ICP\n"
+            "Orthogonal Conservative: Better accuracy, slower (~10-30s)\n"
+            "Orthogonal Sum Squares: Best accuracy, very slow (~100-200s)\n"
+            "Orthogonal Minmax: Experimental, unpredictable performance"
+        )
+
         # Enforce G2 at leading edge
         self.g2_checkbox = QCheckBox("Enforce G2 at leading edge")
 
@@ -70,6 +91,13 @@ class OptimizerSettingsWidget(QGroupBox):
         te_row.addWidget(self.te_vector_points_combo)
         te_row.addStretch(1)
         layout.addLayout(te_row)
+
+        # Error Function
+        error_row = QHBoxLayout()
+        error_row.addWidget(QLabel("Error Function:"))
+        error_row.addWidget(self.error_function_combo)
+        error_row.addStretch(1)
+        layout.addLayout(error_row)
 
         # G2 checkbox
         g2_row = QHBoxLayout()
