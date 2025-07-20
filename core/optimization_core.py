@@ -173,7 +173,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
     """
     Builds a single Bezier curve using minmax optimization with orthogonal distance.
     Optimizes to minimize the maximum orthogonal distance error.
-    First runs a full ICP optimization to get a good initial guess.
+    First runs a full fixed-x optimization to get a good initial guess.
     """
 
     # Currently, the leading-edge tangent vector is not used by this implementation,
@@ -234,10 +234,10 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
     if not np.isclose(tx_te, 0.0):
          constraints.append({'type': 'eq', 'fun': te_tangent_constraint})
 
-    # Stage 1: Run full ICP optimization to get a good initial guess
-    _log_message(f"Stage 1: Running full ICP optimization for {is_upper_surface and 'upper' or 'lower'} surface...", logger_func)
+    # Stage 1: Run full fixed-x optimization to get a good initial guess
+    _log_message(f"Stage 1: Running full fixed-x optimization for {is_upper_surface and 'upper' or 'lower'} surface...", logger_func)
 
-    # Run the regular ICP optimization
+    # Run the regular fixed-x optimization
     icp_result = build_single_venkatamaran_bezier(
         original_data=original_data,
         num_control_points_new=num_control_points_new,
@@ -250,13 +250,13 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
         logger_func=logger_func
     )
 
-    # Extract the y-coordinates of the inner control points from ICP result
+    # Extract the y-coordinates of the inner control points from fixed-x result
     icp_inner_y = icp_result[1:-1, 1]  # Skip first and last points (start/end), take y-coordinates
 
-    _log_message(f"Stage 1 complete: ICP optimization finished for {is_upper_surface and 'upper' or 'lower'} surface", logger_func)
+    _log_message(f"Stage 1 complete: Fixed-x optimization finished for {is_upper_surface and 'upper' or 'lower'} surface", logger_func)
 
-    # Stage 2: Use ICP result as initial guess for minmax optimization
-    _log_message(f"Stage 2: Starting minmax optimization using ICP result as initial guess...", logger_func)
+    # Stage 2: Use fixed-x result as initial guess for minmax optimization
+    _log_message(f"Stage 2: Starting minmax optimization using fixed-x result as initial guess...", logger_func)
 
     # Reset the call counter for this stage
     if hasattr(objective_minmax, 'call_count'):
@@ -268,7 +268,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
 
     result = minimize(
         objective_minmax,
-        icp_inner_y,  # Use ICP result as initial guess
+        icp_inner_y,  # Use fixed-x result as initial guess
         method='SLSQP',
         
         constraints=constraints,
@@ -277,7 +277,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
 
     if not result.success:
         _log_message(
-            f"Minmax Bezier build failed. Using ICP solution. Reason: {result.message}",
+            f"Minmax Bezier build failed. Using fixed-x solution. Reason: {result.message}",
             logger_func
         )
         variables_y = icp_inner_y
@@ -455,7 +455,7 @@ def build_coupled_venkatamaran_beziers_variable_x(
     enforcing G2 continuity (equal curvature) at the leading edge.
     
     Uses variable x-coordinates for control points instead of fixed paper coordinates.
-    Supports both ICP and orthogonal error metrics.
+    Supports both euclidean and orthogonal error metrics.
     """
     _log_message("Building coupled G2 Bezier curves with variable-x control points using " + optimization_method + " optimization", logger_func)
 
@@ -497,7 +497,7 @@ def build_coupled_venkatamaran_beziers_variable_x(
             logger_func=logger_func,
         )
         
-        # Extract the y-coordinates of the inner control points from ICP results
+        # Extract the y-coordinates of the inner control points from fixed-x results
         icp_upper_inner_y = icp_upper[1:-1, 1]  # Skip first and last points, take y-coordinates
         icp_lower_inner_y = icp_lower[1:-1, 1]
         
@@ -610,8 +610,8 @@ def build_coupled_venkatamaran_beziers_variable_x(
 
     if not result.success:
         if optimization_method == "variable_x_orthogonal_g2":
-            _log_message(f"Orthogonal variable-x G2 optimization failed. Falling back to ICP method. Reason: {result.message}", logger_func)
-            # Fall back to ICP method
+            _log_message(f"Orthogonal variable-x G2 optimization failed. Falling back to fixed-x method. Reason: {result.message}", logger_func)
+            # Fall back to fixed-x method
             return build_coupled_venkatamaran_beziers_variable_x(
                 original_upper_data=original_upper_data,
                 original_lower_data=original_lower_data,
@@ -648,7 +648,7 @@ def build_coupled_venkatamaran_beziers_minmax(
     remain fixed to the Venkataraman paper.  The function returns a tuple
     ``(upper_ctrl_pts, lower_ctrl_pts)``.
 
-    First runs a full ICP optimization to get a good initial guess.
+    First runs a full fixed-x optimization to get a good initial guess.
     """
     _log_message("Building coupled G2 Bezier curves using minmax " + optimization_method + " optimization", logger_func)
 
@@ -745,10 +745,10 @@ def build_coupled_venkatamaran_beziers_minmax(
     constraints.append({"type": "eq", "fun": _g2_constraint})
 
     # --- Two-stage Optimisation ----------------------------------------------
-    # Stage 1: Run full ICP optimization to get a good initial guess
-    _log_message("Stage 1: Running full ICP optimization for coupled surfaces...", logger_func)
+    # Stage 1: Run full fixed-x optimization to get a good initial guess
+    _log_message("Stage 1: Running full fixed-x optimization for coupled surfaces...", logger_func)
 
-    # Run the regular ICP optimization for coupled surfaces
+    # Run the regular fixed-x optimization for coupled surfaces
     icp_upper, icp_lower = build_coupled_venkatamaran_beziers(
         original_upper_data=original_upper_data,
         original_lower_data=original_lower_data,
@@ -759,17 +759,17 @@ def build_coupled_venkatamaran_beziers_minmax(
         logger_func=logger_func,
     )
 
-    # Extract the y-coordinates of the inner control points from ICP results
+    # Extract the y-coordinates of the inner control points from fixed-x results
     icp_upper_inner_y = icp_upper[1:-1, 1]  # Skip first and last points, take y-coordinates
     icp_lower_inner_y = icp_lower[1:-1, 1]
 
     # Combine into single vector for minmax optimization
     improved_initial_guess = np.concatenate([icp_upper_inner_y, icp_lower_inner_y])
 
-    _log_message("Stage 1 complete: ICP optimization finished for coupled surfaces", logger_func)
+    _log_message("Stage 1 complete: fixed-x optimization finished for coupled surfaces", logger_func)
 
     # Stage 2: Refine using minmax optimization
-    _log_message("Stage 2: Starting minmax optimization using ICP result as initial guess...", logger_func)
+    _log_message("Stage 2: Starting minmax optimization using fixed-x result as initial guess...", logger_func)
 
     # Resample original_data by curvature if requested (for minimax only)
     if use_curvature_sampling:
@@ -786,7 +786,7 @@ def build_coupled_venkatamaran_beziers_minmax(
     )
 
     if not result.success:
-        _log_message(f"Coupled minmax Bezier build failed. Using ICP solution. Reason: {result.message}", logger_func)
+        _log_message(f"Coupled minmax Bezier build failed. Using fixed-x solution. Reason: {result.message}", logger_func)
         var_y_final = improved_initial_guess
     else:
         var_y_final = result.x
