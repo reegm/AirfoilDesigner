@@ -3,6 +3,7 @@ res/
 venv/
 dist/
 build/
+doc/
 __pycache__/
 run_console.spec
 AirfoilDesigner.exe.spec
