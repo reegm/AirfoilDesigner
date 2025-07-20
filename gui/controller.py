@@ -156,6 +156,7 @@ class MainController(QObject):
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
             error_function = opt.error_function_combo.currentText()
+            use_curvature_sampling = opt.use_curvature_sampling_checkbox.isChecked()
         except ValueError:
             self.processor.log_message.emit(
                 "Error: Invalid input for regularization weight, curve error points, or TE vector points. Please enter valid numbers."
@@ -169,7 +170,8 @@ class MainController(QObject):
             g2_flag,
             num_points_curve_error,
             te_vector_points,
-            error_function
+            error_function,
+            use_curvature_sampling
         )
         self._generation_process = multiprocessing.Process(
             target=_generation_worker,
@@ -250,54 +252,39 @@ class MainController(QObject):
             self._update_button_states()
 
     # ------------------------------------------------------------------
-    def _recalculate_action(self) -> None:
-        """Handle *Recalculate* button - rebuilds the model with current settings."""
-        if self.processor.core_processor.upper_data is None or self.processor.core_processor.lower_data is None:
-            self.processor.log_message.emit("Error: No airfoil data loaded. Please load an airfoil file first.")
-            return
-        
-        opt = self.window.optimizer_panel
-        try:
-            regularization_weight = float(opt.single_bezier_reg_weight_input.text())
-            num_points_curve_error = int(opt.curve_error_points_input.text())
-            te_vector_points = int(opt.te_vector_points_combo.currentText())
-            g2_flag = opt.g2_checkbox.isChecked()
-            error_function = opt.error_function_combo.currentText()
-        except ValueError:
-            self.processor.log_message.emit(
-                "Error: Invalid input values. Please check all numeric inputs."
-            )
-            return
-        
-        # Rebuild the model with current settings
-        success = self.processor.core_processor.build_single_bezier_model(
-            regularization_weight,
-            error_function=error_function,
-            enforce_g2=g2_flag,
-            num_points_curve_error=num_points_curve_error,
-            te_vector_points=te_vector_points
-        )
-        
-        if success:
-            self.processor._request_plot_update()
-            self.processor.log_message.emit("Model recalculated successfully with new TE vector points setting.")
-        else:
-            self.processor.log_message.emit("Failed to recalculate model. Check the settings and try again.")
-
-    # ------------------------------------------------------------------
     def _recalculate_te_vectors_action(self):
         """Handle *Recalculate TE vectors* button - only recalculates TE vectors and updates plot."""
         opt = self.window.optimizer_panel
         try:
             te_vector_points = int(opt.te_vector_points_combo.currentText())
+            regularization_weight = float(opt.single_bezier_reg_weight_input.text())
+            error_function = opt.error_function_combo.currentText()
+            g2_flag = opt.g2_checkbox.isChecked()
+            num_points_curve_error = int(opt.curve_error_points_input.text())
+            use_curvature_sampling = opt.use_curvature_sampling_checkbox.isChecked()
         except ValueError:
-            self.processor.log_message.emit("Error: Invalid TE vector points value.")
+            self.processor.log_message.emit("Error: Invalid input values. Please check all numeric inputs.")
             return
+
         self.processor.recalculate_te_vectors_and_update_plot(te_vector_points)
         # Disable the recalculate button until dropdown changes again
         opt.disable_recalc_button()
-        # Update the default TE vector points to the new value
-        opt.set_default_te_vector_points(te_vector_points)
+        self.processor.log_message.emit(f"Recalculating with TE vector points set to: {te_vector_points}")
+
+        # Rebuild the model with current settings
+        success = self.processor.build_single_bezier_model(
+            regularization_weight,
+            error_function=error_function,
+            enforce_g2=g2_flag,
+            num_points_curve_error=num_points_curve_error,
+            te_vector_points=te_vector_points,
+            use_curvature_sampling=use_curvature_sampling
+        )
+        
+        if success:
+            self.processor.log_message.emit("Model recalculated successfully with new TE vector points setting.")
+        else:
+            self.processor.log_message.emit("Failed to recalculate model. Check the settings and try again.")
 
     # ------------------------------------------------------------------
     def _toggle_thickening_action(self) -> None:
@@ -464,32 +451,55 @@ class MainController(QObject):
 
 # --- Worker function for multiprocessing ---
 def _generation_worker(args, queue):
-    """Worker function to run airfoil generation in a separate process."""
+    """
+    This worker function runs in a separate process to avoid blocking the GUI.
+    """
     import traceback
+    (
+        upper_data,
+        lower_data,
+        regularization_weight,
+        g2_flag,
+        num_points_curve_error,
+        te_vector_points,
+        error_function,
+        use_curvature_sampling,
+    ) = args
+
+    # Create a new processor instance in the worker process
+    # Pass a simple print function for logging within the worker
+    from core.airfoil_processor import AirfoilProcessor
+    processor = AirfoilProcessor()
+    processor.core_processor.upper_data = upper_data
+    processor.core_processor.lower_data = lower_data
+    (
+        processor.core_processor.upper_te_tangent_vector,
+        processor.core_processor.lower_te_tangent_vector,
+    ) = processor.core_processor._calculate_te_tangent(upper_data, lower_data)
+
     try:
-        upper_data, lower_data, regularization_weight, g2_flag, num_points_curve_error, te_vector_points, error_function = args
-        from core.core_logic import CoreProcessor
-        processor = CoreProcessor()
-        processor.upper_data = upper_data
-        processor.lower_data = lower_data
+        # The core logic can be called directly on the new processor's core
         result = processor.build_single_bezier_model(
-            regularization_weight,
+            regularization_weight=regularization_weight,
             error_function=error_function,
             enforce_g2=g2_flag,
             num_points_curve_error=num_points_curve_error,
-            te_vector_points=te_vector_points
+            te_vector_points=te_vector_points,
+            use_curvature_sampling=use_curvature_sampling
         )
+
         if result:
+            # On success, put the results into the queue
             queue.put({
                 "success": True,
-                "upper_poly": processor.single_bezier_upper_poly_sharp,
-                "lower_poly": processor.single_bezier_lower_poly_sharp,
-                "upper_max_error": getattr(processor, "last_single_bezier_upper_max_error", None),
-                "upper_max_error_idx": getattr(processor, "last_single_bezier_upper_max_error_idx", None),
-                "lower_max_error": getattr(processor, "last_single_bezier_lower_max_error", None),
-                "lower_max_error_idx": getattr(processor, "last_single_bezier_lower_max_error_idx", None),
+                "upper_poly": processor.core_processor.single_bezier_upper_poly_sharp,
+                "lower_poly": processor.core_processor.single_bezier_lower_poly_sharp,
+                "upper_max_error": processor.core_processor.last_single_bezier_upper_max_error,
+                "upper_max_error_idx": processor.core_processor.last_single_bezier_upper_max_error_idx,
+                "lower_max_error": processor.core_processor.last_single_bezier_lower_max_error,
+                "lower_max_error_idx": processor.core_processor.last_single_bezier_lower_max_error_idx,
             })
         else:
-            queue.put({"success": False, "error": "Failed to build single Bezier model."})
+            queue.put({"success": False, "error": "Airfoil generation failed in worker."})
     except Exception as e:
         queue.put({"success": False, "error": f"Exception in worker: {e}\n{traceback.format_exc()}"}) 

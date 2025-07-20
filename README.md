@@ -7,16 +7,20 @@ The graphical front‑end is implemented with Qt 6.
 
 ## Features
 
-* Import Selig or Lednicer `.dat` airfoil point files.
-* Input data is normalised to satisfy constraints.  
-* Automatic fitting of a **single ninth‑order Bézier** representation with fixed abscissae, matching the 16‑parameter scheme proposed by Venkataraman (2017).  
-* Curvature Comb.
-* Trailing‑edge thickening and chord‑length scaling prior to export.
-* G2 continuity option for the leading edge (upper & lower curves share curvature)
-* Direct export to DXF (millimetres) for CAD/CAM workflows.  
-* Cross‑platform GUI built with PySide 6.
+*   **Airfoil Analysis**: Load airfoil data from `.dat` files and visualize the airfoil shape.
+*   **Bézier Curve Fitting**: Fit single or multiple Bézier curves to the airfoil data.
+*   **Trailing Edge Thickening**: Apply trailing edge thickening to the airfoil.
+*   **Curvature Combs**: Visualize the curvature of the airfoil using curvature combs.
+*   **DXF Export**: Export the Bézier curves to a DXF file for use in CAD software.
+*   **Curvature-Based Sampling**: Use curvature-based sampling for the ICP algorithm to improve accuracy.
 
----
+## Usage
+
+1.  **Load Airfoil Data**: Click the `Load Airfoil` button to load a `.dat` file.
+2.  **Generate Airfoil**: Click the `Generate Airfoil` button to fit a Bézier curve to the airfoil data.
+3.  **Toggle Thickening**: Click the `Toggle Thickening` button to apply or remove trailing edge thickening.
+4.  **Export DXF**: Click the `Export DXF` button to export the Bézier curves to a DXF file.
+5.  **Curvature-Based Sampling**: Check the `Use curvature-based sampling` checkbox to enable curvature-based sampling for the ICP algorithm.
 
 ## Installation
 * Make sure Python is installed on your system. 

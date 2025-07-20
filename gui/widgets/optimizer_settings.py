@@ -43,10 +43,9 @@ class OptimizerSettingsWidget(QGroupBox):
         self.error_function_combo = QComboBox()
         self.error_function_combo.addItems([
             "icp",
-            "orthogonal_fast",
-            "orthogonal_conservative", 
-            "orthogonal_sum_squares",
-            "orthogonal_minmax"
+            "orthogonal_minmax",
+            "venkat_median_x",
+            "venkat_median_x_orth"  # New option for median-x with orthogonal error
         ])
         self.error_function_combo.setCurrentText("icp")  # Default to fastest, most reliable method
         self.error_function_combo.setFixedWidth(160)
@@ -54,14 +53,19 @@ class OptimizerSettingsWidget(QGroupBox):
         # Tooltips for error function dropdown
         self.error_function_combo.setToolTip(
             "ICP: Fastest method (~5-10s), good accuracy\n"
-            "Orthogonal Fast: Experimental, may be slower than ICP\n"
-            "Orthogonal Conservative: Better accuracy, slower (~10-30s)\n"
-            "Orthogonal Sum Squares: Best accuracy, very slow (~100-200s)\n"
-            "Orthogonal Minmax: Experimental, unpredictable performance"
+            "Orthogonal Minmax: Experimental, minimizes maximum error\n"
+            "Venkataraman Median-X: Uses median x-locations for control points as in Venkataraman 2017.\n"
+            "Venkataraman Median-X Orth: Median x-locations with orthogonal error metric."
         )
 
         # Enforce G2 at leading edge
         self.g2_checkbox = QCheckBox("Enforce G2 at leading edge")
+
+        # Use curvature sampling
+        self.use_curvature_sampling_checkbox = QCheckBox("Use curvature-based sampling")
+        self.use_curvature_sampling_checkbox.setToolTip(
+            "Use curvature-based sampling for the ICP algorithm to improve accuracy."
+        )
 
         # Action buttons
         self.build_single_bezier_button = QPushButton("Generate Airfoil")
@@ -104,6 +108,12 @@ class OptimizerSettingsWidget(QGroupBox):
         g2_row.addWidget(self.g2_checkbox)
         g2_row.addStretch(1)
         layout.addLayout(g2_row)
+
+        # Use curvature sampling checkbox
+        curvature_row = QHBoxLayout()
+        curvature_row.addWidget(self.use_curvature_sampling_checkbox)
+        curvature_row.addStretch(1)
+        layout.addLayout(curvature_row)
 
         # Buttons
         button_row = QHBoxLayout()

@@ -59,7 +59,6 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(self.optimizer_panel)
         control_layout.addWidget(self.airfoil_settings_panel)
         control_layout.addWidget(self.comb_panel)
-        control_layout.addWidget(QLabel("--- Log ---"))
         control_layout.addWidget(self.status_log, 1)
 
         main_layout.addLayout(control_layout, 1)

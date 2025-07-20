@@ -62,7 +62,7 @@ class AirfoilProcessor(QObject):
         """Returns True if the loaded airfoil has a thickened trailing edge."""
         return self._is_trailing_edge_thickened
 
-    def build_single_bezier_model(self, regularization_weight, error_function="orthogonal_minmax", enforce_g2=False, num_points_curve_error=None, te_vector_points=None):
+    def build_single_bezier_model(self, regularization_weight, error_function="orthogonal_minmax", enforce_g2=False, num_points_curve_error=None, te_vector_points=None, use_curvature_sampling: bool = False, num_points_curvature_resample: int = 200):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
@@ -84,25 +84,13 @@ class AirfoilProcessor(QObject):
             error_function=error_function,
             enforce_g2=enforce_g2,
             num_points_curve_error=num_points_curve_error,
-            te_vector_points=te_vector_points
+            te_vector_points=te_vector_points,
+            use_curvature_sampling=use_curvature_sampling,
+            num_points_curvature_resample=num_points_curvature_resample
         )
-        elapsed = time.perf_counter() - start_time  # End timing
-        if result:
-            self.log_message.emit(f"Single Bezier model built successfully. ({elapsed:.3f} seconds)")
-            # Log error values displayed in the graph
-            upper_err = getattr(self.core_processor, 'last_single_bezier_upper_max_error', None)
-            upper_idx = getattr(self.core_processor, 'last_single_bezier_upper_max_error_idx', None)
-            lower_err = getattr(self.core_processor, 'last_single_bezier_lower_max_error', None)
-            lower_idx = getattr(self.core_processor, 'last_single_bezier_lower_max_error_idx', None)
-            if upper_err is not None and upper_idx is not None:
-                self.log_message.emit(f"Upper max error: {upper_err:.4e} at index {upper_idx}")
-            if lower_err is not None and lower_idx is not None:
-                self.log_message.emit(f"Lower max error: {lower_err:.4e} at index {lower_idx}")
-            self._request_plot_update()
-            return True
-        else:
-            self.log_message.emit("Failed to build single Bezier model.")
-            return False
+        elapsed = time.perf_counter() - start_time
+        self.log_message.emit(f"Single Bezier model built in {elapsed:.3f} seconds.")
+        return result
 
     def toggle_thickening(self, te_thickness_percent):
         """
