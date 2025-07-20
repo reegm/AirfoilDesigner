@@ -307,12 +307,12 @@ class CoreProcessor:
             )
         )
 
-    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False, num_points_curve_error=None, te_vector_points=None, use_curvature_sampling: bool = False, num_points_curvature_resample: int = config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE):
+    def build_single_bezier_model(self, regularization_weight, optimization_method="standard_icp", enforce_g2=False, num_points_curve_error=None, te_vector_points=None, use_curvature_sampling: bool = False, num_points_curvature_resample: int = config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
         Thickening is applied separately for display.
-        Supports error functions: 'icp', 'orthogonal_minmax'.
+        Supports optimization methods: 'standard_icp', 'minmax_orthogonal', 'median_x_icp', 'median_x_orthogonal'.
         """
         if self.upper_data is None or self.lower_data is None:
             self.log_message("Error: Original airfoil data not loaded. Cannot build single Bezier model.")
@@ -359,7 +359,7 @@ class CoreProcessor:
         try:
             if enforce_g2:
                 # --- Coupled optimisation with G2 continuity ---
-                if error_function == "orthogonal_minmax":
+                if optimization_method == "minmax_orthogonal":
                     self.log_message("Building coupled G2 Bezier curves with minmax optimization...")
                     self.single_bezier_upper_poly_sharp, self.single_bezier_lower_poly_sharp = build_coupled_venkatamaran_beziers_minmax(
                         original_upper_data=self.upper_data,
@@ -367,7 +367,7 @@ class CoreProcessor:
                         regularization_weight=regularization_weight,
                         te_tangent_vector_upper=upper_te_tangent_vector,
                         te_tangent_vector_lower=lower_te_tangent_vector,
-                        error_function=error_function,
+                        optimization_method=optimization_method,
                         use_curvature_sampling=use_curvature_sampling,
                         num_points_curve_error=num_points_curve_error,
                         logger_func=self.log_message,
@@ -380,7 +380,7 @@ class CoreProcessor:
                         regularization_weight=regularization_weight,
                         te_tangent_vector_upper=upper_te_tangent_vector,
                         te_tangent_vector_lower=lower_te_tangent_vector,
-                        error_function=error_function,
+                        optimization_method=optimization_method,
                         use_curvature_sampling=use_curvature_sampling,
                         num_points_curve_error=num_points_curve_error,
                         logger_func=self.log_message,
@@ -388,8 +388,8 @@ class CoreProcessor:
 
 
             else:
-                if error_function == "orthogonal_minmax":
-                    self.log_message("Running minmax optimization for single Bezier curves...")
+                if optimization_method == "minmax_orthogonal":
+                    self.log_message("Building single Bezier curves with minmax optimization...")
                     self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier_minmax(
                         original_data=self.upper_data,
                         num_control_points_new=num_control_points_single_bezier,
@@ -397,7 +397,7 @@ class CoreProcessor:
                         le_tangent_vector=le_tangent_upper,
                         te_tangent_vector=upper_te_tangent_vector,
                         regularization_weight=regularization_weight,
-                        error_function=error_function,
+                        optimization_method=optimization_method,
                         num_points_curve_error=num_points_curve_error,
                         use_curvature_sampling=use_curvature_sampling,
                         num_points_curvature_resample=num_points_curvature_resample,
@@ -411,15 +411,15 @@ class CoreProcessor:
                         le_tangent_vector=le_tangent_lower,
                         te_tangent_vector=lower_te_tangent_vector,
                         regularization_weight=regularization_weight,
-                        error_function=error_function,
+                        optimization_method=optimization_method,
                         num_points_curve_error=num_points_curve_error,
                         use_curvature_sampling=use_curvature_sampling,
                         num_points_curvature_resample=num_points_curvature_resample,
                         logger_func=self.log_message
                     )
 
-                elif error_function == "venkat_median_x":
-                    self.log_message("Building single Bezier curves with Venkataraman 2017 median-x parameterization...")
+                elif optimization_method == "median_x_icp":
+                    self.log_message("Building single Bezier curves with median-x control points...")
                     self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.upper_data,
                         num_control_points_new=num_control_points_single_bezier,
@@ -427,7 +427,7 @@ class CoreProcessor:
                         le_tangent_vector=le_tangent_upper,
                         te_tangent_vector=upper_te_tangent_vector,
                         regularization_weight=regularization_weight,
-                        error_function=error_function,
+                        optimization_method=optimization_method,
                         num_points_curve_error=num_points_curve_error,
                         use_curvature_sampling=use_curvature_sampling,
                         logger_func=self.log_message
@@ -439,13 +439,13 @@ class CoreProcessor:
                         le_tangent_vector=le_tangent_lower,
                         te_tangent_vector=lower_te_tangent_vector,
                         regularization_weight=regularization_weight,
-                        error_function=error_function,
+                        optimization_method=optimization_method,
                         num_points_curve_error=num_points_curve_error,
                         use_curvature_sampling=use_curvature_sampling,
                         logger_func=self.log_message
                     )
-                else:
-                    self.log_message("Building single Bezier curves with standard ICP error...")
+                elif optimization_method == "median_x_orthogonal":
+                    self.log_message("Building single Bezier curves with median-x control points and orthogonal error...")
                     self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.upper_data,
                         num_control_points_new=num_control_points_single_bezier,
@@ -453,7 +453,7 @@ class CoreProcessor:
                         le_tangent_vector=le_tangent_upper,
                         te_tangent_vector=upper_te_tangent_vector,
                         regularization_weight=regularization_weight,
-                        error_function=error_function,
+                        optimization_method=optimization_method,
                         num_points_curve_error=num_points_curve_error,
                         use_curvature_sampling=use_curvature_sampling,
                         logger_func=self.log_message
@@ -465,7 +465,33 @@ class CoreProcessor:
                         le_tangent_vector=le_tangent_lower,
                         te_tangent_vector=lower_te_tangent_vector,
                         regularization_weight=regularization_weight,
-                        error_function=error_function,
+                        optimization_method=optimization_method,
+                        num_points_curve_error=num_points_curve_error,
+                        use_curvature_sampling=use_curvature_sampling,
+                        logger_func=self.log_message
+                    )
+                else:  # standard_icp
+                    self.log_message("Building single Bezier curves with standard ICP optimization...")
+                    self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
+                        original_data=self.upper_data,
+                        num_control_points_new=num_control_points_single_bezier,
+                        is_upper_surface=True,
+                        le_tangent_vector=le_tangent_upper,
+                        te_tangent_vector=upper_te_tangent_vector,
+                        regularization_weight=regularization_weight,
+                        optimization_method=optimization_method,
+                        num_points_curve_error=num_points_curve_error,
+                        use_curvature_sampling=use_curvature_sampling,
+                        logger_func=self.log_message
+                    )
+                    self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
+                        original_data=self.lower_data,
+                        num_control_points_new=num_control_points_single_bezier,
+                        is_upper_surface=False,
+                        le_tangent_vector=le_tangent_lower,
+                        te_tangent_vector=lower_te_tangent_vector,
+                        regularization_weight=regularization_weight,
+                        optimization_method=optimization_method,
                         num_points_curve_error=num_points_curve_error,
                         use_curvature_sampling=use_curvature_sampling,
                         logger_func=self.log_message

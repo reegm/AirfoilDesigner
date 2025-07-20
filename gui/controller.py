@@ -159,8 +159,13 @@ class MainController(QObject):
             num_points_curve_error = int(opt.curve_error_points_input.text())
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
-            error_function = opt.error_function_combo.currentText()
+            gui_strategy = opt.fitting_strategy_combo.currentText()
             use_curvature_sampling = opt.use_curvature_sampling_checkbox.isChecked()
+            
+            # Map GUI selection to internal method
+            from core.optimization_core import map_gui_strategy_to_internal
+            method_config = map_gui_strategy_to_internal(gui_strategy)
+            optimization_method = method_config["method"]
         except ValueError:
             self.processor.log_message.emit(
                 "Error: Invalid input for regularization weight, curve error points, or TE vector points. Please enter valid numbers."
@@ -174,7 +179,7 @@ class MainController(QObject):
             g2_flag,
             num_points_curve_error,
             te_vector_points,
-            error_function,
+            optimization_method,
             use_curvature_sampling
         )
         self._generation_process = multiprocessing.Process(
@@ -485,7 +490,7 @@ def _generation_worker(args, queue):
         g2_flag,
         num_points_curve_error,
         te_vector_points,
-        error_function,
+        optimization_method,
         use_curvature_sampling,
     ) = args
 
@@ -517,7 +522,7 @@ def _generation_worker(args, queue):
         # The core logic can be called directly on the new processor's core
         result = processor.build_single_bezier_model(
             regularization_weight=regularization_weight,
-            error_function=error_function,
+            optimization_method=optimization_method,
             enforce_g2=g2_flag,
             num_points_curve_error=num_points_curve_error,
             te_vector_points=te_vector_points,

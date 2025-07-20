@@ -39,23 +39,23 @@ class OptimizerSettingsWidget(QGroupBox):
         self.te_vector_points_combo.setCurrentText(str(self.default_te_vector_points))
         self.te_vector_points_combo.setFixedWidth(80)
 
-        # Error Function dropdown
-        self.error_function_combo = QComboBox()
-        self.error_function_combo.addItems([
-            "icp",
-            "orthogonal_minmax",
-            "venkat_median_x",
-            "venkat_median_x_orth"  # New option for median-x with orthogonal error
+        # Fitting Strategy dropdown (renamed from Error Function)
+        self.fitting_strategy_combo = QComboBox()
+        self.fitting_strategy_combo.addItems([
+            "Standard ICP (Fast)",
+            "MinMax Orthogonal (Experimental)", 
+            "Median-X ICP (Venkataraman 2017)",
+            "Median-X Orthogonal"
         ])
-        self.error_function_combo.setCurrentText("icp")  # Default to fastest, most reliable method
-        self.error_function_combo.setFixedWidth(160)
+        self.fitting_strategy_combo.setCurrentText("Standard ICP (Fast)")  # Default to fastest, most reliable method
+        self.fitting_strategy_combo.setFixedWidth(200)
         
-        # Tooltips for error function dropdown
-        self.error_function_combo.setToolTip(
-            "ICP: Fastest method (~5-10s), good accuracy\n"
-            "Orthogonal Minmax: Experimental, minimizes maximum error\n"
-            "Venkataraman Median-X: Uses median x-locations for control points as in Venkataraman 2017.\n"
-            "Venkataraman Median-X Orth: Median x-locations with orthogonal error metric."
+        # Tooltips for fitting strategy dropdown
+        self.fitting_strategy_combo.setToolTip(
+            "Standard ICP: Fastest method (~5-10s), good accuracy\n"
+            "MinMax Orthogonal: Experimental, minimizes maximum error\n"
+            "Median-X ICP: Uses median x-locations for control points as in Venkataraman 2017\n"
+            "Median-X Orthogonal: Median x-locations with orthogonal error metric"
         )
 
         # Enforce G2 at leading edge
@@ -96,12 +96,12 @@ class OptimizerSettingsWidget(QGroupBox):
         te_row.addStretch(1)
         layout.addLayout(te_row)
 
-        # Error Function
-        error_row = QHBoxLayout()
-        error_row.addWidget(QLabel("Error Function:"))
-        error_row.addWidget(self.error_function_combo)
-        error_row.addStretch(1)
-        layout.addLayout(error_row)
+        # Fitting Strategy (renamed from Error Function)
+        strategy_row = QHBoxLayout()
+        strategy_row.addWidget(QLabel("Fitting Strategy:"))
+        strategy_row.addWidget(self.fitting_strategy_combo)
+        strategy_row.addStretch(1)
+        layout.addLayout(strategy_row)
 
         # G2 checkbox
         g2_row = QHBoxLayout()
