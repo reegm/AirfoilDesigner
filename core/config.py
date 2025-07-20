@@ -46,8 +46,8 @@ DEFAULT_TE_THICKNESS_MM: float = 0.0
 # ---- Optimiser settings ---------------------------------------------------
 SLSQP_OPTIONS = {
     "disp": False,
-    "maxiter": 5000,
-    "ftol": 1e-9,
+    "maxiter": 1000,
+    "ftol": 1e-12,
 }
 
 # ICP_OPTIONS = {
@@ -59,7 +59,7 @@ SLSQP_OPTIONS = {
 # Number of sample points used when evaluating Bezier curves for error
 # calculations (e.g. ICP error). Higher numbers give more accurate error
 # estimates at the cost of performance.
-NUM_POINTS_CURVE_ERROR: int = 200
+NUM_POINTS_CURVE_ERROR: int = 10000
 
 # Number of points used for trailing edge vector calculations
 # Higher numbers provide more robust tangent estimates but may be less sensitive to local geometry

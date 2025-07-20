@@ -603,6 +603,7 @@ def build_coupled_venkatamaran_beziers(
     te_tangent_vector_lower,
     error_function="icp",
     use_curvature_sampling=False,
+    num_points_curve_error=None,
 ):
     """Build upper and lower single-segment Bézier curves simultaneously while
     enforcing G2 continuity (equal curvature) at the leading edge.
@@ -652,8 +653,8 @@ def build_coupled_venkatamaran_beziers(
     # --- Objective -----------------------------------------------------------
     def objective(var_y):
         ctrl_u, ctrl_l = _assemble_polygons(var_y)
-        err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function=error_function, use_curvature_sampling=use_curvature_sampling)
-        err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function=error_function, use_curvature_sampling=use_curvature_sampling)
+        err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function=error_function, use_curvature_sampling=use_curvature_sampling, num_points_curve_error=num_points_curve_error)
+        err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function=error_function, use_curvature_sampling=use_curvature_sampling, num_points_curve_error=num_points_curve_error)
 
         # Extract just the error value if tuple is returned
         if isinstance(err_u, tuple):
@@ -847,6 +848,7 @@ def build_coupled_venkatamaran_beziers_minmax(
         te_tangent_vector_lower=te_tangent_vector_lower,
         error_function="icp",
         use_curvature_sampling=use_curvature_sampling,
+        num_points_curve_error=num_points_curve_error,
     )
     
     # Extract the y-coordinates of the inner control points from ICP results

@@ -395,6 +395,7 @@ class CoreProcessor:
                         te_tangent_vector_lower=lower_te_tangent_vector,
                         error_function=error_function,
                         use_curvature_sampling=use_curvature_sampling,
+                        num_points_curve_error=num_points_curve_error,
                     )
 
 
