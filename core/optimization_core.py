@@ -246,7 +246,6 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
         te_tangent_vector=te_tangent_vector,
         regularization_weight=regularization_weight,
         optimization_method="fixed_x",
-        use_curvature_sampling=use_curvature_sampling,
         logger_func=logger_func
     )
 
