@@ -71,7 +71,7 @@ class BezierEvaluator:
         diff2_points = np.diff(self.control_points, n=2, axis=0)
         return self.n * (self.n - 1) * np.sum(coeffs[:, None] * diff2_points, axis=0)
 
-def calculate_orthogonal_distance_to_bezier_optimized(point, control_points, initial_t_guess=None, max_iterations=15, tolerance=1e-8):
+def calculate_orthogonal_distance_to_bezier_optimized(point, control_points, initial_t_guess=None, max_iterations=100, tolerance=1e-10):
     """
     Optimized version of orthogonal distance calculation with caching and better convergence.
     """

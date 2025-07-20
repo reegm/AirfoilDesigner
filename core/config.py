@@ -48,6 +48,7 @@ SLSQP_OPTIONS = {
     "disp": False,
     "maxiter": 1000,
     "ftol": 1e-9,
+    "eps": 1e-8
 }
 
 # ---- Sampling & Debugging -----------------------------------------------

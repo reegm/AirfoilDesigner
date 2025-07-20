@@ -146,7 +146,7 @@ def build_single_venkatamaran_bezier(original_data, num_control_points_new,
         initial_guess_inner_y,
         method='SLSQP',
         constraints=constraints,
-        options={'disp': False, 'maxiter': config.SLSQP_OPTIONS['maxiter'], 'ftol': config.SLSQP_OPTIONS['ftol']}
+        options=config.SLSQP_OPTIONS
     )
 
     if not result.success:
@@ -271,7 +271,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
         method='SLSQP',
         
         constraints=constraints,
-        options={'disp': False, 'maxiter': config.SLSQP_OPTIONS['maxiter'], 'ftol': config.SLSQP_OPTIONS['ftol']}
+        options=config.SLSQP_OPTIONS
     )
 
     if not result.success:
@@ -428,7 +428,7 @@ def build_coupled_venkatamaran_beziers(
         method='SLSQP',
         
         constraints=constraints,
-        options=config.SLSQP_OPTIONS,
+        options=config.SLSQP_OPTIONS
     )
 
     if not result.success:
@@ -586,25 +586,13 @@ def build_coupled_venkatamaran_beziers_variable_x(
 
     constraints.append({"type": "eq", "fun": _g2_constraint})
 
-    # For orthogonal methods, use more conservative optimization settings
-    if optimization_method == "variable_x_orthogonal_g2":
-        # Use more conservative SLSQP options for better convergence
-        slsqp_options = {
-            'disp': False,
-            'maxiter': min(2000, config.SLSQP_OPTIONS['maxiter']),  # More iterations
-            'ftol': 1e-8,  # Slightly relaxed tolerance
-            'eps': 1e-8    # Finite difference step size
-        }
-    else:
-        slsqp_options = config.SLSQP_OPTIONS
-
     # --- Optimise ------------------------------------------------------------
     result = minimize(
         objective,
         initial_guess,
         method='SLSQP',
         constraints=constraints,
-        options=slsqp_options,
+        options=config.SLSQP_OPTIONS
     )
 
     if not result.success:
@@ -781,7 +769,7 @@ def build_coupled_venkatamaran_beziers_minmax(
         method='SLSQP',
         
         constraints=constraints,
-        options={'disp': False, 'maxiter': config.SLSQP_OPTIONS['maxiter'], 'ftol': config.SLSQP_OPTIONS['ftol']}
+        options=config.SLSQP_OPTIONS
     )
 
     if not result.success:
