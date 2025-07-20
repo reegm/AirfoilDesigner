@@ -71,4 +71,8 @@ DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE: int = 10000
 # When False: Shows only spinner during optimization (default)
 # 
 # To enable debug logging, change this to: DEBUG_WORKER_LOGGING: bool = True
-DEBUG_WORKER_LOGGING: bool = False
+DEBUG_WORKER_LOGGING: bool = True
+
+# Orthogonal distance calculation settings
+ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 100
+ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-12
