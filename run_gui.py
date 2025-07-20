@@ -2,7 +2,7 @@ import sys
 from PySide6.QtWidgets import QApplication
 from gui.main_window import MainWindow
 from gui.controller import MainController
-
+import multiprocessing # Add this import
 
 def main() -> None:
     """Launch the Qt GUI application."""
@@ -14,4 +14,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main() 
+    multiprocessing.freeze_support()
+    
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass
+    
+    main()

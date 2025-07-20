@@ -6,4 +6,5 @@ build/
 doc/
 __pycache__/
 run_console.spec
+AirfoilDesigner.spec
 AirfoilDesigner.exe.spec

@@ -12,6 +12,7 @@ import os
 from typing import Any
 
 import multiprocessing
+from core.core_logic import CoreProcessor
 import time
 from PySide6.QtCore import Qt, QObject, QTimer
 from PySide6.QtWidgets import (
@@ -470,12 +471,25 @@ class MainController(QObject):
                 return f"{sanitized}.dxf"
         return "airfoil.dxf"
 
-# --- Worker function for multiprocessing ---
 def _generation_worker(args, queue):
     """
     This worker function runs in a separate process to avoid blocking the GUI.
+    It operates on the core logic without Qt dependencies.
     """
     import traceback
+    # Import necessary modules *within* the worker function
+    # to ensure they are loaded in the new process's context and are Qt-independent.
+    import numpy as np
+    from core import config
+    from utils.error_calculators import calculate_single_bezier_fitting_error
+    from utils.data_loader import load_airfoil_data, find_shoulder_x_coords
+    from utils.dxf_exporter import export_curves_to_dxf
+    from utils.bezier_utils import bezier_curvature, general_bezier_curve
+    from utils.bezier_optimization_utils import calculate_all_orthogonal_distances
+    from utils.control_point_utils import variable_x_control_points, get_paper_fixed_x_coords
+    from core.optimization_core import map_gui_strategy_to_internal, build_coupled_venkatamaran_beziers, build_coupled_venkatamaran_beziers_minmax, build_coupled_venkatamaran_beziers_variable_x, build_single_venkatamaran_bezier, build_single_venkatamaran_bezier_minmax
+
+    # Unpack arguments
     (
         upper_data,
         lower_data,
@@ -485,51 +499,45 @@ def _generation_worker(args, queue):
         optimization_method,
     ) = args
 
-    # Check if debug logging is enabled
-    from core import config
+    # Set up a simple logger for the worker that uses the queue
     debug_logging_enabled = config.DEBUG_WORKER_LOGGING
-    
-    # Create a logging function that sends messages back through the queue
     def worker_logger(message):
         if debug_logging_enabled:
             queue.put({"type": "log", "message": message})
 
-    # Create a new processor instance in the worker process
-    # Pass the worker logger function for logging within the worker
-    from core.airfoil_processor import AirfoilProcessor
-    processor = AirfoilProcessor()
-    processor.core_processor.upper_data = upper_data
-    processor.core_processor.lower_data = lower_data
-    (
-        processor.core_processor.upper_te_tangent_vector,
-        processor.core_processor.lower_te_tangent_vector,
-    ) = processor.core_processor._calculate_te_tangent(upper_data, lower_data)
-    
-    # Set the logger function to use our worker logger only if debug is enabled
-    if debug_logging_enabled:
-        processor.core_processor.logger = worker_logger
+    # Create an instance of the *pure Python* CoreProcessor directly
+    processor_for_worker = CoreProcessor(worker_logger)
+
+    # Assign the original data to this worker's CoreProcessor instance
+    processor_for_worker.upper_data = upper_data
+    processor_for_worker.lower_data = lower_data
+
+    # Recalculate TE tangent vectors using the CoreProcessor's method.
+    # This ensures the worker's CoreProcessor uses the correct tangents based on input.
+    processor_for_worker.upper_te_tangent_vector, processor_for_worker.lower_te_tangent_vector = \
+        processor_for_worker._calculate_te_tangent(upper_data, lower_data, te_vector_points)
 
     try:
-        # The core logic can be called directly on the new processor's core
-        result = processor.build_single_bezier_model(
+        # Call the core logic's build method directly
+        success = processor_for_worker.build_single_bezier_model(
             regularization_weight=regularization_weight,
             optimization_method=optimization_method,
             enforce_g2=g2_flag,
-            te_vector_points=te_vector_points
+            te_vector_points=te_vector_points # Pass it again for internal use in build_single_bezier_model
         )
 
-        if result:
-            # On success, put the results into the queue
+        if success:
+            # Return results from the *worker's* CoreProcessor instance
             queue.put({
                 "success": True,
-                "upper_poly": processor.core_processor.single_bezier_upper_poly_sharp,
-                "lower_poly": processor.core_processor.single_bezier_lower_poly_sharp,
-                "upper_max_error": processor.core_processor.last_single_bezier_upper_max_error,
-                "upper_max_error_idx": processor.core_processor.last_single_bezier_upper_max_error_idx,
-                "lower_max_error": processor.core_processor.last_single_bezier_lower_max_error,
-                "lower_max_error_idx": processor.core_processor.last_single_bezier_lower_max_error_idx,
+                "upper_poly": processor_for_worker.single_bezier_upper_poly_sharp,
+                "lower_poly": processor_for_worker.single_bezier_lower_poly_sharp,
+                "upper_max_error": processor_for_worker.last_single_bezier_upper_max_error,
+                "upper_max_error_idx": processor_for_worker.last_single_bezier_upper_max_error_idx,
+                "lower_max_error": processor_for_worker.last_single_bezier_lower_max_error,
+                "lower_max_error_idx": processor_for_worker.last_single_bezier_lower_max_error_idx,
             })
         else:
             queue.put({"success": False, "error": "Airfoil generation failed in worker."})
     except Exception as e:
-        queue.put({"success": False, "error": f"Exception in worker: {e}\n{traceback.format_exc()}"}) 
+        queue.put({"success": False, "error": f"Exception in worker: {e}\n{traceback.format_exc()}"})
