@@ -68,3 +68,11 @@ DEFAULT_TE_VECTOR_POINTS: int = 3
 # Number of points used for curvature-based resampling
 # Higher numbers provide more accurate curvature representation but at the cost of performance
 DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE: int = 10000
+
+# ---- Debugging & Logging -------------------------------------------------
+# Enable detailed logging from worker processes during optimization
+# When True: Shows detailed progress messages from optimization functions
+# When False: Shows only spinner during optimization (default)
+# 
+# To enable debug logging, change this to: DEBUG_WORKER_LOGGING: bool = True
+DEBUG_WORKER_LOGGING: bool = True

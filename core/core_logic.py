@@ -370,6 +370,7 @@ class CoreProcessor:
                         error_function=error_function,
                         use_curvature_sampling=use_curvature_sampling,
                         num_points_curve_error=num_points_curve_error,
+                        logger_func=self.log_message,
                     )
                 else:
                     self.log_message("Building coupled G2 Bezier curves...")
@@ -382,6 +383,7 @@ class CoreProcessor:
                         error_function=error_function,
                         use_curvature_sampling=use_curvature_sampling,
                         num_points_curve_error=num_points_curve_error,
+                        logger_func=self.log_message,
                     )
 
 
@@ -398,7 +400,8 @@ class CoreProcessor:
                         error_function=error_function,
                         num_points_curve_error=num_points_curve_error,
                         use_curvature_sampling=use_curvature_sampling,
-                        num_points_curvature_resample=num_points_curvature_resample
+                        num_points_curvature_resample=num_points_curvature_resample,
+                        logger_func=self.log_message
                     )
 
                     self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier_minmax(
@@ -411,7 +414,8 @@ class CoreProcessor:
                         error_function=error_function,
                         num_points_curve_error=num_points_curve_error,
                         use_curvature_sampling=use_curvature_sampling,
-                        num_points_curvature_resample=num_points_curvature_resample
+                        num_points_curvature_resample=num_points_curvature_resample,
+                        logger_func=self.log_message
                     )
 
                 elif error_function == "venkat_median_x":
@@ -425,7 +429,8 @@ class CoreProcessor:
                         regularization_weight=regularization_weight,
                         error_function=error_function,
                         num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling
+                        use_curvature_sampling=use_curvature_sampling,
+                        logger_func=self.log_message
                     )
                     self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.lower_data,
@@ -436,7 +441,8 @@ class CoreProcessor:
                         regularization_weight=regularization_weight,
                         error_function=error_function,
                         num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling
+                        use_curvature_sampling=use_curvature_sampling,
+                        logger_func=self.log_message
                     )
                 else:
                     self.log_message("Building single Bezier curves with standard ICP error...")
@@ -449,7 +455,8 @@ class CoreProcessor:
                         regularization_weight=regularization_weight,
                         error_function=error_function,
                         num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling
+                        use_curvature_sampling=use_curvature_sampling,
+                        logger_func=self.log_message
                     )
                     self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.lower_data,
@@ -460,7 +467,8 @@ class CoreProcessor:
                         regularization_weight=regularization_weight,
                         error_function=error_function,
                         num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling
+                        use_curvature_sampling=use_curvature_sampling,
+                        logger_func=self.log_message
                     )
 
             # Calculate and store both MSE and ICP errors for single Bezier curves

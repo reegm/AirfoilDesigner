@@ -143,7 +143,11 @@ class MainController(QObject):
                 self._generation_process = None
             self._is_generating = False
             opt.build_single_bezier_button.setText("Generate Airfoil")
-            self.window.status_log.stop_spinner()
+            
+            # Stop spinner only if it was started (debug mode disabled)
+            if not config.DEBUG_WORKER_LOGGING:
+                self.window.status_log.stop_spinner()
+                
             elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
             self.processor.log_message.emit(f"Generation aborted by user. (Elapsed time: {elapsed_time:.2f}s)")
             self._generation_start_time = None
@@ -184,7 +188,10 @@ class MainController(QObject):
         self._generation_timer.start()
         self._update_button_states()
         self.processor.log_message.emit("Started airfoil generation in background process...")
-        self.window.status_log.start_spinner("Generating airfoil model")
+        
+        # Only show spinner if debug logging is disabled
+        if not config.DEBUG_WORKER_LOGGING:
+            self.window.status_log.start_spinner("Processing...")
 
     def _check_generation_result(self):
         if not self._is_generating:
@@ -192,11 +199,23 @@ class MainController(QObject):
             return
         if self._generation_queue is not None and not self._generation_queue.empty():
             result = self._generation_queue.get()
+            
+            # Handle log messages from the worker process (only if debug logging is enabled)
+            if isinstance(result, dict) and result.get("type") == "log":
+                if config.DEBUG_WORKER_LOGGING:
+                    self.processor.log_message.emit(result["message"])
+                return  # Continue checking for more messages
+            
+            # Handle final result
             self._generation_timer.stop()
             self._is_generating = False
             opt = self.window.optimizer_panel
             opt.build_single_bezier_button.setText("Generate Airfoil")
-            self.window.status_log.stop_spinner()
+            
+            # Stop spinner only if it was started (debug mode disabled)
+            if not config.DEBUG_WORKER_LOGGING:
+                self.window.status_log.stop_spinner()
+            
             self._generation_process = None
             self._generation_queue = None
             if isinstance(result, dict) and result.get("success") and result.get("upper_poly") is not None:
@@ -243,7 +262,11 @@ class MainController(QObject):
             self._is_generating = False
             opt = self.window.optimizer_panel
             opt.build_single_bezier_button.setText("Generate Airfoil")
-            self.window.status_log.stop_spinner()
+            
+            # Stop spinner only if it was started (debug mode disabled)
+            if not config.DEBUG_WORKER_LOGGING:
+                self.window.status_log.stop_spinner()
+                
             elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
             self._generation_process = None
             self._generation_queue = None
@@ -466,8 +489,17 @@ def _generation_worker(args, queue):
         use_curvature_sampling,
     ) = args
 
+    # Check if debug logging is enabled
+    from core import config
+    debug_logging_enabled = config.DEBUG_WORKER_LOGGING
+    
+    # Create a logging function that sends messages back through the queue
+    def worker_logger(message):
+        if debug_logging_enabled:
+            queue.put({"type": "log", "message": message})
+
     # Create a new processor instance in the worker process
-    # Pass a simple print function for logging within the worker
+    # Pass the worker logger function for logging within the worker
     from core.airfoil_processor import AirfoilProcessor
     processor = AirfoilProcessor()
     processor.core_processor.upper_data = upper_data
@@ -476,6 +508,10 @@ def _generation_worker(args, queue):
         processor.core_processor.upper_te_tangent_vector,
         processor.core_processor.lower_te_tangent_vector,
     ) = processor.core_processor._calculate_te_tangent(upper_data, lower_data)
+    
+    # Set the logger function to use our worker logger only if debug is enabled
+    if debug_logging_enabled:
+        processor.core_processor.logger = worker_logger
 
     try:
         # The core logic can be called directly on the new processor's core

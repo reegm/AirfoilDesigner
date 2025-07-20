@@ -7,6 +7,13 @@ from utils.bezier_optimization_utils import calculate_all_orthogonal_distances
 from utils.error_calculators import calculate_single_bezier_fitting_error, resample_points_by_curvature, calculate_orthogonal_error_minmax
 from utils.control_point_utils import median_x_control_points, get_paper_fixed_x_coords
 
+def _log_message(message, logger_func=None):
+    """Helper function to log messages using either the provided logger function or standard logging."""
+    if logger_func is not None:
+        logger_func(message)
+    else:
+        logging.info(message)
+
 
 
 
@@ -15,7 +22,7 @@ from utils.control_point_utils import median_x_control_points, get_paper_fixed_x
 
 def build_single_venkatamaran_bezier(original_data, num_control_points_new,
                                  is_upper_surface,
-                                 le_tangent_vector, te_tangent_vector, regularization_weight=0.01, error_function="icp", num_points_curve_error=None, use_curvature_sampling=False):
+                                 le_tangent_vector, te_tangent_vector, regularization_weight=0.01, error_function="icp", num_points_curve_error=None, use_curvature_sampling=False, logger_func=None):
     """
     Builds a single Bezier curve using the Venkataraman method.
     Optimizes only the y-coordinates of the inner control points.
@@ -74,9 +81,9 @@ def build_single_venkatamaran_bezier(original_data, num_control_points_new,
     )
 
     if not result.success:
-        logging.warning(
-            "Single Bezier build failed. Using initial guess. Reason: %s",
-            result.message,
+        _log_message(
+            f"Single Bezier build failed. Using initial guess. Reason: {result.message}",
+            logger_func
         )
         variables_y = initial_guess_inner_y
     else:
@@ -94,7 +101,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
                                           le_tangent_vector, te_tangent_vector, 
                                           regularization_weight=0.01, error_function="orthogonal_minmax", 
                                           num_points_curve_error=None, use_curvature_sampling=False,
-                                          num_points_curvature_resample=config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE):
+                                          num_points_curvature_resample=config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE, logger_func=None):
     """
     Builds a single Bezier curve using minmax optimization with orthogonal distance.
     Optimizes to minimize the maximum orthogonal distance error.
@@ -128,7 +135,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
             max_distance, max_idx = calculate_orthogonal_error_minmax(control_points, original_data)
         except Exception as e:
             # If orthogonal distance calculation fails, return a large penalty
-            logging.warning(f"Orthogonal distance calculation failed: {e}")
+            _log_message(f"Orthogonal distance calculation failed: {e}", logger_func)
             return 1e6
         
         # Smoothness penalty (second derivative of control polygon)
@@ -157,7 +164,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
          constraints.append({'type': 'eq', 'fun': te_tangent_constraint})
 
     # Stage 1: Run full ICP optimization to get a good initial guess
-    logging.info(f"Stage 1: Running full ICP optimization for {is_upper_surface and 'upper' or 'lower'} surface...")
+    _log_message(f"Stage 1: Running full ICP optimization for {is_upper_surface and 'upper' or 'lower'} surface...", logger_func)
     
     # Run the regular ICP optimization
     icp_result = build_single_venkatamaran_bezier(
@@ -169,16 +176,17 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
         regularization_weight=regularization_weight,
         error_function="icp",
         num_points_curve_error=num_points_curve_error,
-        use_curvature_sampling=use_curvature_sampling
+        use_curvature_sampling=use_curvature_sampling,
+        logger_func=logger_func
     )
     
     # Extract the y-coordinates of the inner control points from ICP result
     icp_inner_y = icp_result[1:-1, 1]  # Skip first and last points (start/end), take y-coordinates
     
-    logging.info(f"Stage 1 complete: ICP optimization finished for {is_upper_surface and 'upper' or 'lower'} surface")
+    _log_message(f"Stage 1 complete: ICP optimization finished for {is_upper_surface and 'upper' or 'lower'} surface", logger_func)
 
     # Stage 2: Use ICP result as initial guess for minmax optimization
-    logging.info(f"Stage 2: Starting minmax optimization using ICP result as initial guess...")
+    _log_message(f"Stage 2: Starting minmax optimization using ICP result as initial guess...", logger_func)
     
     # Reset the call counter for this stage
     if hasattr(objective_minmax, 'call_count'):
@@ -197,14 +205,14 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
     )
 
     if not result.success:
-        logging.warning(
-            "Minmax Bezier build failed. Using ICP solution. Reason: %s",
-            result.message,
+        _log_message(
+            f"Minmax Bezier build failed. Using ICP solution. Reason: {result.message}",
+            logger_func
         )
         variables_y = icp_inner_y
     else:
         variables_y = result.x
-        logging.info("Minmax optimization successful")
+        _log_message("Minmax optimization successful", logger_func)
 
     # Build final control points
     control_points = np.zeros((len(variables_y) + 2, 2))
@@ -227,6 +235,7 @@ def build_coupled_venkatamaran_beziers(
     error_function="icp",
     use_curvature_sampling=False,
     num_points_curve_error=None,
+    logger_func=None,
 ):
     """Build upper and lower single-segment Bézier curves simultaneously while
     enforcing G2 continuity (equal curvature) at the leading edge.
@@ -235,7 +244,7 @@ def build_coupled_venkatamaran_beziers(
     remain fixed to the Venkataraman paper.  The function returns a tuple
     ``(upper_ctrl_pts, lower_ctrl_pts)``.
     """
-    logging.info("Building coupled G2 Bezier curves using the " + error_function + " error function")
+    _log_message("Building coupled G2 Bezier curves using the " + error_function + " error function", logger_func)
 
     # Fixed abscissae from the paper
     paper_fixed_x_upper = get_paper_fixed_x_coords(True)  # upper
@@ -336,7 +345,7 @@ def build_coupled_venkatamaran_beziers(
     )
 
     if not result.success:
-        logging.warning("Coupled Bezier build failed. Using initial guess. Reason: %s", result.message)
+        _log_message(f"Coupled Bezier build failed. Using initial guess. Reason: {result.message}", logger_func)
         var_y_final = initial_guess
     else:
         var_y_final = result.x
@@ -354,6 +363,7 @@ def build_coupled_venkatamaran_beziers_minmax(
     use_curvature_sampling=False,
     num_points_curve_error=None,
     num_points_curvature_resample=config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE,
+    logger_func=None,
 ):
     """Build upper and lower single-segment Bézier curves simultaneously using
     minmax optimization with orthogonal distance while enforcing G2 continuity
@@ -365,7 +375,7 @@ def build_coupled_venkatamaran_beziers_minmax(
     
     First runs a full ICP optimization to get a good initial guess.
     """
-    logging.info("Building coupled G2 Bezier curves using minmax " + error_function + " optimization")
+    _log_message("Building coupled G2 Bezier curves using minmax " + error_function + " optimization", logger_func)
 
     # Fixed abscissae from the paper
     paper_fixed_x_upper = get_paper_fixed_x_coords(True)  # upper
@@ -452,7 +462,7 @@ def build_coupled_venkatamaran_beziers_minmax(
 
     # --- Two-stage Optimisation ----------------------------------------------
     # Stage 1: Run full ICP optimization to get a good initial guess
-    logging.info("Stage 1: Running full ICP optimization for coupled surfaces...")
+    _log_message("Stage 1: Running full ICP optimization for coupled surfaces...", logger_func)
     
     # Run the regular ICP optimization for coupled surfaces
     icp_upper, icp_lower = build_coupled_venkatamaran_beziers(
@@ -464,6 +474,7 @@ def build_coupled_venkatamaran_beziers_minmax(
         error_function="icp",
         use_curvature_sampling=use_curvature_sampling,
         num_points_curve_error=num_points_curve_error,
+        logger_func=logger_func,
     )
     
     # Extract the y-coordinates of the inner control points from ICP results
@@ -473,10 +484,10 @@ def build_coupled_venkatamaran_beziers_minmax(
     # Combine into single vector for minmax optimization
     improved_initial_guess = np.concatenate([icp_upper_inner_y, icp_lower_inner_y])
     
-    logging.info("Stage 1 complete: ICP optimization finished for coupled surfaces")
+    _log_message("Stage 1 complete: ICP optimization finished for coupled surfaces", logger_func)
 
     # Stage 2: Refine using minmax optimization
-    logging.info("Stage 2: Starting minmax optimization using ICP result as initial guess...")
+    _log_message("Stage 2: Starting minmax optimization using ICP result as initial guess...", logger_func)
     
     # Resample original_data by curvature if requested (for minimax only)
     if use_curvature_sampling:
@@ -492,11 +503,11 @@ def build_coupled_venkatamaran_beziers_minmax(
     )
 
     if not result.success:
-        logging.warning("Coupled minmax Bezier build failed. Using ICP solution. Reason: %s", result.message)
+        _log_message(f"Coupled minmax Bezier build failed. Using ICP solution. Reason: {result.message}", logger_func)
         var_y_final = improved_initial_guess
     else:
         var_y_final = result.x
-        logging.info("Minmax optimization successful")
+        _log_message("Minmax optimization successful", logger_func)
 
     ctrl_upper_final, ctrl_lower_final = _assemble_polygons(var_y_final)
     return ctrl_upper_final, ctrl_lower_final
