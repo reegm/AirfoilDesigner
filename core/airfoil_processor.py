@@ -65,17 +65,15 @@ class AirfoilProcessor(QObject):
 
     def build_single_bezier_model(
             self, regularization_weight, 
-            optimization_method="standard_icp", 
+            optimization_method="fixed_x", 
             enforce_g2=False, 
-            num_points_curve_error=None, 
             te_vector_points=None, 
-            use_curvature_sampling: bool = False, 
             num_points_curvature_resample: int = config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
         Thickening is applied separately for display.
-        Supports optimization methods: 'standard_icp', 'minmax_orthogonal', 'median_x_icp', 'median_x_orthogonal'.
+        Supports optimization methods: 'fixed_x', 'minmax', 'variable_x', 'variable_x_orthogonal'.
         """
         import time  # <-- Add import for timing
         if self.core_processor.upper_data is None or self.core_processor.lower_data is None:
@@ -91,9 +89,7 @@ class AirfoilProcessor(QObject):
             regularization_weight,
             optimization_method=optimization_method,
             enforce_g2=enforce_g2,
-            num_points_curve_error=num_points_curve_error,
             te_vector_points=te_vector_points,
-            use_curvature_sampling=use_curvature_sampling,
             num_points_curvature_resample=num_points_curvature_resample
         )
         elapsed = time.perf_counter() - start_time

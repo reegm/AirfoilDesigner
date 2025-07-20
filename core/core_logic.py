@@ -11,6 +11,7 @@ from core.optimization_core import (
     build_coupled_venkatamaran_beziers,
     build_single_venkatamaran_bezier_minmax,
     build_coupled_venkatamaran_beziers_minmax,
+    build_coupled_venkatamaran_beziers_variable_x,
 )
 from utils.error_calculators import calculate_single_bezier_fitting_error
 from utils.data_loader import load_airfoil_data, find_shoulder_x_coords
@@ -307,16 +308,23 @@ class CoreProcessor:
             )
         )
 
-    def build_single_bezier_model(self, regularization_weight, optimization_method="standard_icp", enforce_g2=False, num_points_curve_error=None, te_vector_points=None, use_curvature_sampling: bool = False, num_points_curvature_resample: int = config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE):
+    def build_single_bezier_model(self, regularization_weight, optimization_method="fixed_x", enforce_g2=False, te_vector_points=None, num_points_curvature_resample: int = config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
         Thickening is applied separately for display.
-        Supports optimization methods: 'standard_icp', 'minmax_orthogonal', 'median_x_icp', 'median_x_orthogonal'.
+        Supports optimization methods: 'fixed_x', 'minmax', 'variable_x', 'variable_x_orthogonal'.
         """
         if self.upper_data is None or self.lower_data is None:
             self.log_message("Error: Original airfoil data not loaded. Cannot build single Bezier model.")
             return False
+
+        # Automatically determine sampling type based on optimization method
+        use_curvature_sampling = optimization_method in ["minmax", "variable_x_orthogonal", "fixed_x_orthogonal", "variable_x_orthogonal_g2"]
+        if use_curvature_sampling:
+            self.log_message("Using dynamic sampling for orthogonal error methods.")
+        else:
+            self.log_message("Using linear sampling for euclidean error methods.")
 
         num_control_points_single_bezier = config.NUM_CONTROL_POINTS_SINGLE_BEZIER  # From central config
         # Preserve original trailing-edge thickness if the loaded airfoil is thickened.
@@ -359,7 +367,7 @@ class CoreProcessor:
         try:
             if enforce_g2:
                 # --- Coupled optimisation with G2 continuity ---
-                if optimization_method == "minmax_orthogonal":
+                if optimization_method == "minmax":
                     self.log_message("Building coupled G2 Bezier curves with minmax optimization...")
                     self.single_bezier_upper_poly_sharp, self.single_bezier_lower_poly_sharp = build_coupled_venkatamaran_beziers_minmax(
                         original_upper_data=self.upper_data,
@@ -368,8 +376,17 @@ class CoreProcessor:
                         te_tangent_vector_upper=upper_te_tangent_vector,
                         te_tangent_vector_lower=lower_te_tangent_vector,
                         optimization_method=optimization_method,
-                        use_curvature_sampling=use_curvature_sampling,
-                        num_points_curve_error=num_points_curve_error,
+                        logger_func=self.log_message,
+                    )
+                elif optimization_method in ["variable_x_g2", "variable_x_orthogonal_g2"]:
+                    self.log_message("Building coupled G2 Bezier curves with variable-x control points...")
+                    self.single_bezier_upper_poly_sharp, self.single_bezier_lower_poly_sharp = build_coupled_venkatamaran_beziers_variable_x(
+                        original_upper_data=self.upper_data,
+                        original_lower_data=self.lower_data,
+                        regularization_weight=regularization_weight,
+                        te_tangent_vector_upper=upper_te_tangent_vector,
+                        te_tangent_vector_lower=lower_te_tangent_vector,
+                        optimization_method=optimization_method,
                         logger_func=self.log_message,
                     )
                 else:
@@ -381,14 +398,12 @@ class CoreProcessor:
                         te_tangent_vector_upper=upper_te_tangent_vector,
                         te_tangent_vector_lower=lower_te_tangent_vector,
                         optimization_method=optimization_method,
-                        use_curvature_sampling=use_curvature_sampling,
-                        num_points_curve_error=num_points_curve_error,
                         logger_func=self.log_message,
                     )
 
 
             else:
-                if optimization_method == "minmax_orthogonal":
+                if optimization_method == "minmax":
                     self.log_message("Building single Bezier curves with minmax optimization...")
                     self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier_minmax(
                         original_data=self.upper_data,
@@ -398,8 +413,6 @@ class CoreProcessor:
                         te_tangent_vector=upper_te_tangent_vector,
                         regularization_weight=regularization_weight,
                         optimization_method=optimization_method,
-                        num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling,
                         num_points_curvature_resample=num_points_curvature_resample,
                         logger_func=self.log_message
                     )
@@ -412,13 +425,11 @@ class CoreProcessor:
                         te_tangent_vector=lower_te_tangent_vector,
                         regularization_weight=regularization_weight,
                         optimization_method=optimization_method,
-                        num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling,
                         num_points_curvature_resample=num_points_curvature_resample,
                         logger_func=self.log_message
                     )
 
-                elif optimization_method == "median_x_icp":
+                elif optimization_method == "variable_x":
                     self.log_message("Building single Bezier curves with median-x control points...")
                     self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.upper_data,
@@ -428,8 +439,6 @@ class CoreProcessor:
                         te_tangent_vector=upper_te_tangent_vector,
                         regularization_weight=regularization_weight,
                         optimization_method=optimization_method,
-                        num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling,
                         logger_func=self.log_message
                     )
                     self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
@@ -440,11 +449,9 @@ class CoreProcessor:
                         te_tangent_vector=lower_te_tangent_vector,
                         regularization_weight=regularization_weight,
                         optimization_method=optimization_method,
-                        num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling,
                         logger_func=self.log_message
                     )
-                elif optimization_method == "median_x_orthogonal":
+                elif optimization_method == "variable_x_orthogonal":
                     self.log_message("Building single Bezier curves with median-x control points and orthogonal error...")
                     self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.upper_data,
@@ -454,8 +461,6 @@ class CoreProcessor:
                         te_tangent_vector=upper_te_tangent_vector,
                         regularization_weight=regularization_weight,
                         optimization_method=optimization_method,
-                        num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling,
                         logger_func=self.log_message
                     )
                     self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
@@ -466,12 +471,10 @@ class CoreProcessor:
                         te_tangent_vector=lower_te_tangent_vector,
                         regularization_weight=regularization_weight,
                         optimization_method=optimization_method,
-                        num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling,
                         logger_func=self.log_message
                     )
-                else:  # standard_icp
-                    self.log_message("Building single Bezier curves with standard ICP optimization...")
+                else:  # fixed_x
+                    self.log_message("Building single Bezier curves with fixed-x optimization...")
                     self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.upper_data,
                         num_control_points_new=num_control_points_single_bezier,
@@ -480,8 +483,6 @@ class CoreProcessor:
                         te_tangent_vector=upper_te_tangent_vector,
                         regularization_weight=regularization_weight,
                         optimization_method=optimization_method,
-                        num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling,
                         logger_func=self.log_message
                     )
                     self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
@@ -492,33 +493,31 @@ class CoreProcessor:
                         te_tangent_vector=lower_te_tangent_vector,
                         regularization_weight=regularization_weight,
                         optimization_method=optimization_method,
-                        num_points_curve_error=num_points_curve_error,
-                        use_curvature_sampling=use_curvature_sampling,
                         logger_func=self.log_message
                     )
 
-            # Calculate and store both MSE and ICP errors for single Bezier curves
+            # Calculate and store both MSE and Euclidean errors for single Bezier curves
             upper_error_result = calculate_single_bezier_fitting_error(
-                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="icp", return_max_error=True, num_points_curve_error=num_points_curve_error, use_curvature_sampling=use_curvature_sampling
+                np.array(self.single_bezier_upper_poly_sharp), self.upper_data, error_function="euclidean", return_max_error=True
             )
-            # Ensure we have a tuple result for ICP with return_max_error=True
+            # Ensure we have a tuple result for Euclidean with return_max_error=True
             if isinstance(upper_error_result, tuple) and len(upper_error_result) == 3:
-                icp_sum_upper, icp_max_upper, icp_max_upper_idx = upper_error_result
-                self.last_single_bezier_upper_max_error = icp_max_upper
-                self.last_single_bezier_upper_max_error_idx = icp_max_upper_idx
+                euclidean_sum_upper, euclidean_max_upper, euclidean_max_upper_idx = upper_error_result
+                self.last_single_bezier_upper_max_error = euclidean_max_upper
+                self.last_single_bezier_upper_max_error_idx = euclidean_max_upper_idx
             else:
                 self.log_message("Warning: Unexpected return format from upper error calculation")
                 self.last_single_bezier_upper_max_error = None
                 self.last_single_bezier_upper_max_error_idx = None
             
             lower_error_result = calculate_single_bezier_fitting_error(
-                np.array(self.single_bezier_lower_poly_sharp), self.lower_data, error_function="icp", return_max_error=True, num_points_curve_error=num_points_curve_error, use_curvature_sampling=use_curvature_sampling
+                np.array(self.single_bezier_lower_poly_sharp), self.lower_data, error_function="euclidean", return_max_error=True
             )
-            # Ensure we have a tuple result for ICP with return_max_error=True
+            # Ensure we have a tuple result for Euclidean with return_max_error=True
             if isinstance(lower_error_result, tuple) and len(lower_error_result) == 3:
-                icp_sum_lower, icp_max_lower, icp_max_lower_idx = lower_error_result
-                self.last_single_bezier_lower_max_error = icp_max_lower
-                self.last_single_bezier_lower_max_error_idx = icp_max_lower_idx
+                euclidean_sum_lower, euclidean_max_lower, euclidean_max_lower_idx = lower_error_result
+                self.last_single_bezier_lower_max_error = euclidean_max_lower
+                self.last_single_bezier_lower_max_error_idx = euclidean_max_lower_idx
             else:
                 self.log_message("Warning: Unexpected return format from lower error calculation")
                 self.last_single_bezier_lower_max_error = None

@@ -5,7 +5,7 @@ import logging
 from core import config
 from utils.bezier_optimization_utils import calculate_all_orthogonal_distances
 from utils.error_calculators import calculate_single_bezier_fitting_error, resample_points_by_curvature, calculate_orthogonal_error_minmax
-from utils.control_point_utils import median_x_control_points, get_paper_fixed_x_coords
+from utils.control_point_utils import variable_x_control_points, get_paper_fixed_x_coords
 
 def _log_message(message, logger_func=None):
     """Helper function to log messages using either the provided logger function or standard logging."""
@@ -15,31 +15,68 @@ def _log_message(message, logger_func=None):
         logging.info(message)
 
 
-def map_gui_strategy_to_internal(gui_strategy: str) -> dict:
-    """Map GUI fitting strategy selection to internal configuration"""
-    mapping = {
-        "Standard ICP (Fast)": {
-            "method": "standard_icp",
+def map_gui_strategy_to_internal(gui_strategy: str, enforce_g2: bool = False, error_function: str = "Euclidean") -> dict:
+    """Map GUI strategy and error function selection to internal configuration"""
+    
+    # Map strategy to control point strategy and base method
+    strategy_mapping = {
+        "Fixed-x": {
             "control_point_strategy": "paper_fixed",
-            "error_metric": "icp"
+            "base_method": "fixed_x"
         },
-        "MinMax Orthogonal (Experimental)": {
-            "method": "minmax_orthogonal",
+        "Variable-x": {
+            "control_point_strategy": "variable_x", 
+            "base_method": "variable_x"
+        },
+        "Minmax": {
             "control_point_strategy": "paper_fixed",
-            "error_metric": "orthogonal_minmax"
-        },
-        "Median-X ICP (Venkataraman 2017)": {
-            "method": "median_x_icp",
-            "control_point_strategy": "median_x",
-            "error_metric": "icp"
-        },
-        "Median-X Orthogonal": {
-            "method": "median_x_orthogonal",
-            "control_point_strategy": "median_x",
-            "error_metric": "orthogonal_minmax"
+            "base_method": "minmax"
         }
     }
-    return mapping.get(gui_strategy, mapping["Standard ICP (Fast)"])
+    
+    strategy_config = strategy_mapping.get(gui_strategy, strategy_mapping["Fixed-x"])
+    
+    # Map error function to error metric and sampling type
+    error_mapping = {
+        "Euclidean": {
+            "error_metric": "euclidean",
+            "use_curvature_sampling": False
+        },
+        "Orthogonal": {
+            "error_metric": "orthogonal_minmax" if gui_strategy == "Minmax" else "orthogonal_icp",
+            "use_curvature_sampling": True
+        }
+    }
+    
+    error_config = error_mapping.get(error_function, error_mapping["Euclidean"])
+    
+    # Combine strategy and error function to determine final method
+    method = strategy_config["base_method"]
+    
+    # Apply error function modifications
+    if error_function == "Orthogonal":
+        if gui_strategy == "Fixed-x":
+            method = "fixed_x_orthogonal"
+        elif gui_strategy == "Variable-x":
+            method = "variable_x_orthogonal"
+        elif gui_strategy == "Minmax":
+            method = "minmax"
+    
+    # If G2 is enabled, map variable-x methods to their G2 equivalents
+    if enforce_g2:
+        if method == "variable_x":
+            method = "variable_x_g2"
+        elif method == "variable_x_orthogonal":
+            method = "variable_x_orthogonal_g2"
+    
+    config = {
+        "method": method,
+        "control_point_strategy": strategy_config["control_point_strategy"],
+        "error_metric": error_config["error_metric"],
+        "use_curvature_sampling": error_config["use_curvature_sampling"]
+    }
+    
+    return config
 
 
 
@@ -49,17 +86,20 @@ def map_gui_strategy_to_internal(gui_strategy: str) -> dict:
 
 def build_single_venkatamaran_bezier(original_data, num_control_points_new,
                                  is_upper_surface,
-                                 le_tangent_vector, te_tangent_vector, regularization_weight=0.01, optimization_method="standard_icp", num_points_curve_error=None, use_curvature_sampling=False, logger_func=None):
+                                 le_tangent_vector, te_tangent_vector, regularization_weight=0.01, optimization_method="fixed_x", logger_func=None):
     """
     Builds a single Bezier curve using the Venkataraman method.
     Optimizes only the y-coordinates of the inner control points.
-    optimization_method: "standard_icp", "median_x_icp", "median_x_orthogonal"
+    optimization_method: "fixed_x", "variable_x", "variable_x_orthogonal", "fixed_x_orthogonal"
     """
     _ = le_tangent_vector
 
+    # Automatically determine sampling type based on optimization method
+    use_curvature_sampling = optimization_method in ["minmax_orthogonal", "variable_x_orthogonal", "orthogonal_icp", "variable_x_orthogonal_g2"]
+
     # Choose x-coordinates for control points
-    if optimization_method.startswith("median_x"):
-        paper_fixed_x_coords = median_x_control_points(original_data, num_control_points_new)
+    if optimization_method.startswith("variable_x"):
+        paper_fixed_x_coords = variable_x_control_points(original_data, num_control_points_new)
     else:
         paper_fixed_x_coords = get_paper_fixed_x_coords(is_upper_surface)
 
@@ -74,11 +114,13 @@ def build_single_venkatamaran_bezier(original_data, num_control_points_new,
         control_points[1:-1, 0] = fixed_inner_x_coords
         control_points[1:-1, 1] = variables_y
         control_points[-1] = np.array([1.0, 0.0])  # TE at (1,0)
-        # Use orthogonal error if requested
-        if optimization_method == "median_x_orthogonal":
-            fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function="orthogonal_minmax", num_points_curve_error=num_points_curve_error, use_curvature_sampling=use_curvature_sampling)
+        # Use appropriate error function based on optimization method
+        if optimization_method == "variable_x_orthogonal":
+            fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function="orthogonal_minmax")
+        elif optimization_method == "fixed_x_orthogonal":
+            fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function="orthogonal_icp")
         else:
-            fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function="icp", num_points_curve_error=num_points_curve_error, use_curvature_sampling=use_curvature_sampling)
+            fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function="euclidean")
         if isinstance(fitting_error, tuple):
             fitting_error = fitting_error[0]
         smoothness_penalty = 0.0
@@ -126,8 +168,7 @@ def build_single_venkatamaran_bezier(original_data, num_control_points_new,
 def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_new,
                                           is_upper_surface,
                                           le_tangent_vector, te_tangent_vector, 
-                                          regularization_weight=0.01, optimization_method="minmax_orthogonal", 
-                                          num_points_curve_error=None, use_curvature_sampling=False,
+                                          regularization_weight=0.01, optimization_method="minmax", 
                                           num_points_curvature_resample=config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE, logger_func=None):
     """
     Builds a single Bezier curve using minmax optimization with orthogonal distance.
@@ -138,6 +179,9 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
     # Currently, the leading-edge tangent vector is not used by this implementation,
     # but the parameter is retained for future extensions and API stability.
     _ = le_tangent_vector
+
+    # Automatically determine sampling type based on optimization method
+    use_curvature_sampling = optimization_method in ["minmax_orthogonal", "variable_x_orthogonal", "orthogonal_icp", "variable_x_orthogonal_g2"]
 
     paper_fixed_x_coords = get_paper_fixed_x_coords(is_upper_surface)
 
@@ -201,8 +245,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
         le_tangent_vector=le_tangent_vector,
         te_tangent_vector=te_tangent_vector,
         regularization_weight=regularization_weight,
-        error_function="icp",
-        num_points_curve_error=num_points_curve_error,
+        optimization_method="fixed_x",
         use_curvature_sampling=use_curvature_sampling,
         logger_func=logger_func
     )
@@ -227,8 +270,9 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
         objective_minmax,
         icp_inner_y,  # Use ICP result as initial guess
         method='SLSQP',
+        
         constraints=constraints,
-        options={'disp': False, 'maxiter': 300, 'ftol': 1e-10}
+        options={'disp': False, 'maxiter': config.SLSQP_OPTIONS['maxiter'], 'ftol': config.SLSQP_OPTIONS['ftol']}
     )
 
     if not result.success:
@@ -259,9 +303,7 @@ def build_coupled_venkatamaran_beziers(
     regularization_weight,
     te_tangent_vector_upper,
     te_tangent_vector_lower,
-    optimization_method="standard_icp",
-    use_curvature_sampling=False,
-    num_points_curve_error=None,
+    optimization_method="fixed_x",
     logger_func=None,
 ):
     """Build upper and lower single-segment Bézier curves simultaneously while
@@ -270,8 +312,13 @@ def build_coupled_venkatamaran_beziers(
     Only the *y*-coordinates of the inner control points are optimised; *x*-values
     remain fixed to the Venkataraman paper.  The function returns a tuple
     ``(upper_ctrl_pts, lower_ctrl_pts)``.
+    
+    Supports optimization_method: "fixed_x", "fixed_x_orthogonal"
     """
     _log_message("Building coupled G2 Bezier curves using " + optimization_method + " optimization", logger_func)
+
+    # Automatically determine sampling type based on optimization method
+    use_curvature_sampling = optimization_method in ["minmax_orthogonal", "variable_x_orthogonal", "orthogonal_icp", "variable_x_orthogonal_g2"]
 
     # Fixed abscissae from the paper
     paper_fixed_x_upper = get_paper_fixed_x_coords(True)  # upper
@@ -280,6 +327,12 @@ def build_coupled_venkatamaran_beziers(
     inner_x_upper = paper_fixed_x_upper[1:-1]  # 8 values
     inner_x_lower = paper_fixed_x_lower[1:-1]
     n_inner = len(inner_x_upper)
+
+    # Define start and end points
+    start_point_upper = np.array([0.0, 0.0])  # LE at (0,0)
+    end_point_upper = np.array([1.0, 0.0])    # TE at (1,0)
+    start_point_lower = np.array([0.0, 0.0])  # LE at (0,0)
+    end_point_lower = np.array([1.0, 0.0])    # TE at (1,0)
 
     # Initial guesses by interpolation of raw data
     init_y_upper = np.interp(inner_x_upper, original_upper_data[:, 0], original_upper_data[:, 1])
@@ -312,8 +365,15 @@ def build_coupled_venkatamaran_beziers(
     # --- Objective -----------------------------------------------------------
     def objective(var_y):
         ctrl_u, ctrl_l = _assemble_polygons(var_y)
-        err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function="icp", use_curvature_sampling=use_curvature_sampling, num_points_curve_error=num_points_curve_error)
-        err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function="icp", use_curvature_sampling=use_curvature_sampling, num_points_curve_error=num_points_curve_error)
+        
+        # Choose error function based on optimization method
+        if optimization_method == "fixed_x_orthogonal":
+            error_func = "orthogonal_icp"
+        else:
+            error_func = "euclidean"
+            
+        err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function=error_func)
+        err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function=error_func)
 
         # Extract just the error value if tuple is returned
         if isinstance(err_u, tuple):
@@ -366,7 +426,8 @@ def build_coupled_venkatamaran_beziers(
     result = minimize(
         objective,
         initial_guess,
-        method="SLSQP",
+        method='SLSQP',
+        
         constraints=constraints,
         options=config.SLSQP_OPTIONS,
     )
@@ -380,15 +441,202 @@ def build_coupled_venkatamaran_beziers(
     ctrl_upper_final, ctrl_lower_final = _assemble_polygons(var_y_final)
     return ctrl_upper_final, ctrl_lower_final
 
+
+def build_coupled_venkatamaran_beziers_variable_x(
+    original_upper_data,
+    original_lower_data,
+    regularization_weight,
+    te_tangent_vector_upper,
+    te_tangent_vector_lower,
+    optimization_method="variable_x_g2",
+    logger_func=None,
+):
+    """Build upper and lower single-segment Bézier curves simultaneously while
+    enforcing G2 continuity (equal curvature) at the leading edge.
+    
+    Uses variable x-coordinates for control points instead of fixed paper coordinates.
+    Supports both ICP and orthogonal error metrics.
+    """
+    _log_message("Building coupled G2 Bezier curves with variable-x control points using " + optimization_method + " optimization", logger_func)
+
+    # Automatically determine sampling type based on optimization method
+    use_curvature_sampling = optimization_method in ["minmax_orthogonal", "variable_x_orthogonal", "orthogonal_icp", "variable_x_orthogonal_g2"]
+
+    # Choose x-coordinates for control points using variable-x strategy
+    num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+    paper_fixed_x_upper = variable_x_control_points(original_upper_data, num_control_points)
+    paper_fixed_x_lower = variable_x_control_points(original_lower_data, num_control_points)
+
+    inner_x_upper = paper_fixed_x_upper[1:-1]  # Skip first and last points
+    inner_x_lower = paper_fixed_x_lower[1:-1]
+    n_inner = len(inner_x_upper)
+
+    # Define start and end points
+    start_point_upper = np.array([0.0, 0.0])  # LE at (0,0)
+    end_point_upper = np.array([1.0, 0.0])    # TE at (1,0)
+    start_point_lower = np.array([0.0, 0.0])  # LE at (0,0)
+    end_point_lower = np.array([1.0, 0.0])    # TE at (1,0)
+
+    # Initial guesses by interpolation of raw data
+    init_y_upper = np.interp(inner_x_upper, original_upper_data[:, 0], original_upper_data[:, 1])
+    init_y_lower = np.interp(inner_x_lower, original_lower_data[:, 0], original_lower_data[:, 1])
+    initial_guess = np.concatenate([init_y_upper, init_y_lower])
+
+    # For orthogonal methods, use a two-stage approach to improve convergence
+    if optimization_method == "variable_x_orthogonal_g2":
+        _log_message("Using two-stage optimization for orthogonal variable-x G2 method...", logger_func)
+        
+        # Stage 1: Run Fixed-x optimization to get a good initial guess
+        icp_upper, icp_lower = build_coupled_venkatamaran_beziers_variable_x(
+            original_upper_data=original_upper_data,
+            original_lower_data=original_lower_data,
+            regularization_weight=regularization_weight,
+            te_tangent_vector_upper=te_tangent_vector_upper,
+            te_tangent_vector_lower=te_tangent_vector_lower,
+            optimization_method="variable_x_g2",
+            logger_func=logger_func,
+        )
+        
+        # Extract the y-coordinates of the inner control points from ICP results
+        icp_upper_inner_y = icp_upper[1:-1, 1]  # Skip first and last points, take y-coordinates
+        icp_lower_inner_y = icp_lower[1:-1, 1]
+        
+        # Use Fixed-x result as improved initial guess
+        initial_guess = np.concatenate([icp_upper_inner_y, icp_lower_inner_y])
+        _log_message("Stage 1 complete: Fixed-x optimization finished as initial guess for variable-x G2", logger_func)
+
+    # --- Helper to build full control polygons from variable vector ----------
+    def _assemble_polygons(var_y):
+        y_u = var_y[:n_inner]
+        y_l = var_y[n_inner:]
+
+        # Pre-allocate arrays for better performance
+        ctrl_upper = np.zeros((n_inner + 2, 2))
+        ctrl_lower = np.zeros((n_inner + 2, 2))
+
+        # Upper polygon
+        ctrl_upper[0] = start_point_upper
+        ctrl_upper[1:-1, 0] = inner_x_upper
+        ctrl_upper[1:-1, 1] = y_u
+        ctrl_upper[-1] = end_point_upper
+
+        # Lower polygon
+        ctrl_lower[0] = start_point_lower
+        ctrl_lower[1:-1, 0] = inner_x_lower
+        ctrl_lower[1:-1, 1] = y_l
+        ctrl_lower[-1] = end_point_lower
+
+        return ctrl_upper, ctrl_lower
+
+    # --- Objective -----------------------------------------------------------
+    def objective(var_y):
+        ctrl_u, ctrl_l = _assemble_polygons(var_y)
+        
+        # Use orthogonal error if requested
+        if optimization_method == "variable_x_orthogonal_g2":
+            err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function="orthogonal_minmax")
+            err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function="orthogonal_minmax")
+        else:  # variable_x_g2
+            err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function="euclidean")
+            err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function="euclidean")
+
+        # Extract just the error value if tuple is returned
+        if isinstance(err_u, tuple):
+            err_u = err_u[0]
+        if isinstance(err_l, tuple):
+            err_l = err_l[0]
+
+        # Smoothness (second diff) penalty
+        def _smooth(ctrl):
+            if len(ctrl) <= 2:
+                return 0.0
+            return np.sum(np.diff(ctrl[:, 1], n=2) ** 2)
+
+        smooth = _smooth(ctrl_u) + _smooth(ctrl_l)
+        return err_u + err_l + regularization_weight * smooth
+
+    # --- Constraints ---------------------------------------------------------
+    constraints = []
+
+    # Trailing-edge tangency (upper)
+    tx_u, ty_u = te_tangent_vector_upper
+    px_n_u, py_n_u = end_point_upper
+    px_n1_u = inner_x_upper[-1]
+
+    if not np.isclose(tx_u, 0.0):
+        def _te_tan_upper(var_y):
+            y_nm1 = var_y[n_inner - 1]  # last inner y of upper
+            return y_nm1 * tx_u - (py_n_u * tx_u - (px_n_u - px_n1_u) * ty_u)
+        constraints.append({"type": "eq", "fun": _te_tan_upper})
+
+    # Trailing-edge tangency (lower)
+    tx_l, ty_l = te_tangent_vector_lower
+    px_n_l, py_n_l = end_point_lower
+    px_n1_l = inner_x_lower[-1]
+
+    if not np.isclose(tx_l, 0.0):
+        def _te_tan_lower(var_y):
+            y_nm1_l = var_y[-1]  # last element corresponds to lower inner trailing point
+            return y_nm1_l * tx_l - (py_n_l * tx_l - (px_n_l - px_n1_l) * ty_l)
+        constraints.append({"type": "eq", "fun": _te_tan_lower})
+
+    # G2 continuity at LE: curvature_upper + curvature_lower == 0
+    def _g2_constraint(var_y):
+        ctrl_u, ctrl_l = _assemble_polygons(var_y)
+        return leading_edge_curvature(ctrl_u) + leading_edge_curvature(ctrl_l)
+
+    constraints.append({"type": "eq", "fun": _g2_constraint})
+
+    # For orthogonal methods, use more conservative optimization settings
+    if optimization_method == "variable_x_orthogonal_g2":
+        # Use more conservative SLSQP options for better convergence
+        slsqp_options = {
+            'disp': False,
+            'maxiter': min(2000, config.SLSQP_OPTIONS['maxiter']),  # More iterations
+            'ftol': 1e-8,  # Slightly relaxed tolerance
+            'eps': 1e-8    # Finite difference step size
+        }
+    else:
+        slsqp_options = config.SLSQP_OPTIONS
+
+    # --- Optimise ------------------------------------------------------------
+    result = minimize(
+        objective,
+        initial_guess,
+        method='SLSQP',
+        constraints=constraints,
+        options=slsqp_options,
+    )
+
+    if not result.success:
+        if optimization_method == "variable_x_orthogonal_g2":
+            _log_message(f"Orthogonal variable-x G2 optimization failed. Falling back to ICP method. Reason: {result.message}", logger_func)
+            # Fall back to ICP method
+            return build_coupled_venkatamaran_beziers_variable_x(
+                original_upper_data=original_upper_data,
+                original_lower_data=original_lower_data,
+                regularization_weight=regularization_weight,
+                te_tangent_vector_upper=te_tangent_vector_upper,
+                te_tangent_vector_lower=te_tangent_vector_lower,
+                optimization_method="variable_x_g2",
+                logger_func=logger_func,
+            )
+        else:
+            _log_message(f"Coupled variable-x Bezier build failed. Using initial guess. Reason: {result.message}", logger_func)
+            var_y_final = initial_guess
+    else:
+        var_y_final = result.x
+
+    ctrl_upper_final, ctrl_lower_final = _assemble_polygons(var_y_final)
+    return ctrl_upper_final, ctrl_lower_final
+
 def build_coupled_venkatamaran_beziers_minmax(
     original_upper_data,
     original_lower_data,
     regularization_weight,
     te_tangent_vector_upper,
     te_tangent_vector_lower,
-    optimization_method="minmax_orthogonal",
-    use_curvature_sampling=False,
-    num_points_curve_error=None,
+    optimization_method="minmax",
     num_points_curvature_resample=config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE,
     logger_func=None,
 ):
@@ -404,6 +652,9 @@ def build_coupled_venkatamaran_beziers_minmax(
     """
     _log_message("Building coupled G2 Bezier curves using minmax " + optimization_method + " optimization", logger_func)
 
+    # Automatically determine sampling type based on optimization method
+    use_curvature_sampling = optimization_method in ["minmax", "variable_x_orthogonal", "fixed_x_orthogonal", "variable_x_orthogonal_g2"]
+
     # Fixed abscissae from the paper
     paper_fixed_x_upper = get_paper_fixed_x_coords(True)  # upper
     paper_fixed_x_lower = get_paper_fixed_x_coords(False)  # lower
@@ -411,6 +662,12 @@ def build_coupled_venkatamaran_beziers_minmax(
     inner_x_upper = paper_fixed_x_upper[1:-1]  # 8 values
     inner_x_lower = paper_fixed_x_lower[1:-1]
     n_inner = len(inner_x_upper)
+
+    # Define start and end points
+    start_point_upper = np.array([0.0, 0.0])  # LE at (0,0)
+    end_point_upper = np.array([1.0, 0.0])    # TE at (1,0)
+    start_point_lower = np.array([0.0, 0.0])  # LE at (0,0)
+    end_point_lower = np.array([1.0, 0.0])    # TE at (1,0)
 
     # --- Helper to build full control polygons from variable vector ----------
     def _assemble_polygons(var_y):
@@ -498,9 +755,7 @@ def build_coupled_venkatamaran_beziers_minmax(
         regularization_weight=regularization_weight,
         te_tangent_vector_upper=te_tangent_vector_upper,
         te_tangent_vector_lower=te_tangent_vector_lower,
-        optimization_method="standard_icp",
-        use_curvature_sampling=use_curvature_sampling,
-        num_points_curve_error=num_points_curve_error,
+        optimization_method="fixed_x",
         logger_func=logger_func,
     )
 
@@ -524,9 +779,10 @@ def build_coupled_venkatamaran_beziers_minmax(
     result = minimize(
         objective_minmax,
         improved_initial_guess,
-        method="SLSQP",
+        method='SLSQP',
+        
         constraints=constraints,
-        options={'disp': False, 'maxiter': 500, 'ftol': 1e-10}
+        options={'disp': False, 'maxiter': config.SLSQP_OPTIONS['maxiter'], 'ftol': config.SLSQP_OPTIONS['ftol']}
     )
 
     if not result.success:

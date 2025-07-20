@@ -1,7 +1,7 @@
 import numpy as np
 from core import config
 
-def median_x_control_points(original_data, num_control_points):
+def variable_x_control_points(original_data, num_control_points):
     """
     Compute the x-locations for Bezier control points as the median x-value of each segment of the airfoil data.
     The first, second, second-to-last, and last control points are fixed at x=0 and x=1 as appropriate to preserve LE/TE tangency.

@@ -3,7 +3,7 @@ from core import config
 from utils.bezier_utils import general_bezier_curve
 from utils.bezier_optimization_utils import calculate_all_orthogonal_distances
 
-def calculate_icp_error(data_points, curve_points, return_max_error=False):
+def calculate_euclidean_error(data_points, curve_points, return_max_error=False):
     """
     Calculates the sum of squared Euclidean distances from each data point to the closest point on the curve.
     If return_max_error is True, also returns the maximum pointwise error (not squared) and its index.
@@ -40,29 +40,53 @@ def calculate_orthogonal_error_minmax(control_points, original_data):
     )
     return max_distance, max_distance_idx
 
-def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_function="icp", return_max_error=False, num_points_curve_error=None, use_curvature_sampling=False):
+def calculate_orthogonal_error_icp(control_points, original_data):
+    """
+    Calculate the sum of squared orthogonal distances for ICP-style optimization.
+    
+    Args:
+        control_points: np.array of shape (n+1, 2) - Bezier control points
+        original_data: np.array of shape (N, 2) - original airfoil data points
+    
+    Returns:
+        float: Sum of squared orthogonal distances
+    """
+    distances, _, _, _, _ = calculate_all_orthogonal_distances(
+        original_data, control_points
+    )
+    return np.sum(distances ** 2)
+
+def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_function="euclidean", return_max_error=False):
     """
     Calculates the fitting error between a Bezier curve and the original data using the specified error function.
-    Supported error functions: 'icp', 'orthogonal_minmax'
+    Supported error functions: 'euclidean', 'orthogonal_minmax', 'orthogonal_icp'
     If return_max_error is True, returns (sum, max_error, max_error_idx).
     """
+    # Automatically determine sampling type based on error function
+    use_curvature_sampling = error_function in ["orthogonal_minmax", "orthogonal_icp"]
+    
     if error_function == "orthogonal_minmax":
         max_error, max_error_idx = calculate_orthogonal_error_minmax(bezier_poly, original_data)
         if return_max_error:
             return max_error, max_error, max_error_idx  # For minmax, sum and max are the same
         return max_error
     
-    else:  # ICP (default)
-        if num_points_curve_error is None:
-            num_points_curve = config.NUM_POINTS_CURVE_ERROR
-        else:
-            num_points_curve = num_points_curve_error
-        
+    elif error_function == "orthogonal_icp":
+        # Use sum of squared orthogonal distances (ICP-style with orthogonal distance)
+        sum_sq_orthogonal = calculate_orthogonal_error_icp(bezier_poly, original_data)
+        if return_max_error:
+            # Also calculate max error for consistency
+            max_error, max_error_idx = calculate_orthogonal_error_minmax(bezier_poly, original_data)
+            return sum_sq_orthogonal, max_error, max_error_idx
+        return sum_sq_orthogonal
+    
+    else:  # Euclidean (default) - euclidean distance
+        num_points_curve = config.NUM_POINTS_CURVE_ERROR
         t_samples = np.linspace(0, 1, num_points_curve)
         
         curve_points = general_bezier_curve(t_samples, bezier_poly)
         curve_sorted = curve_points[np.argsort(curve_points[:, 0])]
-        return calculate_icp_error(original_data, curve_sorted, return_max_error=return_max_error)
+        return calculate_euclidean_error(original_data, curve_sorted, return_max_error=return_max_error)
 
 def resample_points_by_curvature(points, num_samples=200):
     """

@@ -156,15 +156,14 @@ class MainController(QObject):
         # Start generation in a new process
         try:
             regularization_weight = float(opt.single_bezier_reg_weight_input.text())
-            num_points_curve_error = int(opt.curve_error_points_input.text())
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
-            gui_strategy = opt.fitting_strategy_combo.currentText()
-            use_curvature_sampling = opt.use_curvature_sampling_checkbox.isChecked()
+            gui_strategy = opt.strategy_combo.currentText()
+            error_function = opt.error_function_combo.currentText()
             
             # Map GUI selection to internal method
             from core.optimization_core import map_gui_strategy_to_internal
-            method_config = map_gui_strategy_to_internal(gui_strategy)
+            method_config = map_gui_strategy_to_internal(gui_strategy, g2_flag, error_function)
             optimization_method = method_config["method"]
         except ValueError:
             self.processor.log_message.emit(
@@ -177,10 +176,8 @@ class MainController(QObject):
             self.processor.core_processor.lower_data,
             regularization_weight,
             g2_flag,
-            num_points_curve_error,
             te_vector_points,
-            optimization_method,
-            use_curvature_sampling
+            optimization_method
         )
         self._generation_process = multiprocessing.Process(
             target=_generation_worker,
@@ -281,15 +278,13 @@ class MainController(QObject):
 
     # ------------------------------------------------------------------
     def _recalculate_te_vectors_action(self):
-        """Handle *Recalculate TE vectors* button - only recalculates TE vectors and updates plot."""
+        """Handle *Recalculate* button - only recalculates TE vectors and updates plot."""
         opt = self.window.optimizer_panel
         try:
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             regularization_weight = float(opt.single_bezier_reg_weight_input.text())
             error_function = opt.error_function_combo.currentText()
             g2_flag = opt.g2_checkbox.isChecked()
-            num_points_curve_error = int(opt.curve_error_points_input.text())
-            use_curvature_sampling = opt.use_curvature_sampling_checkbox.isChecked()
         except ValueError:
             self.processor.log_message.emit("Error: Invalid input values. Please check all numeric inputs.")
             return
@@ -304,9 +299,7 @@ class MainController(QObject):
             regularization_weight,
             error_function=error_function,
             enforce_g2=g2_flag,
-            num_points_curve_error=num_points_curve_error,
-            te_vector_points=te_vector_points,
-            use_curvature_sampling=use_curvature_sampling
+            te_vector_points=te_vector_points
         )
         
         if success:
@@ -488,10 +481,8 @@ def _generation_worker(args, queue):
         lower_data,
         regularization_weight,
         g2_flag,
-        num_points_curve_error,
         te_vector_points,
         optimization_method,
-        use_curvature_sampling,
     ) = args
 
     # Check if debug logging is enabled
@@ -524,9 +515,7 @@ def _generation_worker(args, queue):
             regularization_weight=regularization_weight,
             optimization_method=optimization_method,
             enforce_g2=g2_flag,
-            num_points_curve_error=num_points_curve_error,
-            te_vector_points=te_vector_points,
-            use_curvature_sampling=use_curvature_sampling
+            te_vector_points=te_vector_points
         )
 
         if result:

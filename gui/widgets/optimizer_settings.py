@@ -28,9 +28,7 @@ class OptimizerSettingsWidget(QGroupBox):
         self.single_bezier_reg_weight_input = QLineEdit(str(config.DEFAULT_REGULARIZATION_WEIGHT))
         self.single_bezier_reg_weight_input.setFixedWidth(80)
 
-        # Curve error sample points
-        self.curve_error_points_input = QLineEdit(str(config.NUM_POINTS_CURVE_ERROR))
-        self.curve_error_points_input.setFixedWidth(80)
+
 
         # TE Vector Points dropdown
         self.default_te_vector_points = config.DEFAULT_TE_VECTOR_POINTS  # integer!
@@ -39,37 +37,45 @@ class OptimizerSettingsWidget(QGroupBox):
         self.te_vector_points_combo.setCurrentText(str(self.default_te_vector_points))
         self.te_vector_points_combo.setFixedWidth(80)
 
-        # Fitting Strategy dropdown (renamed from Error Function)
-        self.fitting_strategy_combo = QComboBox()
-        self.fitting_strategy_combo.addItems([
-            "Standard ICP (Fast)",
-            "MinMax Orthogonal (Experimental)", 
-            "Median-X ICP (Venkataraman 2017)",
-            "Median-X Orthogonal"
+        # Strategy dropdown (renamed from Fitting Strategy)
+        self.strategy_combo = QComboBox()
+        self.strategy_combo.addItems([
+            "Fixed-x",
+            "Variable-x", 
+            "Minmax"
         ])
-        self.fitting_strategy_combo.setCurrentText("Standard ICP (Fast)")  # Default to fastest, most reliable method
-        self.fitting_strategy_combo.setFixedWidth(200)
+        self.strategy_combo.setCurrentText("Fixed-x")  # Default to fastest, most reliable method
+        self.strategy_combo.setFixedWidth(120)
         
-        # Tooltips for fitting strategy dropdown
-        self.fitting_strategy_combo.setToolTip(
-            "Standard ICP: Fastest method (~5-10s), good accuracy\n"
-            "MinMax Orthogonal: Experimental, minimizes maximum error\n"
-            "Median-X ICP: Uses median x-locations for control points as in Venkataraman 2017\n"
-            "Median-X Orthogonal: Median x-locations with orthogonal error metric"
+        # Tooltips for strategy dropdown
+        self.strategy_combo.setToolTip(
+            "Fixed-x: Fastest method (~5-10s), good accuracy\n"
+            "Variable-x: Uses variable x-locations for control points\n"
+            "Minmax: Experimental, minimizes maximum error\n"
+            "Note: Check 'Enforce G2 at leading edge' to use coupled optimization with G2 continuity\n"
+        )
+
+        # Error Function dropdown (new)
+        self.error_function_combo = QComboBox()
+        self.error_function_combo.addItems([
+            "Euclidean",
+            "Orthogonal"
+        ])
+        self.error_function_combo.setCurrentText("Euclidean")  # Default as requested
+        self.error_function_combo.setFixedWidth(120)
+        
+        # Tooltips for error function dropdown
+        self.error_function_combo.setToolTip(
+            "Euclidean: Uses linear sampling, measures point-to-point distance\n"
+            "Orthogonal: Uses dynamic sampling, measures perpendicular distance to curve\n"
         )
 
         # Enforce G2 at leading edge
         self.g2_checkbox = QCheckBox("Enforce G2 at leading edge")
 
-        # Use curvature sampling
-        self.use_curvature_sampling_checkbox = QCheckBox("Use curvature-based sampling")
-        self.use_curvature_sampling_checkbox.setToolTip(
-            "Use curvature-based sampling for the ICP algorithm to improve accuracy."
-        )
-
         # Action buttons
         self.build_single_bezier_button = QPushButton("Generate Airfoil")
-        self.recalculate_button = QPushButton("Recalculate TE vectors")
+        self.recalculate_button = QPushButton("Recalculate")
         self.recalculate_button.setEnabled(False)  # Initially disabled
 
         # --- Layout ------------------------------------------------------
@@ -82,26 +88,29 @@ class OptimizerSettingsWidget(QGroupBox):
         reg_row.addStretch(1)
         layout.addLayout(reg_row)
 
-        # Curve error points
-        err_row = QHBoxLayout()
-        err_row.addWidget(QLabel("Curve Error Points:"))
-        err_row.addWidget(self.curve_error_points_input)
-        err_row.addStretch(1)
-        layout.addLayout(err_row)
 
-        # TE Vector Points
+
+        # TE Vector Points and Recalculate button in same row
         te_row = QHBoxLayout()
         te_row.addWidget(QLabel("TE Vector Points:"))
         te_row.addWidget(self.te_vector_points_combo)
+        te_row.addWidget(self.recalculate_button)
         te_row.addStretch(1)
         layout.addLayout(te_row)
 
-        # Fitting Strategy (renamed from Error Function)
+        # Strategy (renamed from Fitting Strategy)
         strategy_row = QHBoxLayout()
-        strategy_row.addWidget(QLabel("Fitting Strategy:"))
-        strategy_row.addWidget(self.fitting_strategy_combo)
+        strategy_row.addWidget(QLabel("Strategy:"))
+        strategy_row.addWidget(self.strategy_combo)
         strategy_row.addStretch(1)
         layout.addLayout(strategy_row)
+
+        # Error Function (new)
+        error_row = QHBoxLayout()
+        error_row.addWidget(QLabel("Error Function:"))
+        error_row.addWidget(self.error_function_combo)
+        error_row.addStretch(1)
+        layout.addLayout(error_row)
 
         # G2 checkbox
         g2_row = QHBoxLayout()
@@ -109,16 +118,9 @@ class OptimizerSettingsWidget(QGroupBox):
         g2_row.addStretch(1)
         layout.addLayout(g2_row)
 
-        # Use curvature sampling checkbox
-        curvature_row = QHBoxLayout()
-        curvature_row.addWidget(self.use_curvature_sampling_checkbox)
-        curvature_row.addStretch(1)
-        layout.addLayout(curvature_row)
-
         # Buttons
         button_row = QHBoxLayout()
         button_row.addWidget(self.build_single_bezier_button)
-        button_row.addWidget(self.recalculate_button)
         layout.addLayout(button_row)
 
         self.setLayout(layout)
