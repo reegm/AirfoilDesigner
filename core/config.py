@@ -47,7 +47,7 @@ DEFAULT_TE_THICKNESS_MM: float = 0.0
 SLSQP_OPTIONS = {
     "disp": False,
     "maxiter": 1000,
-    "ftol": 1e-12,
+    "ftol": 1e-9,
 }
 
 # ICP_OPTIONS = {
@@ -64,3 +64,7 @@ NUM_POINTS_CURVE_ERROR: int = 10000
 # Number of points used for trailing edge vector calculations
 # Higher numbers provide more robust tangent estimates but may be less sensitive to local geometry
 DEFAULT_TE_VECTOR_POINTS: int = 3
+
+# Number of points used for curvature-based resampling
+# Higher numbers provide more accurate curvature representation but at the cost of performance
+DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE: int = 10000

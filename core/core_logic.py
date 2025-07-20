@@ -11,8 +11,8 @@ from core.optimization_core import (
     build_coupled_venkatamaran_beziers,
     build_single_venkatamaran_bezier_minmax,
     build_coupled_venkatamaran_beziers_minmax,
-    calculate_single_bezier_fitting_error,
 )
+from utils.error_calculators import calculate_single_bezier_fitting_error
 from utils.data_loader import load_airfoil_data, find_shoulder_x_coords
 from utils.dxf_exporter import export_curves_to_dxf
 from utils.bezier_utils import bezier_curvature, general_bezier_curve
@@ -307,7 +307,7 @@ class CoreProcessor:
             )
         )
 
-    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False, num_points_curve_error=None, te_vector_points=None, use_curvature_sampling: bool = False, num_points_curvature_resample: int = 200):
+    def build_single_bezier_model(self, regularization_weight, error_function="icp", enforce_g2=False, num_points_curve_error=None, te_vector_points=None, use_curvature_sampling: bool = False, num_points_curvature_resample: int = config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
@@ -356,12 +356,6 @@ class CoreProcessor:
         le_tangent_upper = np.array([0.0, 1.0]) # Vertical tangent at LE for upper surface
         le_tangent_lower = np.array([0.0, -1.0]) # Vertical tangent at LE for lower surface
 
-        upper_le_point = np.array([0.0, 0.0])
-        upper_te_point_final = np.array([1.0, te_thickness_for_build / 2.0])
-
-        lower_le_point = np.array([0.0, 0.0])
-        lower_te_point_final = np.array([1.0, -te_thickness_for_build / 2.0])
-
         try:
             if enforce_g2:
                 # --- Coupled optimisation with G2 continuity ---
@@ -371,10 +365,6 @@ class CoreProcessor:
                         original_upper_data=self.upper_data,
                         original_lower_data=self.lower_data,
                         regularization_weight=regularization_weight,
-                        start_point_upper=upper_le_point,
-                        end_point_upper=upper_te_point_final,
-                        start_point_lower=lower_le_point,
-                        end_point_lower=lower_te_point_final,
                         te_tangent_vector_upper=upper_te_tangent_vector,
                         te_tangent_vector_lower=lower_te_tangent_vector,
                         error_function=error_function,
@@ -387,10 +377,6 @@ class CoreProcessor:
                         original_upper_data=self.upper_data,
                         original_lower_data=self.lower_data,
                         regularization_weight=regularization_weight,
-                        start_point_upper=upper_le_point,
-                        end_point_upper=upper_te_point_final,
-                        start_point_lower=lower_le_point,
-                        end_point_lower=lower_te_point_final,
                         te_tangent_vector_upper=upper_te_tangent_vector,
                         te_tangent_vector_lower=lower_te_tangent_vector,
                         error_function=error_function,
@@ -405,8 +391,6 @@ class CoreProcessor:
                     self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier_minmax(
                         original_data=self.upper_data,
                         num_control_points_new=num_control_points_single_bezier,
-                        start_point=upper_le_point,
-                        end_point=upper_te_point_final,
                         is_upper_surface=True,
                         le_tangent_vector=le_tangent_upper,
                         te_tangent_vector=upper_te_tangent_vector,
@@ -420,8 +404,6 @@ class CoreProcessor:
                     self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier_minmax(
                         original_data=self.lower_data,
                         num_control_points_new=num_control_points_single_bezier,
-                        start_point=lower_le_point,
-                        end_point=lower_te_point_final,
                         is_upper_surface=False,
                         le_tangent_vector=le_tangent_lower,
                         te_tangent_vector=lower_te_tangent_vector,
@@ -437,8 +419,6 @@ class CoreProcessor:
                     self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.upper_data,
                         num_control_points_new=num_control_points_single_bezier,
-                        start_point=upper_le_point,
-                        end_point=upper_te_point_final,
                         is_upper_surface=True,
                         le_tangent_vector=le_tangent_upper,
                         te_tangent_vector=upper_te_tangent_vector,
@@ -450,8 +430,6 @@ class CoreProcessor:
                     self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.lower_data,
                         num_control_points_new=num_control_points_single_bezier,
-                        start_point=lower_le_point,
-                        end_point=lower_te_point_final,
                         is_upper_surface=False,
                         le_tangent_vector=le_tangent_lower,
                         te_tangent_vector=lower_te_tangent_vector,
@@ -465,8 +443,6 @@ class CoreProcessor:
                     self.single_bezier_upper_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.upper_data,
                         num_control_points_new=num_control_points_single_bezier,
-                        start_point=upper_le_point,
-                        end_point=upper_te_point_final,
                         is_upper_surface=True,
                         le_tangent_vector=le_tangent_upper,
                         te_tangent_vector=upper_te_tangent_vector,
@@ -478,8 +454,6 @@ class CoreProcessor:
                     self.single_bezier_lower_poly_sharp = build_single_venkatamaran_bezier(
                         original_data=self.lower_data,
                         num_control_points_new=num_control_points_single_bezier,
-                        start_point=lower_le_point,
-                        end_point=lower_te_point_final,
                         is_upper_surface=False,
                         le_tangent_vector=le_tangent_lower,
                         te_tangent_vector=lower_te_tangent_vector,

@@ -3,6 +3,7 @@ import copy
 from PySide6.QtCore import QObject, Signal
 import logging
 
+from core import config
 from core.core_logic import CoreProcessor
 from utils.bezier_utils import general_bezier_curve, bezier_derivative, bezier_curvature
 
@@ -62,7 +63,14 @@ class AirfoilProcessor(QObject):
         """Returns True if the loaded airfoil has a thickened trailing edge."""
         return self._is_trailing_edge_thickened
 
-    def build_single_bezier_model(self, regularization_weight, error_function="orthogonal_minmax", enforce_g2=False, num_points_curve_error=None, te_vector_points=None, use_curvature_sampling: bool = False, num_points_curvature_resample: int = 200):
+    def build_single_bezier_model(
+            self, regularization_weight, 
+            error_function="orthogonal_minmax", 
+            enforce_g2=False, 
+            num_points_curve_error=None, 
+            te_vector_points=None, 
+            use_curvature_sampling: bool = False, 
+            num_points_curvature_resample: int = config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
