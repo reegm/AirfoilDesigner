@@ -243,12 +243,12 @@ class MainController(QObject):
                         chord_length_mm = float(self.window.airfoil_settings_panel.chord_length_input.text())
                         upper_error_mm = upper_error * chord_length_mm
                         lower_error_mm = lower_error * chord_length_mm
-                        error_message = f"\n  Upper surface max error: {upper_error:.6f} ({upper_error_mm:.3f}mm @ {chord_length_mm:.0f}mm chord)"
-                        error_message += f"\n  Lower surface max error: {lower_error:.6f} ({lower_error_mm:.3f}mm @ {chord_length_mm:.0f}mm chord)"
+                        error_message = f"\n  Upper surface max error: {upper_error:.3e} ({upper_error_mm:.3f}mm @ {chord_length_mm:.0f}mm chord)"
+                        error_message += f"\n  Lower surface max error: {lower_error:.3e} ({lower_error_mm:.3f}mm @ {chord_length_mm:.0f}mm chord)"
                     except:
                         # Fallback to just normalized units
-                        error_message = f"\n  Upper surface max error: {upper_error:.6f}"
-                        error_message += f"\n  Lower surface max error: {lower_error:.6f}"
+                        error_message = f"\n  Upper surface max error: {upper_error:.3e}"
+                        error_message += f"\n  Lower surface max error: {lower_error:.3e}"
                     
                     base_message += error_message
                 

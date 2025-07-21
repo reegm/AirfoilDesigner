@@ -98,7 +98,8 @@ def build_single_venkatamaran_bezier(
     Optimizes only the y-coordinates of the inner control points.
     optimization_method: "fixed_x", "variable_x", "variable_x_orthogonal", "fixed_x_orthogonal"
     """
-    _ = le_tangent_vector
+    # Extract trailing edge y-value from the normalized data
+    te_y = float(original_data[-1, 1])
         # Choose x-coordinates for control points
     if optimization_method.startswith("variable_x"):
         paper_fixed_x_coords = variable_x_control_points(original_data, num_control_points_new)
@@ -115,7 +116,7 @@ def build_single_venkatamaran_bezier(
         control_points[0] = np.array([0.0, 0.0])  # LE at (0,0)
         control_points[1:-1, 0] = fixed_inner_x_coords
         control_points[1:-1, 1] = variables_y
-        control_points[-1] = np.array([1.0, 0.0])  # TE at (1,0)
+        control_points[-1] = np.array([1.0, te_y])  # TE at (1, te_y)
         # Use appropriate error function based on optimization method
         if optimization_method == "variable_x_orthogonal":
             fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function="orthogonal_icp", return_max_error=False)
@@ -164,7 +165,7 @@ def build_single_venkatamaran_bezier(
     control_points[0] = np.array([0.0, 0.0])  # LE at (0,0)
     control_points[1:-1, 0] = fixed_inner_x_coords
     control_points[1:-1, 1] = variables_y
-    control_points[-1] = np.array([1.0, 0.0])  # TE at (1,0)
+    control_points[-1] = np.array([1.0, te_y])  # TE at (1, te_y)
     return control_points
 
 def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_new,
@@ -177,6 +178,8 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
     Optimizes to minimize the maximum orthogonal distance error.
     First runs a full fixed-x optimization to get a good initial guess.
     """
+    # Extract trailing edge y-value from the normalized data
+    te_y = float(original_data[-1, 1])
 
     # Currently, the leading-edge tangent vector is not used by this implementation,
     # but the parameter is retained for future extensions and API stability.
@@ -198,7 +201,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
         control_points[0] = np.array([0.0, 0.0])  # LE at (0,0)
         control_points[1:-1, 0] = fixed_inner_x_coords
         control_points[1:-1, 1] = variables_y
-        control_points[-1] = np.array([1.0, 0.0])  # TE at (1,0)
+        control_points[-1] = np.array([1.0, te_y])  # TE at (1, te_y)
 
         # Calculate maximum orthogonal distance
         try:
@@ -284,7 +287,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
     control_points[0] = np.array([0.0, 0.0])  # LE at (0,0)
     control_points[1:-1, 0] = fixed_inner_x_coords
     control_points[1:-1, 1] = variables_y
-    control_points[-1] = np.array([1.0, 0.0])  # TE at (1,0)
+    control_points[-1] = np.array([1.0, te_y])  # TE at (1, te_y)
     return control_points
 
 # -----------------------------------------------------------------------------
@@ -310,6 +313,10 @@ def build_coupled_venkatamaran_beziers(
     Supports optimization_method: "fixed_x", "fixed_x_orthogonal"
     """
     _log_message("Building coupled G2 Bezier curves using " + optimization_method + " optimization", logger_func)
+
+    # Extract trailing edge y-values from the normalized data
+    te_y_upper = float(original_upper_data[-1, 1])
+    te_y_lower = float(original_lower_data[-1, 1])
 
     # Fixed abscissae from the paper
     paper_fixed_x_upper = get_paper_fixed_x_coords(True)  # upper
@@ -343,13 +350,13 @@ def build_coupled_venkatamaran_beziers(
         ctrl_upper[0] = start_point_upper
         ctrl_upper[1:-1, 0] = inner_x_upper
         ctrl_upper[1:-1, 1] = y_u
-        ctrl_upper[-1] = end_point_upper
+        ctrl_upper[-1] = np.array([1.0, te_y_upper])  # TE at (1, te_y_upper)
 
         # Lower polygon
         ctrl_lower[0] = start_point_lower
         ctrl_lower[1:-1, 0] = inner_x_lower
         ctrl_lower[1:-1, 1] = y_l
-        ctrl_lower[-1] = end_point_lower
+        ctrl_lower[-1] = np.array([1.0, te_y_lower])  # TE at (1, te_y_lower)
 
         return ctrl_upper, ctrl_lower
 
@@ -450,6 +457,10 @@ def build_coupled_venkatamaran_beziers_variable_x(
     """
     _log_message("Building coupled G2 Bezier curves with variable-x control points using " + optimization_method + " optimization", logger_func)
 
+    # Extract trailing edge y-values from the normalized data
+    te_y_upper = float(original_upper_data[-1, 1])
+    te_y_lower = float(original_lower_data[-1, 1])
+
     # Choose x-coordinates for control points using variable-x strategy
     num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
     paper_fixed_x_upper = variable_x_control_points(original_upper_data, num_control_points)
@@ -506,13 +517,13 @@ def build_coupled_venkatamaran_beziers_variable_x(
         ctrl_upper[0] = start_point_upper
         ctrl_upper[1:-1, 0] = inner_x_upper
         ctrl_upper[1:-1, 1] = y_u
-        ctrl_upper[-1] = end_point_upper
+        ctrl_upper[-1] = np.array([1.0, te_y_upper])  # TE at (1, te_y_upper)
 
         # Lower polygon
         ctrl_lower[0] = start_point_lower
         ctrl_lower[1:-1, 0] = inner_x_lower
         ctrl_lower[1:-1, 1] = y_l
-        ctrl_lower[-1] = end_point_lower
+        ctrl_lower[-1] = np.array([1.0, te_y_lower])  # TE at (1, te_y_lower)
 
         return ctrl_upper, ctrl_lower
 
@@ -627,6 +638,10 @@ def build_coupled_venkatamaran_beziers_minmax(
     """
     _log_message("Building coupled G2 Bezier curves using minmax " + optimization_method + " optimization", logger_func)
 
+    # Extract trailing edge y-values from the normalized data
+    te_y_upper = float(original_upper_data[-1, 1])
+    te_y_lower = float(original_lower_data[-1, 1])
+
     # Fixed abscissae from the paper
     paper_fixed_x_upper = get_paper_fixed_x_coords(True)  # upper
     paper_fixed_x_lower = get_paper_fixed_x_coords(False)  # lower
@@ -654,13 +669,13 @@ def build_coupled_venkatamaran_beziers_minmax(
         ctrl_upper[0] = start_point_upper
         ctrl_upper[1:-1, 0] = inner_x_upper
         ctrl_upper[1:-1, 1] = y_u
-        ctrl_upper[-1] = end_point_upper
+        ctrl_upper[-1] = np.array([1.0, te_y_upper])  # TE at (1, te_y_upper)
 
         # Lower polygon
         ctrl_lower[0] = start_point_lower
         ctrl_lower[1:-1, 0] = inner_x_lower
         ctrl_lower[1:-1, 1] = y_l
-        ctrl_lower[-1] = end_point_lower
+        ctrl_lower[-1] = np.array([1.0, te_y_lower])  # TE at (1, te_y_lower)
 
         return ctrl_upper, ctrl_lower
 

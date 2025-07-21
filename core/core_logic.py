@@ -256,7 +256,6 @@ class CoreProcessor:
                     (self.upper_data, True, upper_te_tangent_vector, "upper"),
                     (self.lower_data, False, lower_te_tangent_vector, "lower")
                 ]:
-                    
                     poly = builder_fn(
                         original_data=surf,
                         num_control_points_new=num_control_points_single_bezier,
@@ -276,6 +275,8 @@ class CoreProcessor:
                 ("upper", self.single_bezier_upper_poly_sharp, self.upper_data),
                 ("lower", self.single_bezier_lower_poly_sharp, self.lower_data)
             ]:
+                # Use the actual TE y-value from the Bezier control points for error calculations
+                te_y = control_poly[-1][1]
                 error_result = calculate_single_bezier_fitting_error(
                     np.array(control_poly), orig_data, error_function="euclidean", return_max_error=True
                 )
