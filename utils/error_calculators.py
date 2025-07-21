@@ -18,6 +18,7 @@ def calculate_euclidean_error(data_points, curve_points, return_max_error=False)
     num_points_curve = config.NUM_POINTS_CURVE_ERROR
     t_samples = np.linspace(0, 1, num_points_curve)
     resampled_curve_points = general_bezier_curve(t_samples, curve_points)
+    resampled_curve_points = resampled_curve_points[np.argsort(resampled_curve_points[:, 0])]
 
     # Vectorized distance calculation
     dists = np.linalg.norm(data_points[:, None, :] - resampled_curve_points[None, :, :], axis=2)
@@ -86,59 +87,3 @@ def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_func
     
     else:  # Euclidean (default) - euclidean distance
         return calculate_euclidean_error(original_data, bezier_poly, return_max_error=return_max_error)
-
-def resample_points_by_curvature(points, num_samples=200):
-    """
-    Resample a 2D point set (Nx2) so that points are more densely distributed in regions of high curvature.
-    Uses chord-length parameterization and Bezier curvature as a proxy for local curvature.
-    Returns a new (num_samples, 2) array.
-    """
-    points = np.asarray(points)
-    if len(points) < 3: # or num_samples <= len(points):
-        # Not enough points or already dense, just return original (or linearly interpolated)
-        t_orig = np.linspace(0, 1, len(points))
-        t_new = np.linspace(0, 1, num_samples)
-        return np.column_stack([
-            np.interp(t_new, t_orig, points[:, 0]),
-            np.interp(t_new, t_orig, points[:, 1])
-        ])
-
-    # Chord-length parameterization
-    dists = np.linalg.norm(np.diff(points, axis=0), axis=1)
-    t = np.zeros(len(points))
-    t[1:] = np.cumsum(dists)
-    t /= t[-1]
-
-    # Fit a Bezier curve to the points for curvature estimation
-    # Use degree = min(7, len(points)-1) for stability
-    from numpy.polynomial.polynomial import Polynomial
-    degree = min(7, len(points)-1)
-    # Fit x(t) and y(t) polynomials (not a true Bezier, but sufficient for curvature proxy)
-    px = Polynomial.fit(t, points[:, 0], degree)
-    py = Polynomial.fit(t, points[:, 1], degree)
-    t_dense = np.linspace(0, 1, max(400, 4*num_samples))
-    x_dense = px(t_dense)
-    y_dense = py(t_dense)
-    curve_dense = np.column_stack([x_dense, y_dense])
-
-    # Estimate curvature using finite differences
-    dx = np.gradient(x_dense, t_dense)
-    dy = np.gradient(y_dense, t_dense)
-    ddx = np.gradient(dx, t_dense)
-    ddy = np.gradient(dy, t_dense)
-    numerator = dx * ddy - dy * ddx
-    denominator = (dx**2 + dy**2) ** 1.5 + 1e-12
-    curvature = np.abs(numerator / denominator)
-    curvature += np.finfo(float).eps
-
-    # PDF and CDF for adaptive sampling
-    pdf = curvature / np.sum(curvature)
-    cdf = np.cumsum(pdf)
-    cdf[0] = 0.0
-    cdf[-1] = 1.0
-    u_values = np.linspace(0, 1, num_samples)
-    t_resampled = np.interp(u_values, cdf, t_dense)
-    # Interpolate original points at these t values
-    x_resampled = np.interp(t_resampled, t, points[:, 0])
-    y_resampled = np.interp(t_resampled, t, points[:, 1])
-    return np.column_stack([x_resampled, y_resampled]) 

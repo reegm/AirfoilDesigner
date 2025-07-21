@@ -47,7 +47,7 @@ DEFAULT_TE_THICKNESS_MM: float = 0.0
 SLSQP_OPTIONS = {
     "disp": False,
     "maxiter": 1000,
-    "ftol": 1e-9,
+    "ftol": 1e-12,
     # "eps": 1e-8
 }
 
@@ -72,4 +72,4 @@ DEBUG_WORKER_LOGGING: bool = False
 
 # Orthogonal distance calculation settings
 ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 100
-ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-10
+ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-12

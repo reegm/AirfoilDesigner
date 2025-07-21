@@ -133,7 +133,7 @@ def calculate_orthogonal_distance_to_bezier_optimized(point, control_points, ini
             candidates = [0.5]
     
     # Reduced number of candidates for better performance
-    candidates.extend([0.0, 0.5, 1.0])
+    candidates.extend([0.0, 0.25, 0.5, 0.75, 1.0])
     candidates = list(set(candidates))  # Remove duplicates
     
     # Try each candidate and keep the best result
@@ -150,10 +150,10 @@ def calculate_orthogonal_distance_to_bezier_optimized(point, control_points, ini
                 best_curve_point = curve_pt
         except:
             continue
-    
     # Fallback: coarse sampling if Newton-Raphson fails
     if best_distance == float('inf') or best_distance > 1.0:
-        t_samples = np.linspace(0, 1, 50)  # Reduced from 100
+        print("Newton-Raphson failed. Falling back to coarse sampling.")
+        t_samples = np.linspace(0, 1, 100)
         distances = []
         for t_sample in t_samples:
             curve_pt = evaluator.evaluate(t_sample)
