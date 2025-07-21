@@ -33,7 +33,7 @@ jobs:
       - name: Build EXE
         env:
           PYTHONOPTIMIZE: 2
-        run: pyinstaller --onefile --noconsole --clean --name AirfoilDesigner run_gui.py
+        run: pyinstaller --onefile --noconsole --clean --name --icon=img/favicon.ico AirfoilDesigner run_gui.py
 
       - name: List dist folder
         run: dir dist\
