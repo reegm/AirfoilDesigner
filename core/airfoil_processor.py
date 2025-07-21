@@ -68,7 +68,7 @@ class AirfoilProcessor(QObject):
             optimization_method="fixed_x", 
             enforce_g2=False, 
             te_vector_points=None, 
-            num_points_curvature_resample: int = config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE):
+        ):
         """
         Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
         This method always builds a sharp (thickness 0) single Bezier curve.
@@ -90,7 +90,6 @@ class AirfoilProcessor(QObject):
             optimization_method=optimization_method,
             enforce_g2=enforce_g2,
             te_vector_points=te_vector_points,
-            num_points_curvature_resample=num_points_curvature_resample
         )
         elapsed = time.perf_counter() - start_time
         self.log_message.emit(f"Single Bezier model built in {elapsed:.3f} seconds.")

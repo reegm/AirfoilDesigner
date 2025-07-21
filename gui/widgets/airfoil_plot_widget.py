@@ -296,7 +296,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
             )
             max_upper_mm = max_single_upper * chord_length_mm
             max_lower_mm = max_single_lower * chord_length_mm
-            error_html += f"Max Error (U/L): {max_upper_mm:.3f} mm / {max_lower_mm:.3f} mm"
+            error_html += f"Max Error (Upper/Lower): {max_single_upper:.2e} ({max_upper_mm:.3f} mm) / {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
             error_html += "</div>"
             text_item = pg.TextItem(html=error_html, anchor=(1, 1))
             self.addItem(text_item)

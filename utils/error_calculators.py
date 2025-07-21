@@ -14,8 +14,13 @@ def calculate_euclidean_error(data_points, curve_points, return_max_error=False)
     Returns:
         float or (float, float, int): Sum of squared distances, and optionally the max pointwise error and its index.
     """
+    # Sample points along the Bezier curve for error calculation
+    num_points_curve = config.NUM_POINTS_CURVE_ERROR
+    t_samples = np.linspace(0, 1, num_points_curve)
+    resampled_curve_points = general_bezier_curve(t_samples, curve_points)
+
     # Vectorized distance calculation
-    dists = np.linalg.norm(data_points[:, None, :] - curve_points[None, :, :], axis=2)
+    dists = np.linalg.norm(data_points[:, None, :] - resampled_curve_points[None, :, :], axis=2)
     min_dists = np.min(dists, axis=1)
     sum_sq = np.sum(min_dists ** 2)
     if return_max_error:
@@ -35,6 +40,7 @@ def calculate_orthogonal_error_minmax(control_points, original_data):
     Returns:
         tuple: (max_error, max_error_idx) or float (max_error) depending on usage
     """
+    # Calculate orthogonal distances from original_data to the curve
     distances, max_distance, max_distance_idx, _, _ = calculate_all_orthogonal_distances(
         original_data, control_points
     )
@@ -62,8 +68,6 @@ def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_func
     Supported error functions: 'euclidean', 'orthogonal_minmax', 'orthogonal_icp'
     If return_max_error is True, returns (sum, max_error, max_error_idx).
     """
-    # Automatically determine sampling type based on error function
-    use_curvature_sampling = error_function in ["orthogonal_minmax", "orthogonal_icp"]
     
     if error_function == "orthogonal_minmax":
         max_error, max_error_idx = calculate_orthogonal_error_minmax(bezier_poly, original_data)
@@ -81,12 +85,7 @@ def calculate_single_bezier_fitting_error(bezier_poly, original_data, error_func
         return sum_sq_orthogonal
     
     else:  # Euclidean (default) - euclidean distance
-        num_points_curve = config.NUM_POINTS_CURVE_ERROR
-        t_samples = np.linspace(0, 1, num_points_curve)
-        
-        curve_points = general_bezier_curve(t_samples, bezier_poly)
-        curve_sorted = curve_points[np.argsort(curve_points[:, 0])]
-        return calculate_euclidean_error(original_data, curve_sorted, return_max_error=return_max_error)
+        return calculate_euclidean_error(original_data, bezier_poly, return_max_error=return_max_error)
 
 def resample_points_by_curvature(points, num_samples=200):
     """
@@ -95,7 +94,7 @@ def resample_points_by_curvature(points, num_samples=200):
     Returns a new (num_samples, 2) array.
     """
     points = np.asarray(points)
-    if len(points) < 3 or num_samples <= len(points):
+    if len(points) < 3: # or num_samples <= len(points):
         # Not enough points or already dense, just return original (or linearly interpolated)
         t_orig = np.linspace(0, 1, len(points))
         t_new = np.linspace(0, 1, num_samples)

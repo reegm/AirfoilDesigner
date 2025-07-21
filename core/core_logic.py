@@ -203,14 +203,11 @@ class CoreProcessor:
             )
         )
 
-    def build_single_bezier_model(self, regularization_weight, optimization_method="fixed_x", enforce_g2=False, te_vector_points=None, num_points_curvature_resample: int = config.DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE):
+    def build_single_bezier_model(self, regularization_weight, optimization_method="fixed_x", enforce_g2=False, te_vector_points=None):
         if self.upper_data is None or self.lower_data is None:
             self.log_message("Error: Original airfoil data not loaded. Cannot build single Bezier model.")
             return False
-        use_curvature_sampling = optimization_method in ["minmax", "variable_x_orthogonal", "fixed_x_orthogonal", "variable_x_orthogonal_g2"]
-        if use_curvature_sampling:
-            self.log_message("Using dynamic sampling for orthogonal error methods.")
-        else:
+        if optimization_method not in ["minmax", "variable_x_orthogonal", "fixed_x_orthogonal", "variable_x_orthogonal_g2"]:
             self.log_message("Using linear sampling for euclidean error methods.")
         num_control_points_single_bezier = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
         if self.thickened:
@@ -243,30 +240,15 @@ class CoreProcessor:
         try:
             builder_fn, builder_type = get_venkat_bezier_builder(enforce_g2, optimization_method)
             if builder_type == "coupled":
-                # Check if the builder function accepts num_points_curvature_resample parameter
-                import inspect
-                sig = inspect.signature(builder_fn)
-                if 'num_points_curvature_resample' in sig.parameters:
-                    upper_poly, lower_poly = builder_fn(
-                        original_upper_data=self.upper_data,
-                        original_lower_data=self.lower_data,
-                        regularization_weight=regularization_weight,
-                        te_tangent_vector_upper=upper_te_tangent_vector,
-                        te_tangent_vector_lower=lower_te_tangent_vector,
-                        optimization_method=optimization_method,
-                        num_points_curvature_resample=num_points_curvature_resample,
-                        logger_func=self.log_message,
-                    )
-                else:
-                    upper_poly, lower_poly = builder_fn(
-                        original_upper_data=self.upper_data,
-                        original_lower_data=self.lower_data,
-                        regularization_weight=regularization_weight,
-                        te_tangent_vector_upper=upper_te_tangent_vector,
-                        te_tangent_vector_lower=lower_te_tangent_vector,
-                        optimization_method=optimization_method,
-                        logger_func=self.log_message,
-                    )
+                upper_poly, lower_poly = builder_fn(
+                    original_upper_data=self.upper_data,
+                    original_lower_data=self.lower_data,
+                    regularization_weight=regularization_weight,
+                    te_tangent_vector_upper=upper_te_tangent_vector,
+                    te_tangent_vector_lower=lower_te_tangent_vector,
+                    optimization_method=optimization_method,
+                    logger_func=self.log_message,
+                )
                 self.single_bezier_upper_poly_sharp = upper_poly
                 self.single_bezier_lower_poly_sharp = lower_poly
             else:
@@ -274,32 +256,17 @@ class CoreProcessor:
                     (self.upper_data, True, upper_te_tangent_vector, "upper"),
                     (self.lower_data, False, lower_te_tangent_vector, "lower")
                 ]:
-                    # Check if the builder function accepts num_points_curvature_resample parameter
-                    import inspect
-                    sig = inspect.signature(builder_fn)
-                    if 'num_points_curvature_resample' in sig.parameters:
-                        poly = builder_fn(
-                            original_data=surf,
-                            num_control_points_new=num_control_points_single_bezier,
-                            is_upper_surface=is_upper,
-                            le_tangent_vector=le_tangent_upper if is_upper else le_tangent_lower,
-                            te_tangent_vector=tangent,
-                            regularization_weight=regularization_weight,
-                            optimization_method=optimization_method,
-                            num_points_curvature_resample=num_points_curvature_resample,
-                            logger_func=self.log_message
-                        )
-                    else:
-                        poly = builder_fn(
-                            original_data=surf,
-                            num_control_points_new=num_control_points_single_bezier,
-                            is_upper_surface=is_upper,
-                            le_tangent_vector=le_tangent_upper if is_upper else le_tangent_lower,
-                            te_tangent_vector=tangent,
-                            regularization_weight=regularization_weight,
-                            optimization_method=optimization_method,
-                            logger_func=self.log_message
-                        )
+                    
+                    poly = builder_fn(
+                        original_data=surf,
+                        num_control_points_new=num_control_points_single_bezier,
+                        is_upper_surface=is_upper,
+                        le_tangent_vector=le_tangent_upper if is_upper else le_tangent_lower,
+                        te_tangent_vector=tangent,
+                        regularization_weight=regularization_weight,
+                        optimization_method=optimization_method,
+                        logger_func=self.log_message
+                    )
                     if assign == "upper":
                         self.single_bezier_upper_poly_sharp = poly
                     else:
@@ -312,7 +279,7 @@ class CoreProcessor:
                 error_result = calculate_single_bezier_fitting_error(
                     np.array(control_poly), orig_data, error_function="euclidean", return_max_error=True
                 )
-                if isinstance(error_result, tuple) and len(error_result) == 3:
+                if isinstance(error_result, tuple): # and len(error_result) == 3:
                     _, max_err, max_err_idx = error_result
                     if assign == "upper":
                         self.last_single_bezier_upper_max_error = max_err

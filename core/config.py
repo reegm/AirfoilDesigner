@@ -48,7 +48,7 @@ SLSQP_OPTIONS = {
     "disp": False,
     "maxiter": 1000,
     "ftol": 1e-9,
-    "eps": 1e-8
+    # "eps": 1e-8
 }
 
 # ---- Sampling & Debugging -----------------------------------------------
@@ -57,13 +57,10 @@ SLSQP_OPTIONS = {
 # estimates at the cost of performance.
 NUM_POINTS_CURVE_ERROR: int = 10000
 
+
 # Number of points used for trailing edge vector calculations
 # Higher numbers provide more robust tangent estimates but may be less sensitive to local geometry
 DEFAULT_TE_VECTOR_POINTS: int = 3
-
-# Number of points used for curvature-based resampling
-# Higher numbers provide more accurate curvature representation but at the cost of performance
-DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE: int = 10000
 
 # ---- Debugging & Logging -------------------------------------------------
 # Enable detailed logging from worker processes during optimization
@@ -71,8 +68,8 @@ DEFAULT_NUM_POINTS_CURVATURE_RESAMPLE: int = 10000
 # When False: Shows only spinner during optimization (default)
 # 
 # To enable debug logging, change this to: DEBUG_WORKER_LOGGING: bool = True
-DEBUG_WORKER_LOGGING: bool = True
+DEBUG_WORKER_LOGGING: bool = False
 
 # Orthogonal distance calculation settings
 ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 100
-ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-12
+ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-10
