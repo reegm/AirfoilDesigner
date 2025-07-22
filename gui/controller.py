@@ -298,7 +298,6 @@ class MainController(QObject):
         # Rebuild the model with current settings
         success = self.processor.build_single_bezier_model(
             regularization_weight,
-            error_function=error_function,
             enforce_g2=g2_flag,
             te_vector_points=te_vector_points
         )
