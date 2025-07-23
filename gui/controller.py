@@ -283,9 +283,9 @@ class MainController(QObject):
         opt = self.window.optimizer_panel
         try:
             te_vector_points = int(opt.te_vector_points_combo.currentText())
-            regularization_weight = float(opt.single_bezier_reg_weight_input.text())
-            error_function = opt.error_function_combo.currentText()
-            g2_flag = opt.g2_checkbox.isChecked()
+            # regularization_weight = float(opt.single_bezier_reg_weight_input.text())
+            # error_function = opt.error_function_combo.currentText()
+            # g2_flag = opt.g2_checkbox.isChecked()
         except ValueError:
             self.processor.log_message.emit("Error: Invalid input values. Please check all numeric inputs.")
             return
@@ -294,19 +294,7 @@ class MainController(QObject):
         # Disable the recalculate button until dropdown changes again
         opt.disable_recalc_button()
         self.processor.log_message.emit(f"Recalculating with TE vector points set to: {te_vector_points}")
-
-        # Rebuild the model with current settings
-        success = self.processor.build_single_bezier_model(
-            regularization_weight,
-            enforce_g2=g2_flag,
-            te_vector_points=te_vector_points
-        )
         
-        if success:
-            self.processor.log_message.emit("Model recalculated successfully with new TE vector points setting.")
-        else:
-            self.processor.log_message.emit("Failed to recalculate model. Check the settings and try again.")
-
     # ------------------------------------------------------------------
     def _toggle_thickening_action(self) -> None:
         """Apply/remove trailing-edge thickening."""
@@ -484,7 +472,6 @@ def _generation_worker(args, queue):
     from utils.data_loader import load_airfoil_data, find_shoulder_x_coords
     from utils.dxf_exporter import export_curves_to_dxf
     from utils.bezier_utils import bezier_curvature, general_bezier_curve
-    from utils.bezier_optimization_utils import calculate_all_orthogonal_distances
     from utils.control_point_utils import variable_x_control_points, get_paper_fixed_x_coords
     from core.optimization_core import map_gui_strategy_to_internal, build_coupled_venkatamaran_beziers, build_coupled_venkatamaran_beziers_minmax, build_coupled_venkatamaran_beziers_variable_x, build_single_venkatamaran_bezier, build_single_venkatamaran_bezier_minmax
 
