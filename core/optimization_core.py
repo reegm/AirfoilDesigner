@@ -84,99 +84,232 @@ def map_gui_strategy_to_internal(gui_strategy: str, enforce_g2: bool = False, er
 
 
 def build_single_venkatamaran_bezier(
-                                original_data,
-                                num_control_points_new,
-                                is_upper_surface,
-                                le_tangent_vector,
-                                te_tangent_vector,
-                                regularization_weight=0.01,
-                                optimization_method="fixed_x",
-                                logger_func=None,
-                                ):
+    original_data,
+    num_control_points_new,
+    is_upper_surface,
+    le_tangent_vector,
+    te_tangent_vector,
+    regularization_weight=0.01,
+    optimization_method="fixed_x",
+    logger_func=None,
+):
     """
-    Builds a single Bezier curve using the Venkataraman method.
-    Optimizes only the y-coordinates of the inner control points.
-    optimization_method: "fixed_x", "variable_x", "variable_x_orthogonal", "fixed_x_orthogonal"
+    Builds a single Bezier curve using a variable-X and Y SLSQP optimization (if optimization_method starts with 'variable_x').
+    Optimizes both the y- and x-coordinates of the inner control points.
     """
-    # Extract trailing edge y-value from the normalized data
-    te_y = float(original_data[-1, 1])
-        # Choose x-coordinates for control points
+    import numpy as np
+    from scipy.optimize import minimize
+    from utils.error_calculators import calculate_single_bezier_fitting_error
+    from utils.control_point_utils import get_paper_fixed_x_coords
+    from core import config
+
+    n_ctrl = num_control_points_new
     if optimization_method.startswith("variable_x"):
-        paper_fixed_x_coords = variable_x_control_points(original_data, num_control_points_new)
+        if n_ctrl < 4:
+            raise ValueError("Need ≥4 control points for variable‑X implementation.")
+        n_inner = n_ctrl - 2
+        fixed_x_default = get_paper_fixed_x_coords(is_upper_surface)[1:-1]
+        te_y = float(original_data[-1, 1])
+        # Initial guess
+        init_y = np.interp(fixed_x_default, original_data[:, 0], original_data[:, 1])
+        init_x = fixed_x_default.copy()
+        x0 = np.concatenate([init_y, init_x])
+        # Helper to build control polygon
+        def build_ctrl(var_vec):
+            y_inner = var_vec[:n_inner]
+            x_inner = var_vec[n_inner:]
+            ctrl = np.zeros((n_ctrl, 2))
+            ctrl[0] = (0.0, 0.0)
+            ctrl[1:-1, 0] = x_inner
+            ctrl[1:-1, 1] = y_inner
+            ctrl[-1] = (1.0, te_y)
+            return ctrl
+        reg_weight = regularization_weight if regularization_weight is not None else config.DEFAULT_REGULARIZATION_WEIGHT
+        def objective(var_vec):
+            ctrl = build_ctrl(var_vec)
+            fit_res = calculate_single_bezier_fitting_error(
+                ctrl, original_data, error_function="orthogonal", return_max_error=True
+            )
+            if isinstance(fit_res, tuple):
+                _, max_err, _ = fit_res
+            else:
+                max_err = fit_res
+            diffs_y = np.diff(ctrl[:, 1], n=2) if n_ctrl > 4 else 0.0
+            smooth_y = np.sum(diffs_y ** 2)
+            diffs_x = np.diff(ctrl[:, 0], n=2) if n_ctrl > 4 else 0.0
+            smooth_x = np.sum(diffs_x ** 2)
+            penalty = reg_weight * (smooth_y + smooth_x)
+            return max_err + penalty
+        min_spacing = 1e-3
+        def monotone_constraints(var_vec):
+            x_inner = var_vec[n_inner:]
+            return np.diff(x_inner) - min_spacing
+        tx_te, ty_te = te_tangent_vector
+        def te_tangent_constraint(var_vec):
+            y_nm1 = var_vec[n_inner - 1]
+            x_nm1 = var_vec[-1]
+            return y_nm1 * tx_te - (0.0 * tx_te - (1.0 - x_nm1) * ty_te)
+        def x0_constraint(var_vec):
+            x_inner = var_vec[n_inner:]
+            return x_inner[0]  # should be zero
+        constraints = (
+            [{"type": "ineq", "fun": monotone_constraints},
+             {"type": "eq", "fun": x0_constraint}]
+            + ([{"type": "eq", "fun": te_tangent_constraint}] if not np.isclose(tx_te, 0.0) else [])
+        )
+        result = minimize(
+            objective,
+            x0,
+            method="SLSQP",
+            constraints=constraints,
+            options=config.SLSQP_OPTIONS
+        )
+        if not result.success:
+            _log_message(
+                f"Variable-X SLSQP optimization failed. Using initial guess. Reason: {result.message}",
+                logger_func
+            )
+            var_vec = x0
+        else:
+            var_vec = result.x
+        ctrl = build_ctrl(var_vec)
+        return ctrl
     else:
+        # Fallback to original fixed-x logic (unchanged)
+        te_y = float(original_data[-1, 1])
         paper_fixed_x_coords = get_paper_fixed_x_coords(is_upper_surface)
+        if num_control_points_new != len(paper_fixed_x_coords):
+            num_control_points_new = len(paper_fixed_x_coords)
+        fixed_inner_x_coords = paper_fixed_x_coords[1:-1]
+        def objective_build(variables_y):
+            control_points = np.zeros((len(variables_y) + 2, 2))
+            control_points[0] = np.array([0.0, 0.0])  # LE at (0,0)
+            control_points[1:-1, 0] = fixed_inner_x_coords
+            control_points[1:-1, 1] = variables_y
+            control_points[-1] = np.array([1.0, te_y])  # TE at (1, te_y)
+            fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function="euclidean", return_max_error=False)
+            if isinstance(fitting_error, tuple):
+                fitting_error = fitting_error[0]
+            smoothness_penalty = 0.0
+            if len(control_points) > 2:
+                diffs = np.diff(control_points[:, 1], n=2)
+                smoothness_penalty = np.sum(diffs ** 2)
+            return fitting_error + regularization_weight * smoothness_penalty
+        initial_guess_inner_y = np.interp(fixed_inner_x_coords, original_data[:, 0], original_data[:, 1])
+        constraints = []
+        tx_te, ty_te = te_tangent_vector
+        px_n, py_n = 1.0, 0.0  # TE at (1,0)
+        px_n_minus_1 = fixed_inner_x_coords[-1]
+        def te_tangent_constraint(variables_y):
+            y_n_minus_1 = variables_y[-1]
+            return y_n_minus_1 * tx_te - (py_n * tx_te - (px_n - px_n_minus_1) * ty_te)
+        if not np.isclose(tx_te, 0.0):
+            constraints.append({'type': 'eq', 'fun': te_tangent_constraint})
+        result = minimize(
+            objective_build,
+            initial_guess_inner_y,
+            method='SLSQP',
+            constraints=constraints,
+            options=config.SLSQP_OPTIONS
+        )
+        # from scipy.optimize import differential_evolution
+        # def de_refinement(initial_variables_y, original_data, fixed_inner_x_coords, 
+        #           te_y, regularization_weight, target_error=1e-5):
+        #     """DE refinement using your existing objective"""
+            
+        #     def objective_build(variables_y):
+        #         control_points = np.zeros((len(variables_y) + 2, 2))
+        #         control_points[0] = np.array([0.0, 0.0])  # LE at (0,0)
+        #         control_points[1:-1, 0] = fixed_inner_x_coords
+        #         control_points[1:-1, 1] = variables_y
+        #         control_points[-1] = np.array([1.0, te_y])  # TE at (1, te_y)
+                
+        #         fitting_error = calculate_single_bezier_fitting_error(
+        #             control_points, original_data, 
+        #             error_function="euclidean", 
+        #             return_max_error=False
+        #         )
+        #         if isinstance(fitting_error, tuple):
+        #             fitting_error = fitting_error[0]
+                    
+        #         smoothness_penalty = 0.0
+        #         if len(control_points) > 2:
+        #             diffs = np.diff(control_points[:, 1], n=2)
+        #             smoothness_penalty = np.sum(diffs ** 2)
+                    
+        #         return fitting_error + regularization_weight * smoothness_penalty
+            
+        #     # Set bounds around current solution
+        #     tolerance = 1e-3  # Adjust as needed
+        #     bounds = [(y - tolerance, y + tolerance) for y in initial_variables_y]
+            
+        #     result = differential_evolution(
+        #         objective_build,
+        #         bounds,
+        #         seed=42,
+        #         maxiter=1000,
+        #         atol=1e-12,  # Tight tolerance
+        #         tol=1e-12,
+        #         popsize=15,
+        #         mutation=(0.1, 0.5),
+        #         recombination=0.9
+        #     )
+            
+        #     return result.x, result.fun
+                
 
-    if num_control_points_new != len(paper_fixed_x_coords):
-        num_control_points_new = len(paper_fixed_x_coords)
+        if not result.success:
+            _log_message(
+                f"Single Bezier build failed. Using initial guess. Reason: {result.message}",
+                logger_func
+            )
+            variables_y = initial_guess_inner_y
+        else:
+        #     print("Refining with differential evolution...")
+        #     de_variables_y, de_error = de_refinement(
+        #         result.x, 
+        #         original_data,
+        #         fixed_inner_x_coords, 
+        #         te_y, 
+        #         regularization_weight
+        #     )
+            
+        #     print(f"DE result: {de_error:.2e}")
+            
+        #     # Use the better result
+        #     if de_error < result.fun:
+        #         final_variables_y = de_variables_y
+        #     else:
+        #         final_variables_y = result.x
 
-    fixed_inner_x_coords = paper_fixed_x_coords[1:-1]
-
-    def objective_build(variables_y):
+        #     variables_y = final_variables_y
+            variables_y = result.x
         control_points = np.zeros((len(variables_y) + 2, 2))
         control_points[0] = np.array([0.0, 0.0])  # LE at (0,0)
         control_points[1:-1, 0] = fixed_inner_x_coords
         control_points[1:-1, 1] = variables_y
         control_points[-1] = np.array([1.0, te_y])  # TE at (1, te_y)
-        # Use appropriate error function based on optimization method
-        if optimization_method == "variable_x_orthogonal":
-            fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function="orthogonal_icp", return_max_error=False)
-        elif optimization_method == "fixed_x_orthogonal":
-            fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function="orthogonal_icp", return_max_error=False)
-        else:
-            fitting_error = calculate_single_bezier_fitting_error(control_points, original_data, error_function="euclidean", return_max_error=False)
-        if isinstance(fitting_error, tuple):
-            fitting_error = fitting_error[0]
-        smoothness_penalty = 0.0
-        if len(control_points) > 2:
-            diffs = np.diff(control_points[:, 1], n=2)
-            smoothness_penalty = np.sum(diffs ** 2)
-        return fitting_error + regularization_weight * smoothness_penalty
-
-    initial_guess_inner_y = np.interp(fixed_inner_x_coords, original_data[:, 0], original_data[:, 1])
-
-    constraints = []
-    tx_te, ty_te = te_tangent_vector
-    px_n, py_n = 1.0, 0.0  # TE at (1,0)
-    px_n_minus_1 = fixed_inner_x_coords[-1]
-    def te_tangent_constraint(variables_y):
-        y_n_minus_1 = variables_y[-1]
-        return y_n_minus_1 * tx_te - (py_n * tx_te - (px_n - px_n_minus_1) * ty_te)
-    if not np.isclose(tx_te, 0.0):
-         constraints.append({'type': 'eq', 'fun': te_tangent_constraint})
-
-    result = minimize(
-        objective_build,
-        initial_guess_inner_y,
-        method='SLSQP',
-        constraints=constraints,
-        options=config.SLSQP_OPTIONS
-    )
-
-    if not result.success:
-        _log_message(
-            f"Single Bezier build failed. Using initial guess. Reason: {result.message}",
-            logger_func
-        )
-        variables_y = initial_guess_inner_y
-    else:
-        variables_y = result.x
-
-    control_points = np.zeros((len(variables_y) + 2, 2))
-    control_points[0] = np.array([0.0, 0.0])  # LE at (0,0)
-    control_points[1:-1, 0] = fixed_inner_x_coords
-    control_points[1:-1, 1] = variables_y
-    control_points[-1] = np.array([1.0, te_y])  # TE at (1, te_y)
-    return control_points
+        return control_points
 
 def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_new,
                                           is_upper_surface,
                                           le_tangent_vector, te_tangent_vector, 
                                           regularization_weight=0.01, optimization_method="minmax", 
-                                          logger_func=None):
+                                          logger_func=None, initial_guess_inner_y=None):
     """
     Builds a single Bezier curve using minmax optimization with orthogonal distance.
     Optimizes to minimize the maximum orthogonal distance error.
-    First runs a full fixed-x optimization to get a good initial guess.
+    First runs a full fixed-x optimization to get a good initial guess, unless initial_guess_inner_y is provided.
+    Args:
+        original_data (np.ndarray): The original data points (x, y).
+        num_control_points_new (int): The desired number of control points.
+        is_upper_surface (bool): True for upper surface, False for lower surface.
+        le_tangent_vector (tuple): The leading-edge tangent vector (tx, ty).
+        te_tangent_vector (tuple): The trailing-edge tangent vector (tx, ty).
+        regularization_weight (float): The weight for regularization (smoothness).
+        optimization_method (str): The optimization method ("minmax").
+        logger_func (callable or None): Optional logger function.
+        initial_guess_inner_y (np.ndarray or None): Optional initial guess for the inner y-coordinates. If None, uses fixed-x optimization result.
     """
     # Extract trailing edge y-value from the normalized data
     te_y = float(original_data[-1, 1])
@@ -203,13 +336,13 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
         control_points[1:-1, 1] = variables_y
         control_points[-1] = np.array([1.0, te_y])  # TE at (1, te_y)
 
-        # Calculate maximum orthogonal distance
-        try:
-            max_distance, _ = calculate_orthogonal_error_minmax(control_points, original_data)
-        except Exception as e:
-            # If orthogonal distance calculation fails, return a large penalty
-            _log_message(f"Orthogonal distance calculation failed: {e}", logger_func)
-            return 1e6
+        # Always minimize max error
+        fit_result = calculate_single_bezier_fitting_error(control_points, original_data, error_function="euclidean", return_max_error=True)
+        if isinstance(fit_result, tuple):
+            _, max_error, _ = fit_result
+        else:
+            max_error = fit_result
+        fitting_error = max_error
 
         # Smoothness penalty (second derivative of control polygon)
         smoothness_penalty = 0.0
@@ -217,7 +350,7 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
             diffs = np.diff(control_points[:, 1], n=2)
             smoothness_penalty = np.sum(diffs ** 2)
 
-        total_objective = max_distance + regularization_weight * smoothness_penalty
+        total_objective = fitting_error + regularization_weight * smoothness_penalty
 
         return total_objective
 
@@ -233,8 +366,11 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
         y_n_minus_1 = variables_y[-1]
         return y_n_minus_1 * tx_te - (py_n * tx_te - (px_n - px_n_minus_1) * ty_te)
 
-    if not np.isclose(tx_te, 0.0):
-         constraints.append({'type': 'eq', 'fun': te_tangent_constraint})
+    # Use a tighter tolerance for near-zero tx_te
+    if not np.isclose(tx_te, 0.0, atol=1e-8):
+        constraints.append({'type': 'eq', 'fun': te_tangent_constraint})
+    else:
+        _log_message(f"Skipping TE tangency constraint for tx_te={tx_te} (likely lower surface)", logger_func)
 
     # Stage 1: Run full fixed-x optimization to get a good initial guess
     _log_message(f"Stage 1: Running full fixed-x optimization for {is_upper_surface and 'upper' or 'lower'} surface...", logger_func)
@@ -263,9 +399,12 @@ def build_single_venkatamaran_bezier_minmax(original_data, num_control_points_ne
     if hasattr(objective_minmax, 'call_count'):
         del objective_minmax.call_count
 
+    # Use provided initial guess if available
+    x0 = initial_guess_inner_y if initial_guess_inner_y is not None else icp_inner_y
+
     result = minimize(
         objective_minmax,
-        icp_inner_y,  # Use fixed-x result as initial guess
+        x0,  # Use provided or fixed-x result as initial guess
         method='SLSQP',
         
         constraints=constraints,
@@ -530,27 +669,21 @@ def build_coupled_venkatamaran_beziers_variable_x(
     # --- Objective -----------------------------------------------------------
     def objective(var_y):
         ctrl_u, ctrl_l = _assemble_polygons(var_y)
-        
-        # Use orthogonal error if requested
+        # Use sum of squared errors for variable-x methods
         if optimization_method == "variable_x_orthogonal_g2":
-            err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function="orthogonal_minmax")
-            err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function="orthogonal_minmax")
+            err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function="orthogonal_icp", return_max_error=False)
+            err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function="orthogonal_icp", return_max_error=False)
         else:  # variable_x_g2
-            err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function="euclidean")
-            err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function="euclidean")
-
-        # Extract just the error value if tuple is returned
+            err_u = calculate_single_bezier_fitting_error(ctrl_u, original_upper_data, error_function="euclidean", return_max_error=False)
+            err_l = calculate_single_bezier_fitting_error(ctrl_l, original_lower_data, error_function="euclidean", return_max_error=False)
         if isinstance(err_u, tuple):
             err_u = err_u[0]
         if isinstance(err_l, tuple):
             err_l = err_l[0]
-
-        # Smoothness (second diff) penalty
         def _smooth(ctrl):
             if len(ctrl) <= 2:
                 return 0.0
             return np.sum(np.diff(ctrl[:, 1], n=2) ** 2)
-
         smooth = _smooth(ctrl_u) + _smooth(ctrl_l)
         return err_u + err_l + regularization_weight * smooth
 
@@ -681,14 +814,20 @@ def build_coupled_venkatamaran_beziers_minmax(
 
     # --- Minmax Objective ----------------------------------------------------
     def objective_minmax(var_y):
-        ctrl_u, ctrl_l = _assemble_polygons(var_y)
+        upper_poly, lower_poly = _assemble_polygons(var_y)
 
-        # Calculate maximum orthogonal distance for both surfaces
-        max_err_u, _ = calculate_orthogonal_error_minmax(ctrl_u, original_upper_data)
-        max_err_l, _ = calculate_orthogonal_error_minmax(ctrl_l, original_lower_data)
-
-        # For minmax, we want to minimize the worst error across both surfaces
-        combined_max_error = max(float(max_err_u), float(max_err_l))
+        # Always minimize max error for both upper and lower
+        fit_result_upper = calculate_single_bezier_fitting_error(upper_poly, original_upper_data, error_function="euclidean", return_max_error=True)
+        fit_result_lower = calculate_single_bezier_fitting_error(lower_poly, original_lower_data, error_function="euclidean", return_max_error=True)
+        if isinstance(fit_result_upper, tuple):
+            _, max_error_upper, _ = fit_result_upper
+        else:
+            max_error_upper = fit_result_upper
+        if isinstance(fit_result_lower, tuple):
+            _, max_error_lower, _ = fit_result_lower
+        else:
+            max_error_lower = fit_result_lower
+        fitting_error = max(max_error_upper, max_error_lower)
 
         # Smoothness (second diff) penalty
         def _smooth(ctrl):
@@ -696,8 +835,8 @@ def build_coupled_venkatamaran_beziers_minmax(
                 return 0.0
             return np.sum(np.diff(ctrl[:, 1], n=2) ** 2)
 
-        smooth = _smooth(ctrl_u) + _smooth(ctrl_l)
-        return combined_max_error + regularization_weight * smooth
+        smooth = _smooth(upper_poly) + _smooth(lower_poly)
+        return fitting_error + regularization_weight * smooth
 
     # --- Constraints ---------------------------------------------------------
     constraints = []
@@ -707,22 +846,26 @@ def build_coupled_venkatamaran_beziers_minmax(
     px_n_u, py_n_u = end_point_upper
     px_n1_u = inner_x_upper[-1]
 
-    if not np.isclose(tx_u, 0.0):
+    if not np.isclose(tx_u, 0.0, atol=1e-8):
         def _te_tan_upper(var_y):
             y_nm1 = var_y[n_inner - 1]  # last inner y of upper
             return y_nm1 * tx_u - (py_n_u * tx_u - (px_n_u - px_n1_u) * ty_u)
         constraints.append({"type": "eq", "fun": _te_tan_upper})
+    else:
+        _log_message(f"Skipping TE tangency constraint for upper surface: tx_u={tx_u}", logger_func)
 
     # Trailing-edge tangency (lower)
     tx_l, ty_l = te_tangent_vector_lower
     px_n_l, py_n_l = end_point_lower
     px_n1_l = inner_x_lower[-1]
 
-    if not np.isclose(tx_l, 0.0):
+    if not np.isclose(tx_l, 0.0, atol=1e-8):
         def _te_tan_lower(var_y):
             y_nm1_l = var_y[-1]  # last element corresponds to lower inner trailing point
             return y_nm1_l * tx_l - (py_n_l * tx_l - (px_n_l - px_n1_l) * ty_l)
         constraints.append({"type": "eq", "fun": _te_tan_lower})
+    else:
+        _log_message(f"Skipping TE tangency constraint for lower surface: tx_l={tx_l}", logger_func)
 
     # G2 continuity at LE: curvature_upper + curvature_lower == 0
     def _g2_constraint(var_y):
