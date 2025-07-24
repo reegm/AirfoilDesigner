@@ -6,9 +6,9 @@ from pathlib import Path
 
 from utils.data_loader import load_airfoil_data
 from utils.control_point_utils import get_paper_fixed_x_coords
-from utils.error_calculators import calculate_single_bezier_fitting_error
+from core.solver.error_functions import calculate_single_bezier_fitting_error
 from core import config
-from core.optimization_core import build_single_venkatamaran_bezier_minmax
+# from core.optimization_core import build_single_venkatamaran_bezier_minmax
 
 # -------------------------------------------------------------------------
 # Proposal generator: small, normally-distributed bumps on Y only

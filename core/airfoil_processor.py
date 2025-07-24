@@ -4,8 +4,12 @@ from PySide6.QtCore import QObject, Signal
 import logging
 
 from core import config
-from core.core_logic import CoreProcessor
 from utils.bezier_utils import general_bezier_curve, bezier_derivative, bezier_curvature
+# --- New import for refactored optimizer ---
+from core.solver.bezier_optimizer import build_single_bezier_msr, build_single_bezier_minmax
+from core.solver.error_functions import calculate_single_bezier_fitting_error
+from utils.data_loader import load_airfoil_data
+from utils.dxf_exporter import export_curves_to_dxf
 
 
 class SignalLogHandler(logging.Handler):
@@ -30,12 +34,22 @@ class AirfoilProcessor(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.core_processor = CoreProcessor(self.log_message.emit)
+        # Legacy core processor removed. Use direct attributes.
+        self.upper_data = None
+        self.lower_data = None
+        self.upper_te_tangent_vector = None
+        self.lower_te_tangent_vector = None
         self._is_thickened = False # True if thickening is currently applied
         self._thickened_single_bezier_polygons = None # Stores thickened single Bezier polygons
         self._last_plot_data = None # Cache for the last plot data dictionary
         self._current_te_vector_points = None  # Store current TE vector points setting
         self._is_trailing_edge_thickened = False # True if original airfoil has thickened TE
+        self.upper_poly_sharp = None
+        self.lower_poly_sharp = None
+        self.last_single_bezier_upper_max_error = None
+        self.last_single_bezier_upper_max_error_idx = None
+        self.last_single_bezier_lower_max_error = None
+        self.last_single_bezier_lower_max_error_idx = None
 
 
     def load_airfoil_data_and_initialize_model(self, file_path):
@@ -46,17 +60,27 @@ class AirfoilProcessor(QObject):
         self._is_thickened = False
         self._thickened_single_bezier_polygons = None
         self._last_plot_data = None
-        self.core_processor._reset_state()
+        self.upper_data = None
+        self.lower_data = None
+        self.upper_te_tangent_vector = None
+        self.lower_te_tangent_vector = None
         self._is_trailing_edge_thickened = False
 
-        if self.core_processor.load_airfoil_data_and_initialize_model(file_path):
-            # After loading, check if the trailing edge is thickened
-            self._is_trailing_edge_thickened = getattr(self.core_processor, 'thickened', False)
+        try:
+            upper, lower, airfoil_name, thickened = load_airfoil_data(file_path, logger_func=self.log_message.emit)
+            self.upper_data = upper
+            self.lower_data = lower
+            self.airfoil_name = airfoil_name
+            self._is_trailing_edge_thickened = thickened
+            # Recalculate TE tangent vectors using default (last 3 points)
+            te_vector_points = 3
+            self.upper_te_tangent_vector, self.lower_te_tangent_vector = self._calculate_te_tangent(
+                self.upper_data, self.lower_data, te_vector_points)
             self.log_message.emit("Airfoil data loaded.")
             self._request_plot_update()
             return True
-        else:
-            self.log_message.emit("Failed to load or initialize airfoil data.")
+        except Exception as e:
+            self.log_message.emit(f"Failed to load or initialize airfoil data: {e}")
             return False
 
     def is_trailing_edge_thickened(self):
@@ -70,36 +94,125 @@ class AirfoilProcessor(QObject):
             te_vector_points=None, 
         ):
         """
-        Builds the single-span Bezier curves for upper and lower surfaces based on the 2017 Venkataraman paper.
+        Builds the single-span Bezier curves for upper and lower surfaces using the new refactored optimizer.
         This method always builds a sharp (thickness 0) single Bezier curve.
         Thickening is applied separately for display.
-        Supports optimization methods: 'fixed_x', 'minmax', 'variable_x', 'variable_x_orthogonal'.
         """
-        import time  # <-- Add import for timing
-        if self.core_processor.upper_data is None or self.core_processor.lower_data is None:
+        import time
+        if self.upper_data is None or self.lower_data is None:
             self.log_message.emit("Error: Original airfoil data not loaded. Cannot build single Bezier model.")
             return False
 
         # Store the TE vector points setting for future plot updates
         self._current_te_vector_points = te_vector_points
 
-        self.log_message.emit("Building single Bezier model...")
-        start_time = time.perf_counter()  # Start timing
-        result = self.core_processor.build_single_bezier_model(
-            regularization_weight,
-            optimization_method=optimization_method,
-            enforce_g2=enforce_g2,
-            te_vector_points=te_vector_points,
-        )
+        self.log_message.emit("Building single Bezier model (new architecture)...")
+        start_time = time.perf_counter()
+
+        # Use the new optimizer for both upper and lower surfaces
+        num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+        le_tangent_upper = np.array([0.0, 1.0])
+        le_tangent_lower = np.array([0.0, -1.0])
+        if te_vector_points is not None:
+            upper_te_tangent_vector, lower_te_tangent_vector = self._calculate_te_tangent(
+                self.upper_data, self.lower_data, te_vector_points)
+            self.upper_te_tangent_vector = upper_te_tangent_vector
+            self.lower_te_tangent_vector = lower_te_tangent_vector
+        else:
+            upper_te_tangent_vector = self.upper_te_tangent_vector
+            lower_te_tangent_vector = self.lower_te_tangent_vector
+
+        # For now, hardcode error/objective (can be made user-configurable later)
+        error_function = "euclidean"
+        objective_type = "msr"
+
+        # Store the TE vector for later use
+        le_tangent_upper = np.array([0.0, 1.0])
+        le_tangent_lower = np.array([0.0, -1.0])
+        num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+        if objective_type == 'msr':
+            upper_poly = build_single_bezier_msr(
+                self.upper_data,
+                num_control_points,
+                True,
+                le_tangent_upper,
+                self.upper_te_tangent_vector,
+                regularization_weight=regularization_weight,
+                error_function=error_function,
+                logger_func=self.log_message.emit
+            )
+            lower_poly = build_single_bezier_msr(
+                self.lower_data,
+                num_control_points,
+                False,
+                le_tangent_lower,
+                self.lower_te_tangent_vector,
+                regularization_weight=regularization_weight,
+                error_function=error_function,
+                logger_func=self.log_message.emit
+            )
+        elif objective_type == 'minmax':
+            upper_poly = build_single_bezier_minmax(
+                self.upper_data,
+                num_control_points,
+                True,
+                le_tangent_upper,
+                self.upper_te_tangent_vector,
+                regularization_weight=regularization_weight,
+                error_function=error_function,
+                logger_func=self.log_message.emit
+            )
+            lower_poly = build_single_bezier_minmax(
+                self.lower_data,
+                num_control_points,
+                False,
+                le_tangent_lower,
+                self.lower_te_tangent_vector,
+                regularization_weight=regularization_weight,
+                error_function=error_function,
+                logger_func=self.log_message.emit
+            )
+        else:
+            self.log_message.emit(f"Unknown objective_type: {objective_type}")
+            return False
+        self.upper_poly_sharp = upper_poly
+        self.lower_poly_sharp = lower_poly
+
+        # Error calculation (kept DRY)
+        for assign, control_poly, orig_data in [
+            ("upper", upper_poly, self.upper_data),
+            ("lower", lower_poly, self.lower_data)
+        ]:
+            te_y = control_poly[-1][1]
+            error_result = calculate_single_bezier_fitting_error(
+                np.array(control_poly), orig_data, error_function=error_function, return_max_error=True
+            )
+            if isinstance(error_result, tuple):
+                _, max_err, max_err_idx = error_result
+                if assign == "upper":
+                    self.last_single_bezier_upper_max_error = max_err
+                    self.last_single_bezier_upper_max_error_idx = max_err_idx
+                else:
+                    self.last_single_bezier_lower_max_error = max_err
+                    self.last_single_bezier_lower_max_error_idx = max_err_idx
+            else:
+                self.log_message.emit(f"Warning: Unexpected return format from {assign} error calculation")
+                if assign == "upper":
+                    self.last_single_bezier_upper_max_error = None
+                    self.last_single_bezier_upper_max_error_idx = None
+                else:
+                    self.last_single_bezier_lower_max_error = None
+                    self.last_single_bezier_lower_max_error_idx = None
+
         elapsed = time.perf_counter() - start_time
         self.log_message.emit(f"Single Bezier model built in {elapsed:.3f} seconds.")
-        return result
+        return True
 
     def toggle_thickening(self, te_thickness_percent):
         """
         Applies or removes trailing edge thickening.
         """
-        if self.core_processor.upper_data is None or self.core_processor.lower_data is None:
+        if self.upper_data is None or self.lower_data is None:
             self.log_message.emit("Error: Please load an airfoil file first to apply/remove thickening.")
             return False
 
@@ -109,13 +222,13 @@ class AirfoilProcessor(QObject):
             self.log_message.emit(f"Applying {te_thickness_percent:.2f}% trailing edge thickness...")
 
             # Thickening for single Bezier model
-            if self.core_processor.single_bezier_upper_poly_sharp is not None and \
-               self.core_processor.single_bezier_lower_poly_sharp is not None:
+            if self.upper_poly_sharp is not None and \
+               self.lower_poly_sharp is not None:
                 single_bezier_polygons_copy = [
-                    copy.deepcopy(self.core_processor.single_bezier_upper_poly_sharp),
-                    copy.deepcopy(self.core_processor.single_bezier_lower_poly_sharp),
+                    copy.deepcopy(self.upper_poly_sharp),
+                    copy.deepcopy(self.lower_poly_sharp),
                 ]
-                self._thickened_single_bezier_polygons = self.core_processor.apply_te_thickening_to_single_bezier(
+                self._thickened_single_bezier_polygons = self.apply_te_thickening_to_single_bezier(
                     single_bezier_polygons_copy,
                     te_thickness,
                 )
@@ -138,6 +251,53 @@ class AirfoilProcessor(QObject):
         self._request_plot_update()
         return True
 
+    def export_to_dxf(self, file_path, chord_length_mm):
+        """
+        Export the current Bezier model(s) as a DXF file.
+        """
+        if self._is_thickened and self._thickened_single_bezier_polygons:
+            polygons_to_export = self._thickened_single_bezier_polygons
+            self.log_message.emit("Preparing to export thickened single Bezier model.")
+        elif self.upper_poly_sharp is not None and self.lower_poly_sharp is not None:
+            polygons_to_export = [self.upper_poly_sharp, self.lower_poly_sharp]
+            self.log_message.emit("Preparing to export sharp single Bezier model.")
+        else:
+            self.log_message.emit("Error: Single Bezier model not available for export. Please build it first.")
+            return False
+
+        dxf_doc = export_curves_to_dxf(
+            polygons_to_export,
+            chord_length_mm,
+            self.log_message.emit,
+        )
+
+        if not dxf_doc:
+            self.log_message.emit("Single Bezier DXF export failed during document creation.")
+            return False
+
+        try:
+            dxf_doc.saveas(file_path)
+            self.log_message.emit(f"DXF file exported to: {file_path}")
+            return True
+        except Exception as e:
+            self.log_message.emit(f"Error saving DXF file: {e}")
+            return False
+
+    def apply_te_thickening_to_single_bezier(self, polygons, te_thickness):
+        """
+        Apply trailing edge thickening to a pair of Bezier polygons.
+        Offsets the last control point of each polygon by te_thickness/2 in y (upper +, lower -).
+        """
+        if not polygons or len(polygons) != 2:
+            self.log_message.emit("[TE Thickening] Invalid polygons input.")
+            return polygons
+        upper_poly = np.array(polygons[0], copy=True)
+        lower_poly = np.array(polygons[1], copy=True)
+        # Offset the last control point in y
+        upper_poly[-1, 1] += te_thickness / 2.0
+        lower_poly[-1, 1] -= te_thickness / 2.0
+        self.log_message.emit(f"Applied trailing edge thickening: {te_thickness:.4f}")
+        return [upper_poly, lower_poly]
 
     def request_plot_update_with_comb_params(self, scale, density):
         """Public method to trigger a plot update with specific comb parameters."""
@@ -148,8 +308,8 @@ class AirfoilProcessor(QObject):
         updated_plot_data = self._last_plot_data.copy()
 
         # Use stored TE tangent vectors from core_processor
-        upper_te_tangent_vector = self.core_processor.upper_te_tangent_vector
-        lower_te_tangent_vector = self.core_processor.lower_te_tangent_vector
+        upper_te_tangent_vector = self.upper_te_tangent_vector
+        lower_te_tangent_vector = self.lower_te_tangent_vector
 
         # Determine which polygons to use for the single Bezier comb
         polygons_single_bezier = []
@@ -228,17 +388,17 @@ class AirfoilProcessor(QObject):
 
     def _request_plot_update(self):
         """Emits a signal to request a plot update with current model data from the core."""
-        if self.core_processor.upper_data is None or self.core_processor.lower_data is None:
+        if self.upper_data is None or self.lower_data is None:
             self.log_message.emit("No airfoil data available to plot.")
             return
 
         # Use stored TE tangent vectors from core_processor
-        upper_te_tangent_vector = self.core_processor.upper_te_tangent_vector
-        lower_te_tangent_vector = self.core_processor.lower_te_tangent_vector
+        upper_te_tangent_vector = self.upper_te_tangent_vector
+        lower_te_tangent_vector = self.lower_te_tangent_vector
 
         plot_data = {
-            'upper_data': self.core_processor.upper_data,
-            'lower_data': self.core_processor.lower_data,
+            'upper_data': self.upper_data,
+            'lower_data': self.lower_data,
             'upper_te_tangent_vector': upper_te_tangent_vector,
             'lower_te_tangent_vector': lower_te_tangent_vector,
             'worst_single_bezier_upper_max_error': None,
@@ -251,13 +411,13 @@ class AirfoilProcessor(QObject):
         }
 
         # --- Populate Single Bezier Model Data ---
-        if self.core_processor.single_bezier_upper_poly_sharp is not None:
-            plot_data['single_bezier_upper_poly'] = self.core_processor.single_bezier_upper_poly_sharp
-            plot_data['single_bezier_lower_poly'] = self.core_processor.single_bezier_lower_poly_sharp
-            plot_data['worst_single_bezier_upper_max_error'] = getattr(self.core_processor, 'last_single_bezier_upper_max_error', None)
-            plot_data['worst_single_bezier_upper_max_error_idx'] = getattr(self.core_processor, 'last_single_bezier_upper_max_error_idx', None)
-            plot_data['worst_single_bezier_lower_max_error'] = getattr(self.core_processor, 'last_single_bezier_lower_max_error', None)
-            plot_data['worst_single_bezier_lower_max_error_idx'] = getattr(self.core_processor, 'last_single_bezier_lower_max_error_idx', None)
+        if self.upper_poly_sharp is not None:
+            plot_data['single_bezier_upper_poly'] = self.upper_poly_sharp
+            plot_data['single_bezier_lower_poly'] = self.lower_poly_sharp
+            plot_data['worst_single_bezier_upper_max_error'] = getattr(self, 'last_single_bezier_upper_max_error', None)
+            plot_data['worst_single_bezier_upper_max_error_idx'] = getattr(self, 'last_single_bezier_upper_max_error_idx', None)
+            plot_data['worst_single_bezier_lower_max_error'] = getattr(self, 'last_single_bezier_lower_max_error', None)
+            plot_data['worst_single_bezier_lower_max_error_idx'] = getattr(self, 'last_single_bezier_lower_max_error_idx', None)
 
             if self._is_thickened and self._thickened_single_bezier_polygons:
                 plot_data['thickened_single_bezier_upper_poly'] = self._thickened_single_bezier_polygons[0]
@@ -265,8 +425,8 @@ class AirfoilProcessor(QObject):
                 plot_data['comb_single_bezier'] = self._calculate_curvature_comb_data(self._thickened_single_bezier_polygons)
             else:
                 plot_data['comb_single_bezier'] = self._calculate_curvature_comb_data([
-                    self.core_processor.single_bezier_upper_poly_sharp,
-                    self.core_processor.single_bezier_lower_poly_sharp
+                    self.upper_poly_sharp,
+                    self.lower_poly_sharp
                 ])
 
         self._last_plot_data = plot_data.copy()
@@ -277,21 +437,41 @@ class AirfoilProcessor(QObject):
         Recalculate the trailing edge tangent vectors using the specified number of points
         and update the plot. Does not rebuild the Bezier model.
         """
-        if self.core_processor.upper_data is None or self.core_processor.lower_data is None:
+        if self.upper_data is None or self.lower_data is None:
             self.log_message.emit("Error: No airfoil data loaded. Cannot recalculate TE vectors.")
             return
-        upper_te_tangent_vector, lower_te_tangent_vector = self.core_processor._calculate_te_tangent(
-            self.core_processor.upper_data, self.core_processor.lower_data, te_vector_points
+        upper_te_tangent_vector, lower_te_tangent_vector = self._calculate_te_tangent(
+            self.upper_data, self.lower_data, te_vector_points
         )
         # Update the stored TE tangent vectors in CoreProcessor
-        self.core_processor.upper_te_tangent_vector = upper_te_tangent_vector
-        self.core_processor.lower_te_tangent_vector = lower_te_tangent_vector
+        self.upper_te_tangent_vector = upper_te_tangent_vector
+        self.lower_te_tangent_vector = lower_te_tangent_vector
         plot_data = {
-            'upper_data': self.core_processor.upper_data,
-            'lower_data': self.core_processor.lower_data,
+            'upper_data': self.upper_data,
+            'lower_data': self.lower_data,
             'upper_te_tangent_vector': upper_te_tangent_vector,
             'lower_te_tangent_vector': lower_te_tangent_vector,
             # The rest of the plot data is left as None or not updated
         }
         self.plot_update_requested.emit(plot_data)
         self.log_message.emit(f"Trailing edge vectors recalculated with {te_vector_points} points.")
+
+    def _calculate_te_tangent(self, upper_data, lower_data, te_vector_points):
+        """
+        Calculate trailing edge tangent vectors for upper and lower surfaces using the last N points.
+        Returns (upper_te_tangent_vector, lower_te_tangent_vector)
+        """
+        def tangent(data, n):
+            # Use the last n points to estimate the tangent at the trailing edge
+            if n < 2 or len(data) < n:
+                n = min(3, len(data))
+            pts = data[-n:]
+            dx = pts[-1, 0] - pts[0, 0]
+            dy = pts[-1, 1] - pts[0, 1]
+            norm = np.hypot(dx, dy)
+            if norm == 0:
+                return np.array([1.0, 0.0])
+            return np.array([dx, dy]) / norm
+        upper_te_tangent = tangent(upper_data, te_vector_points)
+        lower_te_tangent = tangent(lower_data, te_vector_points)
+        return upper_te_tangent, lower_te_tangent

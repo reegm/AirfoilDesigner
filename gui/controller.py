@@ -12,7 +12,6 @@ import os
 from typing import Any
 
 import multiprocessing
-from core.core_logic import CoreProcessor
 import time
 from PySide6.QtCore import Qt, QObject, QTimer
 from PySide6.QtWidgets import (
@@ -27,6 +26,11 @@ from utils.dxf_exporter import export_curves_to_dxf
 
 from gui.main_window import MainWindow
 
+import numpy as np
+
+# NOTE: All Bezier builder and optimizer functions have been moved to core/solver/ modules.
+# If you need build_single_venkatamaran_bezier, build_single_venkatamaran_bezier_minmax, etc.,
+# import from core/solver/bezier_optimizer.py or the relevant new module.
 
 class MainController(QObject):
     """Mediator between :class:`core.airfoil_processor.AirfoilProcessor` and Qt GUI."""
@@ -144,11 +148,8 @@ class MainController(QObject):
                 self._generation_process = None
             self._is_generating = False
             opt.build_single_bezier_button.setText("Generate Airfoil")
-            
-            # Stop spinner only if it was started (debug mode disabled)
             if not config.DEBUG_WORKER_LOGGING:
                 self.window.status_log.stop_spinner()
-                
             elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
             self.processor.log_message.emit(f"Generation aborted by user. (Elapsed time: {elapsed_time:.2f}s)")
             self._generation_start_time = None
@@ -159,13 +160,19 @@ class MainController(QObject):
             regularization_weight = float(opt.single_bezier_reg_weight_input.text())
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
-            gui_strategy = opt.strategy_combo.currentText()
-            error_function = opt.error_function_combo.currentText()
-            
-            # Map GUI selection to internal method
-            from core.optimization_core import map_gui_strategy_to_internal
-            method_config = map_gui_strategy_to_internal(gui_strategy, g2_flag, error_function)
-            optimization_method = method_config["method"]
+            gui_strategy = opt.strategy_combo.currentText().lower()  # 'fixed-x' or 'variable-x'
+            error_function = opt.error_function_combo.currentText().lower()  # 'euclidean' or 'orthogonal'
+            objective_gui = opt.objective_combo.currentText()
+            if objective_gui == 'MSR':
+                objective_type = 'msr'
+            elif objective_gui == 'Max Error':
+                objective_type = 'minmax'
+            else:
+                self.processor.log_message.emit(f"Error: Unsupported objective '{objective_gui}'.")
+                return
+            if gui_strategy not in ['fixed-x', 'variable-x']:
+                self.processor.log_message.emit(f"Error: Unsupported strategy '{gui_strategy}'.")
+                return
         except ValueError:
             self.processor.log_message.emit(
                 "Error: Invalid input for regularization weight, curve error points, or TE vector points. Please enter valid numbers."
@@ -173,12 +180,14 @@ class MainController(QObject):
             return
         self._generation_queue = multiprocessing.Queue()
         args = (
-            self.processor.core_processor.upper_data,
-            self.processor.core_processor.lower_data,
+            self.processor.upper_data,
+            self.processor.lower_data,
             regularization_weight,
             g2_flag,
             te_vector_points,
-            optimization_method
+            gui_strategy,
+            error_function,
+            objective_type
         )
         self._generation_process = multiprocessing.Process(
             target=_generation_worker,
@@ -191,8 +200,6 @@ class MainController(QObject):
         self._generation_timer.start()
         self._update_button_states()
         self.processor.log_message.emit("Started airfoil generation in background process...")
-        
-        # Only show spinner if debug logging is disabled
         if not config.DEBUG_WORKER_LOGGING:
             self.window.status_log.start_spinner("Processing...")
 
@@ -223,12 +230,12 @@ class MainController(QObject):
             self._generation_queue = None
             if isinstance(result, dict) and result.get("success") and result.get("upper_poly") is not None:
                 # Update processor state with new model
-                self.processor.core_processor.single_bezier_upper_poly_sharp = result["upper_poly"]
-                self.processor.core_processor.single_bezier_lower_poly_sharp = result["lower_poly"]
-                self.processor.core_processor.last_single_bezier_upper_max_error = result.get("upper_max_error")
-                self.processor.core_processor.last_single_bezier_upper_max_error_idx = result.get("upper_max_error_idx")
-                self.processor.core_processor.last_single_bezier_lower_max_error = result.get("lower_max_error")
-                self.processor.core_processor.last_single_bezier_lower_max_error_idx = result.get("lower_max_error_idx")
+                self.processor.upper_poly_sharp = result["upper_poly"]
+                self.processor.lower_poly_sharp = result["lower_poly"]
+                self.processor.last_single_bezier_upper_max_error = result.get("upper_max_error")
+                self.processor.last_single_bezier_upper_max_error_idx = result.get("upper_max_error_idx")
+                self.processor.last_single_bezier_lower_max_error = result.get("lower_max_error")
+                self.processor.last_single_bezier_lower_max_error_idx = result.get("lower_max_error_idx")
                 elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
                 
                 # Log success with error information
@@ -324,7 +331,7 @@ class MainController(QObject):
         density = comb.comb_density_slider.value()
 
         is_model_present = (
-            self.processor.core_processor.single_bezier_upper_poly_sharp is not None
+            self.processor.upper_poly_sharp is not None
         )
 
         if is_model_present:
@@ -339,10 +346,10 @@ class MainController(QObject):
             self.processor.log_message.emit(
                 "Preparing to export thickened single Bezier model."
             )
-        elif self.processor.core_processor.single_bezier_upper_poly_sharp is not None:
+        elif self.processor.upper_poly_sharp is not None:
             polygons_to_export = [
-                self.processor.core_processor.single_bezier_upper_poly_sharp,
-                self.processor.core_processor.single_bezier_lower_poly_sharp,
+                self.processor.upper_poly_sharp,
+                self.processor.lower_poly_sharp,
             ]
             self.processor.log_message.emit(
                 "Preparing to export sharp single Bezier model."
@@ -416,9 +423,9 @@ class MainController(QObject):
         airfoil = self.window.airfoil_settings_panel
         comb = self.window.comb_panel
 
-        is_file_loaded = self.processor.core_processor.upper_data is not None
+        is_file_loaded = self.processor.upper_data is not None
         is_model_built = (
-            self.processor.core_processor.single_bezier_upper_poly_sharp is not None
+            self.processor.upper_poly_sharp is not None
         )
         is_thickened = self.processor._is_thickened
         is_trailing_edge_thickened = False
@@ -451,12 +458,33 @@ class MainController(QObject):
         """Return a safe default filename based on the loaded profile."""
         import re
 
-        profile_name = getattr(self.processor.core_processor, "airfoil_name", None)
+        profile_name = getattr(self.processor, "airfoil_name", None)
         if profile_name:
             sanitized = re.sub(r"[^A-Za-z0-9\-_]+", "_", profile_name)
             if sanitized:
                 return f"{sanitized}.dxf"
         return "airfoil.dxf"
+
+def calculate_te_tangent(upper_data, lower_data, te_vector_points):
+    """
+    Calculate trailing edge tangent vectors for upper and lower surfaces using the last N points.
+    Returns (upper_te_tangent_vector, lower_te_tangent_vector)
+    """
+    def tangent(data, n):
+        # Use the last n points to estimate the tangent at the trailing edge
+        if n < 2 or len(data) < n:
+            n = min(3, len(data))
+        pts = data[-n:]
+        # Fit a line and return the direction vector (normalized)
+        dx = pts[-1, 0] - pts[0, 0]
+        dy = pts[-1, 1] - pts[0, 1]
+        norm = np.hypot(dx, dy)
+        if norm == 0:
+            return np.array([1.0, 0.0])
+        return np.array([dx, dy]) / norm
+    upper_te_tangent = tangent(upper_data, te_vector_points)
+    lower_te_tangent = tangent(lower_data, te_vector_points)
+    return upper_te_tangent, lower_te_tangent
 
 def _generation_worker(args, queue):
     """
@@ -464,66 +492,254 @@ def _generation_worker(args, queue):
     It operates on the core logic without Qt dependencies.
     """
     import traceback
-    # Import necessary modules *within* the worker function
-    # to ensure they are loaded in the new process's context and are Qt-independent.
     import numpy as np
     from core import config
-    from utils.error_calculators import calculate_single_bezier_fitting_error
     from utils.data_loader import load_airfoil_data, find_shoulder_x_coords
     from utils.dxf_exporter import export_curves_to_dxf
     from utils.bezier_utils import bezier_curvature, general_bezier_curve
     from utils.control_point_utils import variable_x_control_points, get_paper_fixed_x_coords
-    from core.optimization_core import map_gui_strategy_to_internal, build_coupled_venkatamaran_beziers, build_coupled_venkatamaran_beziers_minmax, build_coupled_venkatamaran_beziers_variable_x, build_single_venkatamaran_bezier, build_single_venkatamaran_bezier_minmax
+    # Import new optimizer
+    from core.solver.bezier_optimizer import build_single_bezier_msr, build_single_bezier_minmax, build_single_bezier_variable_x_msr, build_single_bezier_variable_x_minmax
+    from core.solver.coupled_bezier_optimizer import build_coupled_bezier_fixed_x_msr, build_coupled_bezier_fixed_x_minmax, build_coupled_bezier_variable_x_msr, build_coupled_bezier_variable_x_minmax
+    # TODO: import coupled/variable-x optimizers as they are implemented
 
-    # Unpack arguments
     (
         upper_data,
         lower_data,
         regularization_weight,
         g2_flag,
         te_vector_points,
-        optimization_method,
+        gui_strategy,
+        error_function,
+        objective_type
     ) = args
 
-    # Set up a simple logger for the worker that uses the queue
     debug_logging_enabled = config.DEBUG_WORKER_LOGGING
     def worker_logger(message):
         if debug_logging_enabled:
             queue.put({"type": "log", "message": message})
 
-    # Create an instance of the *pure Python* CoreProcessor directly
-    processor_for_worker = CoreProcessor(worker_logger)
-
-    # Assign the original data to this worker's CoreProcessor instance
-    processor_for_worker.upper_data = upper_data
-    processor_for_worker.lower_data = lower_data
-
-    # Recalculate TE tangent vectors using the CoreProcessor's method.
-    # This ensures the worker's CoreProcessor uses the correct tangents based on input.
-    processor_for_worker.upper_te_tangent_vector, processor_for_worker.lower_te_tangent_vector = \
-        processor_for_worker._calculate_te_tangent(upper_data, lower_data, te_vector_points)
+    upper_te_tangent_vector, lower_te_tangent_vector = calculate_te_tangent(upper_data, lower_data, te_vector_points)
 
     try:
-        # Call the core logic's build method directly
-        success = processor_for_worker.build_single_bezier_model(
-            regularization_weight=regularization_weight,
-            optimization_method=optimization_method,
-            enforce_g2=g2_flag,
-            te_vector_points=te_vector_points # Pass it again for internal use in build_single_bezier_model
-        )
-
-        if success:
-            # Return results from the *worker's* CoreProcessor instance
+        # Dispatch based on strategy and g2_flag (coupled/uncoupled)
+        if gui_strategy == 'fixed-x' and not g2_flag:
+            # Uncoupled fixed-x (implemented)
+            le_tangent_upper = np.array([0.0, 1.0])
+            le_tangent_lower = np.array([0.0, -1.0])
+            num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+            if objective_type == 'msr':
+                upper_poly = build_single_bezier_msr(
+                    upper_data,
+                    num_control_points,
+                    True,
+                    le_tangent_upper,
+                    upper_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+                lower_poly = build_single_bezier_msr(
+                    lower_data,
+                    num_control_points,
+                    False,
+                    le_tangent_lower,
+                    lower_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+            elif objective_type == 'minmax':
+                upper_poly = build_single_bezier_minmax(
+                    upper_data,
+                    num_control_points,
+                    True,
+                    le_tangent_upper,
+                    upper_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+                lower_poly = build_single_bezier_minmax(
+                    lower_data,
+                    num_control_points,
+                    False,
+                    le_tangent_lower,
+                    lower_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+            else:
+                queue.put({"success": False, "error": f"Unknown objective_type: {objective_type}"})
+                return
+            # Error calculation (for reporting)
+            from core.solver.error_functions import calculate_euclidean_error, calculate_orthogonal_error
+            error_func = calculate_orthogonal_error if error_function == 'orthogonal' else calculate_euclidean_error
+            upper_error_result = error_func(upper_data, upper_poly, return_max_error=True)
+            lower_error_result = error_func(lower_data, lower_poly, return_max_error=True)
+            _, upper_max_error, upper_max_error_idx = upper_error_result
+            _, lower_max_error, lower_max_error_idx = lower_error_result
             queue.put({
                 "success": True,
-                "upper_poly": processor_for_worker.single_bezier_upper_poly_sharp,
-                "lower_poly": processor_for_worker.single_bezier_lower_poly_sharp,
-                "upper_max_error": processor_for_worker.last_single_bezier_upper_max_error,
-                "upper_max_error_idx": processor_for_worker.last_single_bezier_upper_max_error_idx,
-                "lower_max_error": processor_for_worker.last_single_bezier_lower_max_error,
-                "lower_max_error_idx": processor_for_worker.last_single_bezier_lower_max_error_idx,
+                "upper_poly": upper_poly,
+                "lower_poly": lower_poly,
+                "upper_max_error": upper_max_error,
+                "upper_max_error_idx": upper_max_error_idx,
+                "lower_max_error": lower_max_error,
+                "lower_max_error_idx": lower_max_error_idx,
+            })
+        elif gui_strategy == 'fixed-x' and g2_flag:
+            # Coupled fixed-x (implemented)
+            num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+            if objective_type == 'msr':
+                upper_poly, lower_poly = build_coupled_bezier_fixed_x_msr(
+                    upper_data,
+                    lower_data,
+                    regularization_weight,
+                    upper_te_tangent_vector,
+                    lower_te_tangent_vector,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+            elif objective_type == 'minmax':
+                upper_poly, lower_poly = build_coupled_bezier_fixed_x_minmax(
+                    upper_data,
+                    lower_data,
+                    regularization_weight,
+                    upper_te_tangent_vector,
+                    lower_te_tangent_vector,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+            else:
+                queue.put({"success": False, "error": f"Coupled fixed-x objective not yet implemented: {objective_type}"})
+                return
+            # Error calculation (for reporting)
+            from core.solver.error_functions import calculate_euclidean_error, calculate_orthogonal_error
+            error_func = calculate_orthogonal_error if error_function == 'orthogonal' else calculate_euclidean_error
+            upper_error_result = error_func(upper_data, upper_poly, return_max_error=True)
+            lower_error_result = error_func(lower_data, lower_poly, return_max_error=True)
+            _, upper_max_error, upper_max_error_idx = upper_error_result
+            _, lower_max_error, lower_max_error_idx = lower_error_result
+            queue.put({
+                "success": True,
+                "upper_poly": upper_poly,
+                "lower_poly": lower_poly,
+                "upper_max_error": upper_max_error,
+                "upper_max_error_idx": upper_max_error_idx,
+                "lower_max_error": lower_max_error,
+                "lower_max_error_idx": lower_max_error_idx,
+            })
+        elif gui_strategy == 'variable-x' and not g2_flag:
+            # Uncoupled variable-x (implemented)
+            le_tangent_upper = np.array([0.0, 1.0])
+            le_tangent_lower = np.array([0.0, -1.0])
+            num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+            if objective_type == 'msr':
+                upper_poly = build_single_bezier_variable_x_msr(
+                    upper_data,
+                    num_control_points,
+                    True,
+                    le_tangent_upper,
+                    upper_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+                lower_poly = build_single_bezier_variable_x_msr(
+                    lower_data,
+                    num_control_points,
+                    False,
+                    le_tangent_lower,
+                    lower_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+            elif objective_type == 'minmax':
+                upper_poly = build_single_bezier_variable_x_minmax(
+                    upper_data,
+                    num_control_points,
+                    True,
+                    le_tangent_upper,
+                    upper_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+                lower_poly = build_single_bezier_variable_x_minmax(
+                    lower_data,
+                    num_control_points,
+                    False,
+                    le_tangent_lower,
+                    lower_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+            else:
+                queue.put({"success": False, "error": f"Variable-x objective not yet implemented: {objective_type}"})
+                return
+            # Error calculation (for reporting)
+            from core.solver.error_functions import calculate_euclidean_error, calculate_orthogonal_error
+            error_func = calculate_orthogonal_error if error_function == 'orthogonal' else calculate_euclidean_error
+            upper_error_result = error_func(upper_data, upper_poly, return_max_error=True)
+            lower_error_result = error_func(lower_data, lower_poly, return_max_error=True)
+            _, upper_max_error, upper_max_error_idx = upper_error_result
+            _, lower_max_error, lower_max_error_idx = lower_error_result
+            queue.put({
+                "success": True,
+                "upper_poly": upper_poly,
+                "lower_poly": lower_poly,
+                "upper_max_error": upper_max_error,
+                "upper_max_error_idx": upper_max_error_idx,
+                "lower_max_error": lower_max_error,
+                "lower_max_error_idx": lower_max_error_idx,
+            })
+        elif gui_strategy == 'variable-x' and g2_flag:
+            # Coupled variable-x (implemented)
+            num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+            if objective_type == 'msr':
+                upper_poly, lower_poly = build_coupled_bezier_variable_x_msr(
+                    upper_data,
+                    lower_data,
+                    regularization_weight,
+                    upper_te_tangent_vector,
+                    lower_te_tangent_vector,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+            elif objective_type == 'minmax':
+                upper_poly, lower_poly = build_coupled_bezier_variable_x_minmax(
+                    upper_data,
+                    lower_data,
+                    regularization_weight,
+                    upper_te_tangent_vector,
+                    lower_te_tangent_vector,
+                    error_function=error_function,
+                    logger_func=worker_logger
+                )
+            else:
+                queue.put({"success": False, "error": f"Coupled variable-x objective not yet implemented: {objective_type}"})
+                return
+            # Error calculation (for reporting)
+            from core.solver.error_functions import calculate_euclidean_error, calculate_orthogonal_error
+            error_func = calculate_orthogonal_error if error_function == 'orthogonal' else calculate_euclidean_error
+            upper_error_result = error_func(upper_data, upper_poly, return_max_error=True)
+            lower_error_result = error_func(lower_data, lower_poly, return_max_error=True)
+            _, upper_max_error, upper_max_error_idx = upper_error_result
+            _, lower_max_error, lower_max_error_idx = lower_error_result
+            queue.put({
+                "success": True,
+                "upper_poly": upper_poly,
+                "lower_poly": lower_poly,
+                "upper_max_error": upper_max_error,
+                "upper_max_error_idx": upper_max_error_idx,
+                "lower_max_error": lower_max_error,
+                "lower_max_error_idx": lower_max_error_idx,
             })
         else:
-            queue.put({"success": False, "error": "Airfoil generation failed in worker."})
+            queue.put({"success": False, "error": f"Unknown strategy/g2_flag combination: {gui_strategy}, g2={g2_flag}"})
     except Exception as e:
         queue.put({"success": False, "error": f"Exception in worker: {e}\n{traceback.format_exc()}"})

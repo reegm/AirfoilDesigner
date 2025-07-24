@@ -28,8 +28,6 @@ class OptimizerSettingsWidget(QGroupBox):
         self.single_bezier_reg_weight_input = QLineEdit(str(config.DEFAULT_REGULARIZATION_WEIGHT))
         self.single_bezier_reg_weight_input.setFixedWidth(80)
 
-
-
         # TE Vector Points dropdown
         self.default_te_vector_points = config.DEFAULT_TE_VECTOR_POINTS  # integer!
         self.te_vector_points_combo = QComboBox()
@@ -41,17 +39,14 @@ class OptimizerSettingsWidget(QGroupBox):
         self.strategy_combo = QComboBox()
         self.strategy_combo.addItems([
             "Fixed-x",
-            "Variable-x", 
-            "Minmax"
+            "Variable-x"
         ])
         self.strategy_combo.setCurrentText("Fixed-x")  # Default to fastest, most reliable method
         self.strategy_combo.setFixedWidth(120)
-        
         # Tooltips for strategy dropdown
         self.strategy_combo.setToolTip(
             "Fixed-x: Fastest method (~5-10s), good accuracy\n"
             "Variable-x: Uses variable x-locations for control points\n"
-            "Minmax: Experimental, minimizes maximum error\n"
             "Note: Check 'Enforce G2 at leading edge' to use coupled optimization with G2 continuity\n"
         )
 
@@ -63,11 +58,23 @@ class OptimizerSettingsWidget(QGroupBox):
         ])
         self.error_function_combo.setCurrentText("Euclidean")  # Default as requested
         self.error_function_combo.setFixedWidth(120)
-        
         # Tooltips for error function dropdown
         self.error_function_combo.setToolTip(
             "Euclidean: Uses linear sampling, measures point-to-point distance\n"
             "Orthogonal: Uses dynamic sampling, measures perpendicular distance to curve\n"
+        )
+
+        # Objective dropdown (new)
+        self.objective_combo = QComboBox()
+        self.objective_combo.addItems([
+            "MSR",
+            "Max Error"
+        ])
+        self.objective_combo.setCurrentText("MSR")
+        self.objective_combo.setFixedWidth(120)
+        self.objective_combo.setToolTip(
+            "MSR: Mean squared residual (sum of squared errors)\n"
+            "Max Error: Minimize the maximum absolute error (minmax objective)\n"
         )
 
         # Enforce G2 at leading edge
@@ -87,8 +94,6 @@ class OptimizerSettingsWidget(QGroupBox):
         reg_row.addWidget(self.single_bezier_reg_weight_input)
         reg_row.addStretch(1)
         layout.addLayout(reg_row)
-
-
 
         # TE Vector Points and Recalculate button in same row
         te_row = QHBoxLayout()
@@ -111,6 +116,13 @@ class OptimizerSettingsWidget(QGroupBox):
         error_row.addWidget(self.error_function_combo)
         error_row.addStretch(1)
         layout.addLayout(error_row)
+
+        # Objective (new)
+        objective_row = QHBoxLayout()
+        objective_row.addWidget(QLabel("Objective:"))
+        objective_row.addWidget(self.objective_combo)
+        objective_row.addStretch(1)
+        layout.addLayout(objective_row)
 
         # G2 checkbox
         g2_row = QHBoxLayout()

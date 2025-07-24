@@ -201,35 +201,4 @@ def calculate_all_orthogonal_distances_optimized(data_points, control_points):
     max_distance = np.max(distances)
     max_distance_idx = np.argmax(distances)
     
-    return distances, max_distance, max_distance_idx, t_values, curve_points
-
-# Legacy wrapper functions for backward compatibility
-def calculate_orthogonal_distance_to_bezier(point, control_points, initial_t_guess=None, max_iterations=20, tolerance=1e-8):
-    """
-    Calculate the orthogonal distance from a point to a Bezier curve using multiple starting points
-    for robustness.
-    
-    Args:
-        point: np.array of shape (2,) - the point to measure distance from
-        control_points: np.array of shape (n+1, 2) - Bezier control points
-        initial_t_guess: float - initial guess for parameter t (0 <= t <= 1)
-        max_iterations: int - maximum Newton-Raphson iterations
-        tolerance: float - convergence tolerance
-    
-    Returns:
-        tuple: (distance, optimal_t, curve_point)
-    """
-    return calculate_orthogonal_distance_to_bezier_optimized(point, control_points, initial_t_guess, max_iterations, tolerance)
-
-def calculate_all_orthogonal_distances(data_points, control_points):
-    """
-    Calculate orthogonal distances from all data points to a Bezier curve.
-    
-    Args:
-        data_points: np.array of shape (N, 2) - points to measure distances from
-        control_points: np.array of shape (n+1, 2) - Bezier control points
-    
-    Returns:
-        tuple: (distances, max_distance, max_distance_idx, t_values, curve_points)
-    """
-    return calculate_all_orthogonal_distances_optimized(data_points, control_points) 
+    return distances, max_distance, max_distance_idx, t_values, curve_points 
