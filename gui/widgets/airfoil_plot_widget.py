@@ -305,11 +305,11 @@ class AirfoilPlotWidget(pg.PlotWidget):
         # Worst-error markers
         x_err: list[float] = []
         y_err: list[float] = []
-        if max_single_upper_idx is not None:
+        if max_single_upper_idx is not None and 0 <= max_single_upper_idx < len(upper_data):
             pt = upper_data[max_single_upper_idx]
             x_err.append(pt[0])
             y_err.append(pt[1])
-        if max_single_lower_idx is not None:
+        if max_single_lower_idx is not None and 0 <= max_single_lower_idx < len(lower_data):
             pt = lower_data[max_single_lower_idx]
             x_err.append(pt[0])
             y_err.append(pt[1])

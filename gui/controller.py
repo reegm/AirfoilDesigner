@@ -62,7 +62,7 @@ class MainController(QObject):
         fp.export_dxf_button.clicked.connect(self._export_single_bezier_dxf_action)
 
         opt = self.window.optimizer_panel
-        opt.build_single_bezier_button.clicked.disconnect()
+        # opt.build_single_bezier_button.clicked.disconnect()
         opt.build_single_bezier_button.clicked.connect(self._generate_or_abort_action)
         opt.recalculate_button.clicked.connect(self._recalculate_te_vectors_action)
 
@@ -94,6 +94,8 @@ class MainController(QObject):
         except Exception:
             chord_length_mm = None
 
+        # Always clear the plot before drawing new data
+        self.window.plot_widget.clear()
         self.window.plot_widget.plot_airfoil(
             **plot_data,
             chord_length_mm=chord_length_mm,
@@ -106,6 +108,8 @@ class MainController(QObject):
     # ------------------------------------------------------------------
     def _load_airfoil_file_action(self) -> None:
         """Handle *Load Airfoil File* button."""
+        # Clear the plot when loading a new file
+        self.window.plot_widget.clear()
         file_path, _ = QFileDialog.getOpenFileName(
             self.window,
             "Load Airfoil Data",
@@ -160,7 +164,7 @@ class MainController(QObject):
             regularization_weight = float(opt.single_bezier_reg_weight_input.text())
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
-            gui_strategy = opt.strategy_combo.currentText().lower()  # 'fixed-x' or 'variable-x'
+            gui_strategy = opt.strategy_combo.currentText().lower()  # 'fixed-x' or 'free-x'
             error_function = opt.error_function_combo.currentText().lower()  # 'euclidean' or 'orthogonal'
             objective_gui = opt.objective_combo.currentText()
             if objective_gui == 'MSR':
@@ -170,7 +174,7 @@ class MainController(QObject):
             else:
                 self.processor.log_message.emit(f"Error: Unsupported objective '{objective_gui}'.")
                 return
-            if gui_strategy not in ['fixed-x', 'variable-x']:
+            if gui_strategy not in ['fixed-x', 'free-x']:
                 self.processor.log_message.emit(f"Error: Unsupported strategy '{gui_strategy}'.")
                 return
         except ValueError:
@@ -298,6 +302,8 @@ class MainController(QObject):
             return
 
         self.processor.recalculate_te_vectors_and_update_plot(te_vector_points)
+        # Update the default TE vector points to the value just used
+        opt.set_default_te_vector_points(te_vector_points)
         # Disable the recalculate button until dropdown changes again
         opt.disable_recalc_button()
         self.processor.log_message.emit(f"Recalculating with TE vector points set to: {te_vector_points}")
@@ -494,14 +500,14 @@ def _generation_worker(args, queue):
     import traceback
     import numpy as np
     from core import config
-    from utils.data_loader import load_airfoil_data, find_shoulder_x_coords
-    from utils.dxf_exporter import export_curves_to_dxf
-    from utils.bezier_utils import bezier_curvature, general_bezier_curve
-    from utils.control_point_utils import variable_x_control_points, get_paper_fixed_x_coords
+    # from utils.data_loader import load_airfoil_data, find_shoulder_x_coords
+    # from utils.dxf_exporter import export_curves_to_dxf
+    # from utils.bezier_utils import bezier_curvature, general_bezier_curve
+    # from utils.control_point_utils import variable_x_control_points, get_paper_fixed_x_coords
     # Import new optimizer
     from core.solver.bezier_optimizer import build_single_bezier_msr, build_single_bezier_minmax, build_single_bezier_variable_x_msr, build_single_bezier_variable_x_minmax
     from core.solver.coupled_bezier_optimizer import build_coupled_bezier_fixed_x_msr, build_coupled_bezier_fixed_x_minmax, build_coupled_bezier_variable_x_msr, build_coupled_bezier_variable_x_minmax
-    # TODO: import coupled/variable-x optimizers as they are implemented
+    # TODO: import coupled/free-x optimizers as they are implemented
 
     (
         upper_data,
@@ -574,10 +580,13 @@ def _generation_worker(args, queue):
                 queue.put({"success": False, "error": f"Unknown objective_type: {objective_type}"})
                 return
             # Error calculation (for reporting)
-            from core.solver.error_functions import calculate_euclidean_error, calculate_orthogonal_error
-            error_func = calculate_orthogonal_error if error_function == 'orthogonal' else calculate_euclidean_error
-            upper_error_result = error_func(upper_data, upper_poly, return_max_error=True)
-            lower_error_result = error_func(lower_data, lower_poly, return_max_error=True)
+            from core.solver.error_functions import calculate_single_bezier_fitting_error
+            if error_function == 'orthogonal':
+                upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)
+                lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='orthogonal', return_max_error=True)
+            else:
+                upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='euclidean', return_max_error=True)
+                lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='euclidean', return_max_error=True)
             _, upper_max_error, upper_max_error_idx = upper_error_result
             _, lower_max_error, lower_max_error_idx = lower_error_result
             queue.put({
@@ -616,10 +625,13 @@ def _generation_worker(args, queue):
                 queue.put({"success": False, "error": f"Coupled fixed-x objective not yet implemented: {objective_type}"})
                 return
             # Error calculation (for reporting)
-            from core.solver.error_functions import calculate_euclidean_error, calculate_orthogonal_error
-            error_func = calculate_orthogonal_error if error_function == 'orthogonal' else calculate_euclidean_error
-            upper_error_result = error_func(upper_data, upper_poly, return_max_error=True)
-            lower_error_result = error_func(lower_data, lower_poly, return_max_error=True)
+            from core.solver.error_functions import calculate_single_bezier_fitting_error
+            if error_function == 'orthogonal':
+                upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)
+                lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='orthogonal', return_max_error=True)
+            else:
+                upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='euclidean', return_max_error=True)
+                lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='euclidean', return_max_error=True)
             _, upper_max_error, upper_max_error_idx = upper_error_result
             _, lower_max_error, lower_max_error_idx = lower_error_result
             queue.put({
@@ -631,8 +643,8 @@ def _generation_worker(args, queue):
                 "lower_max_error": lower_max_error,
                 "lower_max_error_idx": lower_max_error_idx,
             })
-        elif gui_strategy == 'variable-x' and not g2_flag:
-            # Uncoupled variable-x (implemented)
+        elif gui_strategy == 'free-x' and not g2_flag:
+            # Uncoupled free-x (implemented)
             le_tangent_upper = np.array([0.0, 1.0])
             le_tangent_lower = np.array([0.0, -1.0])
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
@@ -679,13 +691,16 @@ def _generation_worker(args, queue):
                     logger_func=worker_logger
                 )
             else:
-                queue.put({"success": False, "error": f"Variable-x objective not yet implemented: {objective_type}"})
+                queue.put({"success": False, "error": f"Free-x objective not yet implemented: {objective_type}"})
                 return
             # Error calculation (for reporting)
-            from core.solver.error_functions import calculate_euclidean_error, calculate_orthogonal_error
-            error_func = calculate_orthogonal_error if error_function == 'orthogonal' else calculate_euclidean_error
-            upper_error_result = error_func(upper_data, upper_poly, return_max_error=True)
-            lower_error_result = error_func(lower_data, lower_poly, return_max_error=True)
+            from core.solver.error_functions import calculate_single_bezier_fitting_error
+            if error_function == 'orthogonal':
+                upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)
+                lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='orthogonal', return_max_error=True)
+            else:
+                upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='euclidean', return_max_error=True)
+                lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='euclidean', return_max_error=True)
             _, upper_max_error, upper_max_error_idx = upper_error_result
             _, lower_max_error, lower_max_error_idx = lower_error_result
             queue.put({
@@ -697,8 +712,8 @@ def _generation_worker(args, queue):
                 "lower_max_error": lower_max_error,
                 "lower_max_error_idx": lower_max_error_idx,
             })
-        elif gui_strategy == 'variable-x' and g2_flag:
-            # Coupled variable-x (implemented)
+        elif gui_strategy == 'free-x' and g2_flag:
+            # Coupled free-x (implemented)
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             if objective_type == 'msr':
                 upper_poly, lower_poly = build_coupled_bezier_variable_x_msr(
@@ -721,13 +736,16 @@ def _generation_worker(args, queue):
                     logger_func=worker_logger
                 )
             else:
-                queue.put({"success": False, "error": f"Coupled variable-x objective not yet implemented: {objective_type}"})
+                queue.put({"success": False, "error": f"Coupled free-x objective not yet implemented: {objective_type}"})
                 return
             # Error calculation (for reporting)
-            from core.solver.error_functions import calculate_euclidean_error, calculate_orthogonal_error
-            error_func = calculate_orthogonal_error if error_function == 'orthogonal' else calculate_euclidean_error
-            upper_error_result = error_func(upper_data, upper_poly, return_max_error=True)
-            lower_error_result = error_func(lower_data, lower_poly, return_max_error=True)
+            from core.solver.error_functions import calculate_single_bezier_fitting_error
+            if error_function == 'orthogonal':
+                upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)
+                lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='orthogonal', return_max_error=True)
+            else:
+                upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='euclidean', return_max_error=True)
+                lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='euclidean', return_max_error=True)
             _, upper_max_error, upper_max_error_idx = upper_error_result
             _, lower_max_error, lower_max_error_idx = lower_error_result
             queue.put({

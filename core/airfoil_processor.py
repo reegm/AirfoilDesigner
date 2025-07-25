@@ -65,6 +65,12 @@ class AirfoilProcessor(QObject):
         self.upper_te_tangent_vector = None
         self.lower_te_tangent_vector = None
         self._is_trailing_edge_thickened = False
+        self.last_single_bezier_upper_max_error = None
+        self.last_single_bezier_upper_max_error_idx = None
+        self.last_single_bezier_lower_max_error = None
+        self.last_single_bezier_lower_max_error_idx = None
+        self.upper_poly_sharp = None
+        self.lower_poly_sharp = None
 
         try:
             upper, lower, airfoil_name, thickened = load_airfoil_data(file_path, logger_func=self.log_message.emit)
@@ -86,127 +92,6 @@ class AirfoilProcessor(QObject):
     def is_trailing_edge_thickened(self):
         """Returns True if the loaded airfoil has a thickened trailing edge."""
         return self._is_trailing_edge_thickened
-
-    def build_single_bezier_model(
-            self, regularization_weight, 
-            optimization_method="fixed_x", 
-            enforce_g2=False, 
-            te_vector_points=None, 
-        ):
-        """
-        Builds the single-span Bezier curves for upper and lower surfaces using the new refactored optimizer.
-        This method always builds a sharp (thickness 0) single Bezier curve.
-        Thickening is applied separately for display.
-        """
-        import time
-        if self.upper_data is None or self.lower_data is None:
-            self.log_message.emit("Error: Original airfoil data not loaded. Cannot build single Bezier model.")
-            return False
-
-        # Store the TE vector points setting for future plot updates
-        self._current_te_vector_points = te_vector_points
-
-        self.log_message.emit("Building single Bezier model (new architecture)...")
-        start_time = time.perf_counter()
-
-        # Use the new optimizer for both upper and lower surfaces
-        num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
-        le_tangent_upper = np.array([0.0, 1.0])
-        le_tangent_lower = np.array([0.0, -1.0])
-        if te_vector_points is not None:
-            upper_te_tangent_vector, lower_te_tangent_vector = self._calculate_te_tangent(
-                self.upper_data, self.lower_data, te_vector_points)
-            self.upper_te_tangent_vector = upper_te_tangent_vector
-            self.lower_te_tangent_vector = lower_te_tangent_vector
-        else:
-            upper_te_tangent_vector = self.upper_te_tangent_vector
-            lower_te_tangent_vector = self.lower_te_tangent_vector
-
-        # For now, hardcode error/objective (can be made user-configurable later)
-        error_function = "euclidean"
-        objective_type = "msr"
-
-        # Store the TE vector for later use
-        le_tangent_upper = np.array([0.0, 1.0])
-        le_tangent_lower = np.array([0.0, -1.0])
-        num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
-        if objective_type == 'msr':
-            upper_poly = build_single_bezier_msr(
-                self.upper_data,
-                num_control_points,
-                True,
-                le_tangent_upper,
-                self.upper_te_tangent_vector,
-                regularization_weight=regularization_weight,
-                error_function=error_function,
-                logger_func=self.log_message.emit
-            )
-            lower_poly = build_single_bezier_msr(
-                self.lower_data,
-                num_control_points,
-                False,
-                le_tangent_lower,
-                self.lower_te_tangent_vector,
-                regularization_weight=regularization_weight,
-                error_function=error_function,
-                logger_func=self.log_message.emit
-            )
-        elif objective_type == 'minmax':
-            upper_poly = build_single_bezier_minmax(
-                self.upper_data,
-                num_control_points,
-                True,
-                le_tangent_upper,
-                self.upper_te_tangent_vector,
-                regularization_weight=regularization_weight,
-                error_function=error_function,
-                logger_func=self.log_message.emit
-            )
-            lower_poly = build_single_bezier_minmax(
-                self.lower_data,
-                num_control_points,
-                False,
-                le_tangent_lower,
-                self.lower_te_tangent_vector,
-                regularization_weight=regularization_weight,
-                error_function=error_function,
-                logger_func=self.log_message.emit
-            )
-        else:
-            self.log_message.emit(f"Unknown objective_type: {objective_type}")
-            return False
-        self.upper_poly_sharp = upper_poly
-        self.lower_poly_sharp = lower_poly
-
-        # Error calculation (kept DRY)
-        for assign, control_poly, orig_data in [
-            ("upper", upper_poly, self.upper_data),
-            ("lower", lower_poly, self.lower_data)
-        ]:
-            te_y = control_poly[-1][1]
-            error_result = calculate_single_bezier_fitting_error(
-                np.array(control_poly), orig_data, error_function=error_function, return_max_error=True
-            )
-            if isinstance(error_result, tuple):
-                _, max_err, max_err_idx = error_result
-                if assign == "upper":
-                    self.last_single_bezier_upper_max_error = max_err
-                    self.last_single_bezier_upper_max_error_idx = max_err_idx
-                else:
-                    self.last_single_bezier_lower_max_error = max_err
-                    self.last_single_bezier_lower_max_error_idx = max_err_idx
-            else:
-                self.log_message.emit(f"Warning: Unexpected return format from {assign} error calculation")
-                if assign == "upper":
-                    self.last_single_bezier_upper_max_error = None
-                    self.last_single_bezier_upper_max_error_idx = None
-                else:
-                    self.last_single_bezier_lower_max_error = None
-                    self.last_single_bezier_lower_max_error_idx = None
-
-        elapsed = time.perf_counter() - start_time
-        self.log_message.emit(f"Single Bezier model built in {elapsed:.3f} seconds.")
-        return True
 
     def toggle_thickening(self, te_thickness_percent):
         """

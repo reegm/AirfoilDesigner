@@ -39,14 +39,14 @@ class OptimizerSettingsWidget(QGroupBox):
         self.strategy_combo = QComboBox()
         self.strategy_combo.addItems([
             "Fixed-x",
-            "Variable-x"
+            "Free-x"
         ])
         self.strategy_combo.setCurrentText("Fixed-x")  # Default to fastest, most reliable method
         self.strategy_combo.setFixedWidth(120)
         # Tooltips for strategy dropdown
         self.strategy_combo.setToolTip(
             "Fixed-x: Fastest method (~5-10s), good accuracy\n"
-            "Variable-x: Uses variable x-locations for control points\n"
+            "Free-x: Uses variable x-locations for control points\n"
             "Note: Check 'Enforce G2 at leading edge' to use coupled optimization with G2 continuity\n"
         )
 
