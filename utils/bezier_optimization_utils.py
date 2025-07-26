@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.special import comb
-from functools import lru_cache
+from joblib import Parallel, delayed
 
 from core import config
 
@@ -183,20 +183,21 @@ def calculate_all_orthogonal_distances_optimized(data_points, control_points):
     x_min, x_max = control_points[0, 0], control_points[-1, 0]
     x_range = x_max - x_min
     
-    for i, point in enumerate(data_points):
-        # Smart initial guess based on x-coordinate and point index
-        if x_range > 0:
-            initial_t = np.clip((point[0] - x_min) / x_range, 0, 1)
-        else:
-            initial_t = i / max(n_points - 1, 1)
-        
-        distance, t_opt, curve_point = calculate_orthogonal_distance_to_bezier_optimized(
-            point, control_points, initial_t_guess=initial_t
+
+    results = Parallel(n_jobs=-1, prefer="threads")(
+        delayed(calculate_orthogonal_distance_to_bezier_optimized)(
+            point,
+            control_points,
+            initial_t_guess=np.clip((point[0] - x_min) / x_range, 0, 1) if x_range > 0 else i / max(len(data_points) - 1, 1)
         )
-        
-        distances[i] = distance
-        t_values[i] = t_opt
-        curve_points[i] = curve_point
+        for i, point in enumerate(data_points)
+    )
+
+    # Unpack
+    distances, t_values, curve_points = zip(*results)
+    distances = np.array(distances)
+    t_values = np.array(t_values)
+    curve_points = np.vstack(curve_points)
     
     max_distance = np.max(distances)
     max_distance_idx = np.argmax(distances)
