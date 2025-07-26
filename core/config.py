@@ -47,7 +47,7 @@ DEFAULT_TE_THICKNESS_MM: float = 0.0
 SLSQP_OPTIONS = {
     "disp": False,
     "maxiter": 1000,
-    "ftol": 1e-12,
+    "ftol": 1e-9,
     # "eps": 1e-8
 }
 
@@ -71,5 +71,8 @@ DEFAULT_TE_VECTOR_POINTS: int = 3
 DEBUG_WORKER_LOGGING: bool = True
 
 # Orthogonal distance calculation settings
-ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 100
-ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-12
+ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 20
+ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-6
+
+# Softmas Settings
+SOFTMAX_APLHA: float = 50.0
