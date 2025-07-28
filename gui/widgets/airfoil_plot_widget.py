@@ -71,23 +71,23 @@ class AirfoilPlotWidget(pg.PlotWidget):
         COLOR_SINGLE_UPPER_CURVE = pg.mkPen("blue", width=2.0)
         COLOR_SINGLE_LOWER_CURVE = pg.mkPen("cyan", width=2.0)
 
-        COLOR_SINGLE_POLYGON = pg.mkPen((0, 0, 200), width=1, style=Qt.PenStyle.DashLine)
-        COLOR_SINGLE_SYMBOL = pg.mkBrush((100, 100, 255, 200))
-        COLOR_SINGLE_SYMBOL_PEN = pg.mkPen((80, 80, 200))
+        COLOR_SINGLE_POLYGON = pg.mkPen((0, 150, 255), width=2, style=Qt.PenStyle.DashLine)
+        COLOR_SINGLE_SYMBOL = pg.mkBrush((0, 200, 255, 255))
+        COLOR_SINGLE_SYMBOL_PEN = pg.mkPen((0, 150, 255), width=2)
 
-        COLOR_SINGLE_LOWER_POLYGON = pg.mkPen((80, 80, 255), width=1, style=Qt.PenStyle.DashLine)
-        COLOR_SINGLE_LOWER_SYMBOL = pg.mkBrush((150, 150, 255, 200))
-        COLOR_SINGLE_LOWER_SYMBOL_PEN = pg.mkPen((120, 120, 255))
+        COLOR_SINGLE_LOWER_POLYGON = pg.mkPen((100, 200, 255), width=2, style=Qt.PenStyle.DashLine)
+        COLOR_SINGLE_LOWER_SYMBOL = pg.mkBrush((100, 220, 255, 255))
+        COLOR_SINGLE_LOWER_SYMBOL_PEN = pg.mkPen((100, 200, 255), width=2)
 
         COLOR_THICKENED_CURVE = pg.mkPen("darkorange", width=2.5)
 
-        COLOR_THICKENED_POLYGON = pg.mkPen((255, 165, 0), width=1, style=Qt.PenStyle.DotLine)
-        COLOR_THICKENED_SYMBOL = pg.mkBrush((255, 100, 0, 200))
-        COLOR_THICKENED_SYMBOL_PEN = pg.mkPen((200, 80, 0))
+        COLOR_THICKENED_POLYGON = pg.mkPen((255, 165, 0), width=2, style=Qt.PenStyle.DotLine)
+        COLOR_THICKENED_SYMBOL = pg.mkBrush((255, 165, 0, 255))
+        COLOR_THICKENED_SYMBOL_PEN = pg.mkPen((255, 165, 0), width=2)
 
-        COLOR_THICKENED_LOWER_POLYGON = pg.mkPen((255, 200, 0), width=1, style=Qt.PenStyle.DotLine)
-        COLOR_THICKENED_LOWER_SYMBOL = pg.mkBrush((255, 140, 0, 200))
-        COLOR_THICKENED_LOWER_SYMBOL_PEN = pg.mkPen((255, 120, 40))
+        COLOR_THICKENED_LOWER_POLYGON = pg.mkPen((255, 200, 0), width=2, style=Qt.PenStyle.DotLine)
+        COLOR_THICKENED_LOWER_SYMBOL = pg.mkBrush((255, 200, 0, 255))
+        COLOR_THICKENED_LOWER_SYMBOL_PEN = pg.mkPen((255, 200, 0), width=2)
 
         COLOR_TE_TANGENT_UPPER = pg.mkPen("red", width=2, style=Qt.PenStyle.SolidLine)
         COLOR_TE_TANGENT_LOWER = pg.mkPen("purple", width=2, style=Qt.PenStyle.SolidLine)
