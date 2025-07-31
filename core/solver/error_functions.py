@@ -14,7 +14,7 @@ def calculate_single_bezier_fitting_error(
     """
     Unified error calculator.
     """
-    def soft_max(errors: np.ndarray, alpha: float = config.SOFTMAX_APLHA):
+    def soft_max(errors: np.ndarray, alpha: float = config.SOFTMAX_ALPHA):
         abs_errors = np.abs(errors)
         return np.log(np.sum(np.exp(alpha * abs_errors))) / alpha
 
@@ -26,6 +26,9 @@ def calculate_single_bezier_fitting_error(
         tree = cKDTree(sampled_curve_points)
         min_dists, min_idxs = tree.query(original_data, k=1)
         sum_sq = np.sum(min_dists ** 2)
+        if return_all:
+            rms = float(np.sqrt(np.mean(min_dists ** 2)))
+            return min_dists, rms, (sum_sq, int(np.argmax(min_dists)))
         if return_max_error:
             max_error = np.max(min_dists)
             max_error_idx = int(np.argmax(min_dists))
@@ -52,6 +55,9 @@ def calculate_single_bezier_fitting_error(
             original_data, bezier_poly
         )
         sum_sq = np.sum(distances ** 2)
+        if return_all:
+            rms = float(np.sqrt(np.mean(distances ** 2)))
+            return distances, rms, (sum_sq, int(np.argmax(np.abs(distances))))
         if return_max_error:
             max_err = np.max(np.abs(distances))
             max_idx = int(np.argmax(np.abs(distances)))

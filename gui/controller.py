@@ -42,6 +42,7 @@ class MainController(QObject):
         self.processor = AirfoilProcessor()
         self._generation_process = None
         self._generation_queue = None
+        self._abort_flag = None
         self._generation_timer = QTimer()
         self._generation_timer.setInterval(200)  # ms
         self._generation_timer.timeout.connect(self._check_generation_result)
@@ -147,17 +148,12 @@ class MainController(QObject):
         opt = self.window.optimizer_panel
         if self._is_generating:
             # Abort requested
-            if self._generation_process is not None:
-                self._generation_process.terminate()
-                self._generation_process = None
-            self._is_generating = False
-            opt.build_single_bezier_button.setText("Generate Airfoil")
-            if not config.DEBUG_WORKER_LOGGING:
-                self.window.status_log.stop_spinner()
-            elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
-            self.processor.log_message.emit(f"Generation aborted by user. (Elapsed time: {elapsed_time:.2f}s)")
-            self._generation_start_time = None
-            self._update_button_states()
+            if self._abort_flag is not None:
+                self._abort_flag.value = True
+                self.processor.log_message.emit("Abort requested. Waiting for optimizer to finish up...")
+            # Do NOT set self._is_generating = False here
+            # Do NOT stop spinner, reset button, or update button states here
+            # Let _check_generation_result handle cleanup and GUI updates
             return
         # Start generation in a new process
         try:
@@ -183,6 +179,7 @@ class MainController(QObject):
             )
             return
         self._generation_queue = multiprocessing.Queue()
+        self._abort_flag = multiprocessing.Value('b', False)  # Shared boolean flag
         args = (
             self.processor.upper_data,
             self.processor.lower_data,
@@ -191,7 +188,8 @@ class MainController(QObject):
             te_vector_points,
             gui_strategy,
             error_function,
-            objective_type
+            objective_type,
+            self._abort_flag
         )
         self._generation_process = multiprocessing.Process(
             target=_generation_worker,
@@ -232,6 +230,7 @@ class MainController(QObject):
             
             self._generation_process = None
             self._generation_queue = None
+            self._abort_flag = None
             if isinstance(result, dict) and result.get("success") and result.get("upper_poly") is not None:
                 # Update processor state with new model
                 self.processor.upper_poly_sharp = result["upper_poly"]
@@ -284,6 +283,7 @@ class MainController(QObject):
             elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
             self._generation_process = None
             self._generation_queue = None
+            self._abort_flag = None
             self.processor.log_message.emit(f"Generation process exited unexpectedly. (Elapsed time: {elapsed_time:.2f}s)")
             self._generation_start_time = None
             self._update_button_states()
@@ -505,9 +505,18 @@ def _generation_worker(args, queue):
     # from utils.bezier_utils import bezier_curvature, general_bezier_curve
     # from utils.control_point_utils import variable_x_control_points, get_paper_fixed_x_coords
     # Import new optimizer
-    from core.solver.bezier_optimizer import build_single_bezier_msr, build_single_bezier_minmax, build_single_bezier_variable_x_msr, build_single_bezier_variable_x_minmax
-    from core.solver.coupled_bezier_optimizer import build_coupled_bezier_fixed_x_msr, build_coupled_bezier_fixed_x_minmax, build_coupled_bezier_variable_x_msr, build_coupled_bezier_variable_x_minmax
-    # TODO: import coupled/free-x optimizers as they are implemented
+    from core.solver.bezier_optimizer import (
+            build_bezier_single_fixed_x_msr,
+    build_bezier_single_fixed_x_minmax_xy,
+    build_bezier_single_free_x_msr_xy,
+    build_bezier_single_free_x_minmax
+    )
+    from core.solver.coupled_bezier_optimizer import (
+            build_bezier_coupled_fixed_x_msr,
+    build_bezier_coupled_fixed_x_minmax_xy,
+    build_bezier_coupled_free_x_msr_xy,
+    build_bezier_coupled_free_x_minmax_xy
+    )
 
     (
         upper_data,
@@ -517,7 +526,8 @@ def _generation_worker(args, queue):
         te_vector_points,
         gui_strategy,
         error_function,
-        objective_type
+        objective_type,
+        abort_flag
     ) = args
 
     debug_logging_enabled = config.DEBUG_WORKER_LOGGING
@@ -535,7 +545,7 @@ def _generation_worker(args, queue):
             le_tangent_lower = np.array([0.0, -1.0])
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             if objective_type == 'msr':
-                upper_poly = build_single_bezier_msr(
+                upper_poly = build_bezier_single_fixed_x_msr(
                     upper_data,
                     num_control_points,
                     True,
@@ -543,9 +553,10 @@ def _generation_worker(args, queue):
                     upper_te_tangent_vector,
                     regularization_weight=regularization_weight,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
-                lower_poly = build_single_bezier_msr(
+                lower_poly = build_bezier_single_fixed_x_msr(
                     lower_data,
                     num_control_points,
                     False,
@@ -553,10 +564,11 @@ def _generation_worker(args, queue):
                     lower_te_tangent_vector,
                     regularization_weight=regularization_weight,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
             elif objective_type == 'minmax':
-                upper_poly = build_single_bezier_minmax(
+                upper_poly = build_bezier_single_fixed_x_minmax_xy(
                     upper_data,
                     num_control_points,
                     True,
@@ -564,9 +576,10 @@ def _generation_worker(args, queue):
                     upper_te_tangent_vector,
                     regularization_weight=regularization_weight,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
-                lower_poly = build_single_bezier_minmax(
+                lower_poly = build_bezier_single_fixed_x_minmax_xy(
                     lower_data,
                     num_control_points,
                     False,
@@ -574,7 +587,8 @@ def _generation_worker(args, queue):
                     lower_te_tangent_vector,
                     regularization_weight=regularization_weight,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
             else:
                 queue.put({"success": False, "error": f"Unknown objective_type: {objective_type}"})
@@ -602,24 +616,26 @@ def _generation_worker(args, queue):
             # Coupled fixed-x (implemented)
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             if objective_type == 'msr':
-                upper_poly, lower_poly = build_coupled_bezier_fixed_x_msr(
+                upper_poly, lower_poly = build_bezier_coupled_fixed_x_msr(
                     upper_data,
                     lower_data,
                     regularization_weight,
                     upper_te_tangent_vector,
                     lower_te_tangent_vector,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
             elif objective_type == 'minmax':
-                upper_poly, lower_poly = build_coupled_bezier_fixed_x_minmax(
+                upper_poly, lower_poly = build_bezier_coupled_fixed_x_minmax_xy(
                     upper_data,
                     lower_data,
                     regularization_weight,
                     upper_te_tangent_vector,
                     lower_te_tangent_vector,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
             else:
                 queue.put({"success": False, "error": f"Coupled fixed-x objective not yet implemented: {objective_type}"})
@@ -649,7 +665,7 @@ def _generation_worker(args, queue):
             le_tangent_lower = np.array([0.0, -1.0])
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             if objective_type == 'msr':
-                upper_poly = build_single_bezier_variable_x_msr(
+                upper_poly = build_bezier_single_free_x_msr_xy(
                     upper_data,
                     num_control_points,
                     True,
@@ -657,9 +673,10 @@ def _generation_worker(args, queue):
                     upper_te_tangent_vector,
                     regularization_weight=regularization_weight,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
-                lower_poly = build_single_bezier_variable_x_msr(
+                lower_poly = build_bezier_single_free_x_msr_xy(
                     lower_data,
                     num_control_points,
                     False,
@@ -667,10 +684,11 @@ def _generation_worker(args, queue):
                     lower_te_tangent_vector,
                     regularization_weight=regularization_weight,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
             elif objective_type == 'minmax':
-                upper_poly = build_single_bezier_variable_x_minmax(
+                upper_poly = build_bezier_single_free_x_minmax(
                     upper_data,
                     num_control_points,
                     True,
@@ -678,9 +696,10 @@ def _generation_worker(args, queue):
                     upper_te_tangent_vector,
                     regularization_weight=regularization_weight,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
-                lower_poly = build_single_bezier_variable_x_minmax(
+                lower_poly = build_bezier_single_free_x_minmax(
                     lower_data,
                     num_control_points,
                     False,
@@ -688,7 +707,8 @@ def _generation_worker(args, queue):
                     lower_te_tangent_vector,
                     regularization_weight=regularization_weight,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
             else:
                 queue.put({"success": False, "error": f"Free-x objective not yet implemented: {objective_type}"})
@@ -716,24 +736,26 @@ def _generation_worker(args, queue):
             # Coupled free-x (implemented)
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             if objective_type == 'msr':
-                upper_poly, lower_poly = build_coupled_bezier_variable_x_msr(
+                upper_poly, lower_poly = build_bezier_coupled_free_x_msr_xy(
                     upper_data,
                     lower_data,
                     regularization_weight,
                     upper_te_tangent_vector,
                     lower_te_tangent_vector,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
             elif objective_type == 'minmax':
-                upper_poly, lower_poly = build_coupled_bezier_variable_x_minmax(
+                upper_poly, lower_poly = build_bezier_coupled_free_x_minmax_xy(
                     upper_data,
                     lower_data,
                     regularization_weight,
                     upper_te_tangent_vector,
                     lower_te_tangent_vector,
                     error_function=error_function,
-                    logger_func=worker_logger
+                    logger_func=worker_logger,
+                    abort_flag=abort_flag
                 )
             else:
                 queue.put({"success": False, "error": f"Coupled free-x objective not yet implemented: {objective_type}"})

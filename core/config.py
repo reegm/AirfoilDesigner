@@ -46,8 +46,8 @@ DEFAULT_TE_THICKNESS_MM: float = 0.0
 # ---- Optimiser settings ---------------------------------------------------
 SLSQP_OPTIONS = {
     "disp": False,
-    "maxiter": 1000,
-    "ftol": 1e-9,
+    "maxiter": 10000,
+    "ftol": 1e-12,
     # "eps": 1e-8
 }
 
@@ -55,24 +55,28 @@ SLSQP_OPTIONS = {
 # Number of sample points used when evaluating Bezier curves for error
 # calculations (e.g. euclidedan error). Higher numbers give more accurate error
 # estimates at the cost of performance.
-NUM_POINTS_CURVE_ERROR: int = 10000
+NUM_POINTS_CURVE_ERROR: int = 20000
 
 
 # Number of points used for trailing edge vector calculations
 # Higher numbers provide more robust tangent estimates but may be less sensitive to local geometry
 DEFAULT_TE_VECTOR_POINTS: int = 3
 
-# ---- Debugging & Logging -------------------------------------------------
-# Enable detailed logging from worker processes during optimization
-# When True: Shows detailed progress messages from optimization functions
-# When False: Shows only spinner during optimization (default)
-# 
-# To enable debug logging, change this to: DEBUG_WORKER_LOGGING: bool = True
+# Debugging & Logging
 DEBUG_WORKER_LOGGING: bool = True
 
 # Orthogonal distance calculation settings
 ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 20
 ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-6
 
-# Softmas Settings
-SOFTMAX_APLHA: float = 50.0
+# Softmax Settings
+SOFTMAX_ALPHA: float = 2000
+
+MAX_ERROR_THRESHOLD: float = 9e-5
+
+# ---- Abort mechanism settings -------------------------------------------
+# Time interval (seconds) for checking abort flag during optimization
+ABORT_CHECK_INTERVAL: float = 0.1
+
+# Maximum time to wait for graceful shutdown after abort request
+ABORT_TIMEOUT: float = 5.0
