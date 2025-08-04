@@ -65,6 +65,7 @@ def _generation_worker(args, queue):
     ) = args
 
     debug_logging_enabled = config.DEBUG_WORKER_LOGGING
+    update_plot_enabled = config.UPDATE_PLOT
     last_progress_time = 0
     progress_interval = config.PROGRESS_UPDATE_INTERVAL  # Configurable progress update interval
     
@@ -74,6 +75,10 @@ def _generation_worker(args, queue):
     
     def progress_callback(iteration, elapsed, val, true_max, best_true_max, best_x, current_ctrl, surface_info=None):
         """Progress callback that sends updates through the queue with rate limiting"""
+        # Skip progress updates entirely if UPDATE_PLOT is disabled
+        if not update_plot_enabled:
+            return
+            
         nonlocal last_progress_time
         import time
         current_time = time.time()

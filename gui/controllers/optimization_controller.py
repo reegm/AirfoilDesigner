@@ -233,15 +233,7 @@ class OptimizationController:
         current_ctrl = progress_data.get("current_ctrl")
         surface_info = progress_data.get("surface_info")
         
-        # Handle progress text output based on debug flag
-        if config.DEBUG_WORKER_LOGGING:
-            if true_max is not None and best_true_max is not None:
-                progress_msg = f"Optimization progress: Iteration {iteration}, Time: {elapsed:.2f}s, Current max error: {true_max:.6e}, Best max error: {best_true_max:.6e}"
-            else:
-                progress_msg = f"Optimization progress: Iteration {iteration}, Time: {elapsed:.2f}s, Objective: {val:.6e}"
-            self.processor.log_message.emit(progress_msg)
-        
-        # Update the plot with current control points if available (always show graph updates)
+        # Update the plot with current control points if available
         if current_ctrl is not None:
             self._update_plot_with_progress(current_ctrl, iteration, elapsed, true_max, best_true_max, surface_info)
     

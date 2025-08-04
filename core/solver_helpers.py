@@ -21,8 +21,8 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
     best_true_max = float("inf")
     best_x = None
     no_improve_counter = 0
-    plateau_threshold = 1e-10
-    plateau_patience = 30
+    plateau_threshold = config.PLATEAU_THRESHOLD
+    plateau_patience = config.PLATEAU_PATIENCE
     start_time = time.time()
 
     get_residuals = getattr(fun, "__get_residuals__", None)

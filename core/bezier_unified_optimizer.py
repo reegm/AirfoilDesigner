@@ -451,19 +451,25 @@ def optimize_bezier(
                 ctrl, lower_data, error_function=error_function, return_max_error=False, return_all=True
             )
             return residuals
-        best_obj = float("inf")
+        best_max_error = float("inf")
         best_xy = None
         def full_obj(xy):
-            nonlocal best_obj, best_xy
+            nonlocal best_max_error, best_xy
             ctrl_upper = build_ctrl_upper(xy)
             ctrl_lower = build_ctrl_lower(xy)
             residuals_upper = residuals_fn_upper(ctrl_upper)
             residuals_lower = residuals_fn_lower(ctrl_lower)
             all_residuals = np.concatenate([residuals_upper, residuals_lower])
             obj_val = objective_fn(all_residuals)
-            if obj_val < best_obj:
-                best_obj = obj_val
+            
+            # Calculate true max error for tracking (matching legacy behavior and progress callback)
+            true_max_error = np.max(np.abs(all_residuals))
+            
+            # Update best configuration if we found a better true max error (matching legacy behavior)
+            if true_max_error < best_max_error:
+                best_max_error = true_max_error
                 best_xy = np.copy(xy)
+            
             smoothness_penalty_val = (smoothness_penalty(ctrl_upper) + smoothness_penalty(ctrl_lower)) if regularization_weight > 0 else 0.0
             total_obj = obj_val + regularization_weight * smoothness_penalty_val
             return total_obj
@@ -537,7 +543,7 @@ def optimize_bezier(
             
             # Create a wrapper function that has the debug attributes and preserves best tracking
             def full_obj_with_debug(xy):
-                nonlocal best_obj, best_xy
+                nonlocal best_max_error, best_xy
                 result = full_obj(xy)
                 return result
             
@@ -569,7 +575,7 @@ def optimize_bezier(
             final_ctrl_upper = build_ctrl_upper(best_xy)
             final_ctrl_lower = build_ctrl_lower(best_xy)
             if logger_func:
-                logger_func(f"Using best configuration found (obj: {best_obj:.6e})")
+                logger_func(f"Using best configuration found (max error: {best_max_error:.6e})")
         else:
             if result.success:
                 final_ctrl_upper = build_ctrl_upper(result.x)

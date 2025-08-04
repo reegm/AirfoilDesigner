@@ -47,8 +47,8 @@ DEFAULT_TE_THICKNESS_MM: float = 0.0
 SLSQP_OPTIONS = {
     "disp": False,
     "maxiter": 10000,
-    "ftol": 1e-12,
-    # "eps": 1e-8
+    "ftol": 1e-12,  # Relaxed from 1e-12 to help escape local minima
+    "eps": 1e-6    # Added step size control for better gradient estimation
 }
 
 # ---- Sampling & Debugging -----------------------------------------------
@@ -65,7 +65,8 @@ DEFAULT_TE_VECTOR_POINTS: int = 3
 # Debugging & Logging
 DEBUG_WORKER_LOGGING: bool = False
 
-# Progress update settings
+# Plot update control
+UPDATE_PLOT: bool = True  # Whether to update the plot during optimization (can be disabled for performance)
 PROGRESS_UPDATE_INTERVAL: float = 0.5  # Seconds between progress updates (0.5 = 2 updates per second)
 
 # Orthogonal distance calculation settings
@@ -73,7 +74,11 @@ ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 20
 ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-6
 
 # Softmax Settings
-SOFTMAX_ALPHA: float = 2000
+SOFTMAX_ALPHA: float = 2000  # Reduced from 100 to be less aggressive about worst errors
+
+# Plateau detection settings
+PLATEAU_THRESHOLD: float = 1e-10
+PLATEAU_PATIENCE: int = 30
 
 MAX_ERROR_THRESHOLD: float = 9e-5
 
