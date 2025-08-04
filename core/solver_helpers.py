@@ -5,10 +5,14 @@ from utils.control_point_utils import get_paper_fixed_x_coords
 from utils.bezier_utils import leading_edge_curvature
 from core import config
 
-def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, bounds=None, constraints=(), options=None, abort_flag=None, success_threshold=None):
+def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, bounds=None, constraints=(), options=None, abort_flag=None, success_threshold=None, progress_callback=None):
     """
     Standard optimization function with debug logging and abort capability.
     This is the unified function that all optimizers should use.
+    
+    Args:
+        progress_callback: Optional callback function(iteration, elapsed, val, true_max, best_true_max, best_x) 
+                          called on each iteration for progress updates
     """
     from scipy.optimize import minimize, OptimizeResult
 
@@ -37,6 +41,7 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
 
         true_max = None
         alpha = config.SOFTMAX_ALPHA
+        current_ctrl = None
         
 
         try:
@@ -54,9 +59,15 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
                 val = fun(x)
                 true_max = None
                 # print(f"Iter {iteration:03d} | t = {elapsed:6.2f}s | error = {val:.6e}")
+            
+            # Get current control points if available
+            get_ctrl = getattr(fun, "__build_ctrl__", None)
+            if get_ctrl is not None:
+                current_ctrl = get_ctrl(x)
         except Exception as e:
             val = float("inf")
             true_max = None
+            current_ctrl = None
             print(f"Iter {iteration:03d} | t = {elapsed:6.2f}s | error = inf | (evaluation failed: {e})")
 
         iteration_data.append((iteration, elapsed, val))
@@ -87,6 +98,13 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
             
         if should_update:
             best_x = np.copy(x)
+
+        # Call progress callback if provided
+        if progress_callback is not None:
+            try:
+                progress_callback(iteration, elapsed, val, true_max, best_true_max, best_x, current_ctrl)
+            except Exception as e:
+                print(f"Progress callback failed: {e}")
 
         detect_stall(iteration)
 

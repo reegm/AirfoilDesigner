@@ -1,7 +1,7 @@
 """Main window layout for the Airfoil Designer GUI.
 
 This module purposefully holds *only* the Qt layout code – no business
-logic. All interactions are delegated to :pyclass:`gui.controller.MainController`.
+logic. All interactions are delegated to :pyclass:`gui.controllers.MainController`.
 """
 
 from __future__ import annotations

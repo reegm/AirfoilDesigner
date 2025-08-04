@@ -63,7 +63,10 @@ NUM_POINTS_CURVE_ERROR: int = 20000
 DEFAULT_TE_VECTOR_POINTS: int = 3
 
 # Debugging & Logging
-DEBUG_WORKER_LOGGING: bool = True
+DEBUG_WORKER_LOGGING: bool = False
+
+# Progress update settings
+PROGRESS_UPDATE_INTERVAL: float = 0.5  # Seconds between progress updates (0.5 = 2 updates per second)
 
 # Orthogonal distance calculation settings
 ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 20

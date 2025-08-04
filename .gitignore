@@ -8,3 +8,6 @@ __pycache__/
 run_console.spec
 AirfoilDesigner.spec
 AirfoilDesigner.exe.spec
+basin_minmax.py
+basin_variable.py
+basin.py

@@ -95,7 +95,10 @@ def optimize_bezier(
                 
                 return errors + regularization_weight * smoothness_penalty(ctrl)
             
-            # Attach debug functions for logging (matching legacy behavior)
+            # Always add build_ctrl function for progress updates (regardless of debug flag)
+            obj.__build_ctrl__ = lambda variables_y: build_control_points_with_fixed(variables_y, fixed_inner_x_coords, te_y, free_indices, fixed_indices, fixed_y_values)
+            
+            # Attach debug functions for logging (only if debug logging is enabled)
             if config.DEBUG_WORKER_LOGGING:
                 def get_residuals_with_debug(variables_y):
                     ctrl = build_control_points_with_fixed(variables_y, fixed_inner_x_coords, te_y, free_indices, fixed_indices, fixed_y_values)
@@ -106,7 +109,6 @@ def optimize_bezier(
                 obj.__get_max_error__ = lambda variables_y: np.max(np.abs(calculate_single_bezier_fitting_error(
                     build_control_points_with_fixed(variables_y, fixed_inner_x_coords, te_y, free_indices, fixed_indices, fixed_y_values),
                     original_data, error_function=error_function, return_max_error=False, return_all=True)[0]))
-                obj.__build_ctrl__ = lambda variables_y: build_control_points_with_fixed(variables_y, fixed_inner_x_coords, te_y, free_indices, fixed_indices, fixed_y_values)
             
             constraints = []
             # Only apply success threshold for free-x minmax/softmax objectives, not for fixed-x or MSR
@@ -120,7 +122,8 @@ def optimize_bezier(
                 constraints=constraints,
                 options=config.SLSQP_OPTIONS,
                 success_threshold=success_threshold,
-                abort_flag=abort_flag
+                abort_flag=abort_flag,
+                progress_callback=logger_func
             )
             
             if logger_func:
@@ -223,14 +226,16 @@ def optimize_bezier(
             bounds = bounds_x + bounds_y
             x0 = vars0
 
-            # Attach debug functions for logging (matching legacy behavior)
+            # Always add build_ctrl function for progress updates (regardless of debug flag)
+            full_obj.__build_ctrl__ = build_ctrl
+            
+            # Attach debug functions for logging (only if debug logging is enabled)
             if config.DEBUG_WORKER_LOGGING:
                 def get_residuals_with_debug(xy):
                     return residuals_fn(build_ctrl(xy))
                 
                 full_obj.__get_residuals__ = get_residuals_with_debug
                 full_obj.__get_max_error__ = lambda xy: np.max(np.abs(residuals_fn(build_ctrl(xy))))
-                full_obj.__build_ctrl__ = build_ctrl
                 full_obj.__te_y__ = te_y
                 full_obj.__original_data__ = original_data
 
@@ -247,7 +252,8 @@ def optimize_bezier(
                 constraints=constraints,
                 options=config.SLSQP_OPTIONS,
                 success_threshold=success_threshold,
-                abort_flag=abort_flag
+                abort_flag=abort_flag,
+                progress_callback=logger_func
             )
             if logger_func:
                 if result.success:
@@ -336,7 +342,10 @@ def optimize_bezier(
                 smooth = smoothness_penalty(ctrl_u) + smoothness_penalty(ctrl_l)
                 return err_u + err_l + regularization_weight * smooth
             
-            # Attach debug functions for logging (matching legacy behavior)
+            # Always add build_ctrl function for progress updates (regardless of debug flag)
+            obj.__build_ctrl__ = assemble_polygons
+            
+            # Attach debug functions for logging (only if debug logging is enabled)
             if config.DEBUG_WORKER_LOGGING:
                 def get_residuals_with_debug(var_y):
                     ctrl_u, ctrl_l = assemble_polygons(var_y)
@@ -357,7 +366,6 @@ def optimize_bezier(
                         assemble_polygons(var_y)[1], lower_data, 
                         error_function=error_function, return_max_error=False, return_all=True)[0]))
                 )
-                obj.__build_ctrl__ = assemble_polygons
             
             # G2 constraint
 
@@ -373,7 +381,8 @@ def optimize_bezier(
                 constraints=constraints,
                 options=config.SLSQP_OPTIONS,
                 success_threshold=config.MAX_ERROR_THRESHOLD if (mode == "free-x" and objective in ["softmax", "minmax"]) else None,  # Only use threshold for free-x minmax objectives
-                abort_flag=abort_flag
+                abort_flag=abort_flag,
+                progress_callback=logger_func
             )
             
             if logger_func:
@@ -505,7 +514,15 @@ def optimize_bezier(
         bounds_x_lower = lower_bounds_x or [(0.0, 1.0)] * n_x_vars_lower
         bounds_y_lower = lower_bounds_y or [(-1.0, 1.0)] * n_y_vars_lower
         bounds = bounds_x_upper + bounds_y_upper + bounds_x_lower + bounds_y_lower
-        # Attach debug functions for logging
+        # Always add build_ctrl function for progress updates
+        def build_ctrl_combined(xy):
+            return build_ctrl_upper(xy), build_ctrl_lower(xy)
+        
+        # Always add build_ctrl function for progress updates (regardless of debug flag)
+        objective_function = full_obj
+        objective_function.__build_ctrl__ = build_ctrl_combined
+        
+        # Attach debug functions for logging (only if debug logging is enabled)
         if config.DEBUG_WORKER_LOGGING and logger_func:
             def get_residuals_with_debug(xy):
                 ctrl_upper = build_ctrl_upper(xy)
@@ -518,9 +535,6 @@ def optimize_bezier(
                 residuals = get_residuals_with_debug(xy)
                 return np.max(np.abs(residuals))
             
-            def build_ctrl_with_debug(xy):
-                return build_ctrl_upper(xy), build_ctrl_lower(xy)
-            
             # Create a wrapper function that has the debug attributes and preserves best tracking
             def full_obj_with_debug(xy):
                 nonlocal best_obj, best_xy
@@ -529,12 +543,10 @@ def optimize_bezier(
             
             full_obj_with_debug.__get_residuals__ = get_residuals_with_debug
             full_obj_with_debug.__get_max_error__ = get_max_error_with_debug
-            full_obj_with_debug.__build_ctrl__ = build_ctrl_with_debug
+            full_obj_with_debug.__build_ctrl__ = build_ctrl_combined  # Use the same build_ctrl function
             
             # Use the wrapper for optimization
             objective_function = full_obj_with_debug
-        else:
-            objective_function = full_obj
         
         
         result, trace = minimize_with_debug_with_abort(
@@ -545,7 +557,8 @@ def optimize_bezier(
             constraints=constraints,
             options=config.SLSQP_OPTIONS,
             success_threshold=config.MAX_ERROR_THRESHOLD if (mode == "free-x" and objective in ["softmax", "minmax"]) else None,
-            abort_flag=abort_flag
+            abort_flag=abort_flag,
+            progress_callback=logger_func
         )
         if logger_func:
             if result.success:

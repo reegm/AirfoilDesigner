@@ -162,47 +162,62 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 )
                 self.plot_items["Control Polygons (Thickened)"].append(item)
 
-        elif single_bezier_upper_poly is not None and single_bezier_lower_poly is not None:
-            curves_single_upper = general_bezier_curve(
-                np.linspace(0, 1, 100), np.array(single_bezier_upper_poly)
-            )
-            curves_single_lower = general_bezier_curve(
-                np.linspace(0, 1, 100), np.array(single_bezier_lower_poly)
-            )
-
-            self.plot_items["Single Bezier Airfoil"] = [
-                self.plot(
-                    curves_single_upper[:, 0],
-                    curves_single_upper[:, 1],
-                    pen=COLOR_SINGLE_UPPER_CURVE,
-                    name="Single Bezier Airfoil - Upper",
-                ),
-                self.plot(
-                    curves_single_lower[:, 0],
-                    curves_single_lower[:, 1],
-                    pen=COLOR_SINGLE_LOWER_CURVE,
-                    name="Single Bezier Airfoil - Lower",
-                ),
-            ]
+        elif single_bezier_upper_poly is not None or single_bezier_lower_poly is not None:
+            # Handle individual surfaces or both surfaces
+            self.plot_items["Single Bezier Airfoil"] = []
             self.plot_items["Control Polygons (Single Bezier)"] = []
-            for p_idx, p in enumerate([single_bezier_upper_poly, single_bezier_lower_poly]):
-                if p_idx == 0:  # Upper
-                    pen = COLOR_SINGLE_POLYGON
-                    symbol_brush = COLOR_SINGLE_SYMBOL
-                    symbol_pen = COLOR_SINGLE_SYMBOL_PEN
-                else:  # Lower
-                    pen = COLOR_SINGLE_LOWER_POLYGON
-                    symbol_brush = COLOR_SINGLE_LOWER_SYMBOL
-                    symbol_pen = COLOR_SINGLE_LOWER_SYMBOL_PEN
+            
+            # Plot upper surface if available
+            if single_bezier_upper_poly is not None:
+                curves_single_upper = general_bezier_curve(
+                    np.linspace(0, 1, 100), np.array(single_bezier_upper_poly)
+                )
+                self.plot_items["Single Bezier Airfoil"].append(
+                    self.plot(
+                        curves_single_upper[:, 0],
+                        curves_single_upper[:, 1],
+                        pen=COLOR_SINGLE_UPPER_CURVE,
+                        name="Single Bezier Airfoil - Upper",
+                    )
+                )
+                
+                # Add control polygon for upper surface
                 item = self.plot(
-                    np.array(p)[:, 0],
-                    np.array(p)[:, 1],
-                    pen=pen,
+                    np.array(single_bezier_upper_poly)[:, 0],
+                    np.array(single_bezier_upper_poly)[:, 1],
+                    pen=COLOR_SINGLE_POLYGON,
                     symbol="x",
                     symbolSize=7,
-                    symbolBrush=symbol_brush,
-                    symbolPen=symbol_pen,
-                    name=f"Control Poly Single {p_idx + 1}",
+                    symbolBrush=COLOR_SINGLE_SYMBOL,
+                    symbolPen=COLOR_SINGLE_SYMBOL_PEN,
+                    name="Control Poly Single Upper",
+                )
+                self.plot_items["Control Polygons (Single Bezier)"].append(item)
+            
+            # Plot lower surface if available
+            if single_bezier_lower_poly is not None:
+                curves_single_lower = general_bezier_curve(
+                    np.linspace(0, 1, 100), np.array(single_bezier_lower_poly)
+                )
+                self.plot_items["Single Bezier Airfoil"].append(
+                    self.plot(
+                        curves_single_lower[:, 0],
+                        curves_single_lower[:, 1],
+                        pen=COLOR_SINGLE_LOWER_CURVE,
+                        name="Single Bezier Airfoil - Lower",
+                    )
+                )
+                
+                # Add control polygon for lower surface
+                item = self.plot(
+                    np.array(single_bezier_lower_poly)[:, 0],
+                    np.array(single_bezier_lower_poly)[:, 1],
+                    pen=COLOR_SINGLE_LOWER_POLYGON,
+                    symbol="x",
+                    symbolSize=7,
+                    symbolBrush=COLOR_SINGLE_LOWER_SYMBOL,
+                    symbolPen=COLOR_SINGLE_LOWER_SYMBOL_PEN,
+                    name="Control Poly Single Lower",
                 )
                 self.plot_items["Control Polygons (Single Bezier)"].append(item)
 
@@ -286,17 +301,25 @@ class AirfoilPlotWidget(pg.PlotWidget):
         max_single_lower = worst_single_bezier_lower_max_error
         max_single_upper_idx = worst_single_bezier_upper_max_error_idx
         max_single_lower_idx = worst_single_bezier_lower_max_error_idx
-        if (
-            max_single_upper is not None
-            and max_single_lower is not None
-            and chord_length_mm is not None
-        ):
-            error_html = (
-                '<div style="text-align: right; color: #00BFFF; font-size: 10pt;">'
-            )
-            max_upper_mm = max_single_upper * chord_length_mm
-            max_lower_mm = max_single_lower * chord_length_mm
-            error_html += f"Max Error (Upper/Lower): {max_single_upper:.2e} ({max_upper_mm:.3f} mm) / {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
+        
+        # Show error labels for individual surfaces or both surfaces
+        if chord_length_mm is not None and (max_single_upper is not None or max_single_lower is not None):
+            error_html = '<div style="text-align: right; color: #00BFFF; font-size: 10pt;">'
+            
+            if max_single_upper is not None and max_single_lower is not None:
+                # Both surfaces available
+                max_upper_mm = max_single_upper * chord_length_mm
+                max_lower_mm = max_single_lower * chord_length_mm
+                error_html += f"Max Error (Upper/Lower): {max_single_upper:.2e} ({max_upper_mm:.3f} mm) / {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
+            elif max_single_upper is not None:
+                # Only upper surface available
+                max_upper_mm = max_single_upper * chord_length_mm
+                error_html += f"Max Error (Upper): {max_single_upper:.2e} ({max_upper_mm:.3f} mm)"
+            elif max_single_lower is not None:
+                # Only lower surface available
+                max_lower_mm = max_single_lower * chord_length_mm
+                error_html += f"Max Error (Lower): {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
+            
             error_html += "</div>"
             text_item = pg.TextItem(html=error_html, anchor=(1, 1))
             self.addItem(text_item)

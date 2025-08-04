@@ -4,7 +4,7 @@ from scipy.optimize import basinhopping, minimize
 
 from utils.data_loader import load_airfoil_data
 from utils.control_point_utils import get_paper_fixed_x_coords
-from core.solver.error_functions import calculate_single_bezier_fitting_error
+from core.error_functions import calculate_single_bezier_fitting_error
 from core import config
 
 # ------------------------------------------------------------------------- #

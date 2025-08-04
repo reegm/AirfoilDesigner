@@ -317,6 +317,15 @@ class AirfoilProcessor(QObject):
         self._last_plot_data = plot_data.copy()
         self.plot_update_requested.emit(plot_data)
 
+    def handle_optimization_progress(self, iteration, elapsed, val, true_max, best_true_max):
+        """
+        Handle progress updates from the optimization process.
+        This method can be extended to update the plot with intermediate results.
+        """
+        # Progress text output is now controlled by DEBUG_WORKER_LOGGING flag
+        # and handled in the optimization controller
+        pass
+
     def recalculate_te_vectors_and_update_plot(self, te_vector_points):
         """
         Recalculate the trailing edge tangent vectors using the specified number of points
