@@ -30,6 +30,11 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
     def detect_stall(current_iter):
         if no_improve_counter >= plateau_patience:
             print("⚠️ Optimizer appears to be stalled.")
+        
+        # Manual maxiter enforcement since scipy's SLSQP doesn't always respect it
+        if options and current_iter >= options.get('maxiter', 10000):
+            print(f"⚠️ Manual maxiter limit reached: {current_iter}")
+            raise EarlyStopException(f"Manual maxiter limit reached: {current_iter}")
 
     class EarlyStopException(Exception):
         pass
