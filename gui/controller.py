@@ -505,18 +505,19 @@ def _generation_worker(args, queue):
     # from utils.bezier_utils import bezier_curvature, general_bezier_curve
     # from utils.control_point_utils import variable_x_control_points, get_paper_fixed_x_coords
     # Import new optimizer
-    from core.solver.bezier_optimizer import (
-            build_bezier_single_fixed_x_msr,
-    build_bezier_single_fixed_x_minmax_xy,
-    build_bezier_single_free_x_msr_xy,
-    build_bezier_single_free_x_minmax
+    from core.bezier_optimizer import (
+    build_bezier_fixed_x_msr,
+    build_bezier_fixed_x_minmax,
+    build_bezier_free_x_msr,
+    build_bezier_free_x_minmax
+)
+    from core.coupled_bezier_optimizer import (
+    build_coupled_bezier_fixed_x_msr,
+    build_coupled_bezier_fixed_x_minmax,
+    build_coupled_bezier_free_x_msr,
+    build_coupled_bezier_free_x_minmax
     )
-    from core.solver.coupled_bezier_optimizer import (
-            build_bezier_coupled_fixed_x_msr,
-    build_bezier_coupled_fixed_x_minmax_xy,
-    build_bezier_coupled_free_x_msr_xy,
-    build_bezier_coupled_free_x_minmax_xy
-    )
+    from core.error_functions import calculate_single_bezier_fitting_error
 
     (
         upper_data,
@@ -545,7 +546,7 @@ def _generation_worker(args, queue):
             le_tangent_lower = np.array([0.0, -1.0])
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             if objective_type == 'msr':
-                upper_poly = build_bezier_single_fixed_x_msr(
+                upper_poly = build_bezier_fixed_x_msr(
                     upper_data,
                     num_control_points,
                     True,
@@ -556,7 +557,7 @@ def _generation_worker(args, queue):
                     logger_func=worker_logger,
                     abort_flag=abort_flag
                 )
-                lower_poly = build_bezier_single_fixed_x_msr(
+                lower_poly = build_bezier_fixed_x_msr(
                     lower_data,
                     num_control_points,
                     False,
@@ -568,7 +569,7 @@ def _generation_worker(args, queue):
                     abort_flag=abort_flag
                 )
             elif objective_type == 'minmax':
-                upper_poly = build_bezier_single_fixed_x_minmax_xy(
+                upper_poly = build_bezier_fixed_x_minmax(
                     upper_data,
                     num_control_points,
                     True,
@@ -579,7 +580,7 @@ def _generation_worker(args, queue):
                     logger_func=worker_logger,
                     abort_flag=abort_flag
                 )
-                lower_poly = build_bezier_single_fixed_x_minmax_xy(
+                lower_poly = build_bezier_fixed_x_minmax(
                     lower_data,
                     num_control_points,
                     False,
@@ -594,7 +595,6 @@ def _generation_worker(args, queue):
                 queue.put({"success": False, "error": f"Unknown objective_type: {objective_type}"})
                 return
             # Error calculation (for reporting)
-            from core.solver.error_functions import calculate_single_bezier_fitting_error
             if error_function == 'orthogonal':
                 upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)
                 lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='orthogonal', return_max_error=True)
@@ -616,7 +616,7 @@ def _generation_worker(args, queue):
             # Coupled fixed-x (implemented)
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             if objective_type == 'msr':
-                upper_poly, lower_poly = build_bezier_coupled_fixed_x_msr(
+                upper_poly, lower_poly = build_coupled_bezier_fixed_x_msr(
                     upper_data,
                     lower_data,
                     regularization_weight,
@@ -627,7 +627,7 @@ def _generation_worker(args, queue):
                     abort_flag=abort_flag
                 )
             elif objective_type == 'minmax':
-                upper_poly, lower_poly = build_bezier_coupled_fixed_x_minmax_xy(
+                upper_poly, lower_poly = build_coupled_bezier_fixed_x_minmax(
                     upper_data,
                     lower_data,
                     regularization_weight,
@@ -641,7 +641,6 @@ def _generation_worker(args, queue):
                 queue.put({"success": False, "error": f"Coupled fixed-x objective not yet implemented: {objective_type}"})
                 return
             # Error calculation (for reporting)
-            from core.solver.error_functions import calculate_single_bezier_fitting_error
             if error_function == 'orthogonal':
                 upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)
                 lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='orthogonal', return_max_error=True)
@@ -665,7 +664,7 @@ def _generation_worker(args, queue):
             le_tangent_lower = np.array([0.0, -1.0])
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             if objective_type == 'msr':
-                upper_poly = build_bezier_single_free_x_msr_xy(
+                upper_poly = build_bezier_free_x_msr(
                     upper_data,
                     num_control_points,
                     True,
@@ -676,7 +675,7 @@ def _generation_worker(args, queue):
                     logger_func=worker_logger,
                     abort_flag=abort_flag
                 )
-                lower_poly = build_bezier_single_free_x_msr_xy(
+                lower_poly = build_bezier_free_x_msr(
                     lower_data,
                     num_control_points,
                     False,
@@ -688,7 +687,7 @@ def _generation_worker(args, queue):
                     abort_flag=abort_flag
                 )
             elif objective_type == 'minmax':
-                upper_poly = build_bezier_single_free_x_minmax(
+                upper_poly = build_bezier_free_x_minmax(
                     upper_data,
                     num_control_points,
                     True,
@@ -699,7 +698,7 @@ def _generation_worker(args, queue):
                     logger_func=worker_logger,
                     abort_flag=abort_flag
                 )
-                lower_poly = build_bezier_single_free_x_minmax(
+                lower_poly = build_bezier_free_x_minmax(
                     lower_data,
                     num_control_points,
                     False,
@@ -714,7 +713,6 @@ def _generation_worker(args, queue):
                 queue.put({"success": False, "error": f"Free-x objective not yet implemented: {objective_type}"})
                 return
             # Error calculation (for reporting)
-            from core.solver.error_functions import calculate_single_bezier_fitting_error
             if error_function == 'orthogonal':
                 upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)
                 lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='orthogonal', return_max_error=True)
@@ -736,7 +734,7 @@ def _generation_worker(args, queue):
             # Coupled free-x (implemented)
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             if objective_type == 'msr':
-                upper_poly, lower_poly = build_bezier_coupled_free_x_msr_xy(
+                upper_poly, lower_poly = build_coupled_bezier_free_x_msr(
                     upper_data,
                     lower_data,
                     regularization_weight,
@@ -747,7 +745,7 @@ def _generation_worker(args, queue):
                     abort_flag=abort_flag
                 )
             elif objective_type == 'minmax':
-                upper_poly, lower_poly = build_bezier_coupled_free_x_minmax_xy(
+                upper_poly, lower_poly = build_coupled_bezier_free_x_minmax(
                     upper_data,
                     lower_data,
                     regularization_weight,
@@ -761,7 +759,6 @@ def _generation_worker(args, queue):
                 queue.put({"success": False, "error": f"Coupled free-x objective not yet implemented: {objective_type}"})
                 return
             # Error calculation (for reporting)
-            from core.solver.error_functions import calculate_single_bezier_fitting_error
             if error_function == 'orthogonal':
                 upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)
                 lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='orthogonal', return_max_error=True)

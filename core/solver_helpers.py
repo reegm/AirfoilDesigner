@@ -52,9 +52,11 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
                 print(f"Iter {iteration:03d} | t = {elapsed:6.2f}s | softmax = {softmax_val:.6e} | max = {true_max:.6e} | best max: = {best_true_max:.6e}")
             else:
                 val = fun(x)
+                true_max = None
                 # print(f"Iter {iteration:03d} | t = {elapsed:6.2f}s | error = {val:.6e}")
         except Exception as e:
             val = float("inf")
+            true_max = None
             print(f"Iter {iteration:03d} | t = {elapsed:6.2f}s | error = inf | (evaluation failed: {e})")
 
         iteration_data.append((iteration, elapsed, val))
@@ -69,11 +71,19 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
             no_improve_counter += 1
             
         # Also update if we found a better true_max (even if softmax didn't improve)
-        if true_max is not None and true_max < best_true_max:
-            best_true_max = true_max
+        # Use __get_max_error__ function if available for more accurate tracking
+        get_max_error = getattr(fun, "__get_max_error__", None)
+        current_max_error = None
+        if get_max_error is not None:
+            current_max_error = get_max_error(x)
+        elif true_max is not None:
+            current_max_error = true_max
+            
+        if current_max_error is not None and current_max_error < best_true_max:
+            best_true_max = current_max_error
             should_update = True
             no_improve_counter = 0  # Reset counter when we find a better true_max
-            print(f"  → New best true_max: {true_max:.6e}")
+            print(f"  → New best true_max: {current_max_error:.6e}")
             
         if should_update:
             best_x = np.copy(x)
@@ -86,8 +96,18 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
             raise EarlyStopException("Optimization aborted by user")
 
         # Check for success threshold (only if it's provided)
-        if success_threshold is not None and true_max is not None and true_max < success_threshold:
-            raise EarlyStopException()
+        # Use __get_max_error__ function if available for more accurate threshold comparison
+        get_max_error = getattr(fun, "__get_max_error__", None)
+        if success_threshold is not None:
+            if get_max_error is not None:
+                # Use the dedicated max error function for threshold comparison
+                threshold_max_error = get_max_error(x)
+                if threshold_max_error < success_threshold:
+                    raise EarlyStopException()
+            elif true_max is not None:
+                # Fallback to using the raw residuals max
+                if true_max < success_threshold:
+                    raise EarlyStopException()
 
         return val
 
@@ -290,7 +310,7 @@ def make_residuals_fn(original_data, error_function, minmax=False):
         efun = error_function
         if minmax:
             efun = efun + "_minmax" if not efun.endswith("_minmax") else efun
-        residuals, _, _ = __import__('core.solver.error_functions', fromlist=['calculate_single_bezier_fitting_error']).calculate_single_bezier_fitting_error(
+        residuals, _, _ = __import__('core.error_functions', fromlist=['calculate_single_bezier_fitting_error']).calculate_single_bezier_fitting_error(
             ctrl, original_data, error_function=efun, return_max_error=False, return_all=True)
         return residuals
     return residuals
@@ -424,7 +444,8 @@ def run_minmax_stage(
         if logger_func:
             logger_func(f"Using best configuration found (max error: {best_max_error:.6e})")
     else:
-        final_ctrl = build_control_points_fn(result.x) if result.success else build_control_points_fn(initial_y)
+        # Always use result.x since minimize_with_debug_with_abort returns the best result found
+        final_ctrl = build_control_points_fn(result.x)
     
     return final_ctrl
 

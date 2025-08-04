@@ -6,8 +6,8 @@ import logging
 from core import config
 from utils.bezier_utils import general_bezier_curve, bezier_derivative, bezier_curvature
 # --- New import for refactored optimizer ---
-from core.solver.bezier_optimizer import build_bezier_single_fixed_x_msr, build_bezier_single_fixed_x_minmax_xy
-from core.solver.error_functions import calculate_single_bezier_fitting_error
+from core.bezier_optimizer import build_bezier_fixed_x_msr, build_bezier_fixed_x_minmax
+from core.error_functions import calculate_single_bezier_fitting_error
 from utils.data_loader import load_airfoil_data
 from utils.dxf_exporter import export_curves_to_dxf
 
