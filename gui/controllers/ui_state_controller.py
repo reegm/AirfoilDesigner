@@ -53,8 +53,9 @@ class UIStateController:
             "Remove Thickening" if is_thickened else "Apply Thickening"
         )
 
-        # Export button
+        # Export buttons
         fp.export_dxf_button.setEnabled(is_model_built)
+        fp.export_dat_button.setEnabled(is_model_built)
 
         # Comb sliders
         comb.comb_scale_slider.setEnabled(is_model_built)

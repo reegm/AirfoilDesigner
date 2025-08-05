@@ -12,6 +12,8 @@ from PySide6.QtWidgets import QFileDialog
 
 from core.airfoil_processor import AirfoilProcessor
 from utils.dxf_exporter import export_curves_to_dxf
+from utils.sampling_utils import sample_airfoil_surfaces
+from utils.data_loader import export_airfoil_to_selig_format
 
 
 class FileController:
@@ -139,3 +141,103 @@ class FileController:
             if sanitized:
                 return f"{sanitized}.dxf"
         return "airfoil.dxf" 
+
+    def export_dat_file(self) -> None:
+        """Export the current Bezier model(s) as a high-resolution .dat file using curvature-based sampling."""
+        # Get the number of points per surface from the UI
+        try:
+            points_per_surface = self.window.file_panel.points_per_surface_input.value()
+        except ValueError:
+            self.processor.log_message.emit(
+                "Error: Invalid number of points. Please enter a valid number."
+            )
+            return
+
+        # Get the current airfoil name
+        airfoil_name = getattr(self.processor, "airfoil_name", "airfoil")
+        if not airfoil_name:
+            airfoil_name = "airfoil"
+
+        # Get the current Bezier polygons
+        upper_poly = None
+        lower_poly = None
+        
+        if self.processor._is_thickened and self.processor._thickened_single_bezier_polygons:
+            # Use thickened model if available
+            polygons = self.processor._thickened_single_bezier_polygons
+            if len(polygons) >= 2:
+                upper_poly = polygons[0]
+                lower_poly = polygons[1]
+            self.processor.log_message.emit(
+                "Preparing to export thickened single Bezier model as .dat file."
+            )
+        elif self.processor.upper_poly_sharp is not None and self.processor.lower_poly_sharp is not None:
+            # Use sharp model
+            upper_poly = self.processor.upper_poly_sharp
+            lower_poly = self.processor.lower_poly_sharp
+            self.processor.log_message.emit(
+                "Preparing to export sharp single Bezier model as .dat file."
+            )
+
+        if upper_poly is None or lower_poly is None:
+            self.processor.log_message.emit(
+                "Error: Single Bezier model not available for export. Please build it first."
+            )
+            return
+
+        try:
+            # Sample the surfaces using curvature-based sampling
+            upper_sampled, lower_sampled = sample_airfoil_surfaces(
+                upper_poly, lower_poly, points_per_surface, curvature_weight=0.7
+            )
+            
+            self.processor.log_message.emit(
+                f"Sampled {points_per_surface} points per surface using curvature-based sampling."
+            )
+
+        except Exception as exc:
+            self.processor.log_message.emit(
+                f"Error during curvature-based sampling: {exc}"
+            )
+            return
+
+        # Get default filename
+        default_filename = self._get_default_dat_filename(airfoil_name)
+        
+        # Show file dialog
+        file_path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Save High-Resolution .dat File",
+            default_filename,
+            "DAT Files (*.dat);;All Files (*)",
+        )
+        
+        if not file_path:
+            self.processor.log_message.emit(".dat export cancelled by user.")
+            return
+
+        try:
+            # Export to Selig format
+            export_airfoil_to_selig_format(upper_sampled, lower_sampled, airfoil_name, file_path)
+            
+            self.processor.log_message.emit(
+                f"High-resolution .dat export successful to '{os.path.basename(file_path)}'."
+            )
+            self.processor.log_message.emit(
+                f"Exported {len(upper_sampled)} points per surface in Selig format."
+            )
+            
+        except IOError as exc:
+            self.processor.log_message.emit(f"Could not save .dat file: {exc}")
+        except Exception as exc:
+            self.processor.log_message.emit(f"An unexpected error occurred during .dat export: {exc}")
+
+    def _get_default_dat_filename(self, airfoil_name: str) -> str:
+        """Return a safe default filename for .dat export based on the loaded profile."""
+        import re
+
+        if airfoil_name:
+            sanitized = re.sub(r"[^A-Za-z0-9\-_]+", "_", airfoil_name)
+            if sanitized:
+                return f"{sanitized}_highres.dat"
+        return "airfoil_highres.dat" 

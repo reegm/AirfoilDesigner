@@ -235,3 +235,32 @@ def find_shoulder_x_coords(upper_data, lower_data):
     lower_shoulder_x = lower_data[lower_min_y_idx, 0]
 
     return upper_shoulder_x, lower_shoulder_x
+
+def export_airfoil_to_selig_format(upper_surface, lower_surface, airfoil_name, filename):
+    """
+    Export airfoil data in Selig format to a .dat file.
+    
+    Selig format:
+        Line 1: Airfoil name
+        Subsequent lines: x y coordinates, starting from upper TE, around LE, to lower TE.
+    
+    Args:
+        upper_surface (np.ndarray): Upper surface coordinates (N, 2), ordered LE to TE.
+        lower_surface (np.ndarray): Lower surface coordinates (N, 2), ordered LE to TE.
+        airfoil_name (str): Name of the airfoil.
+        filename (str): Output file path.
+    """
+    with open(filename, 'w') as f:
+        # Write airfoil name
+        f.write(f"{airfoil_name}\n")
+        
+        # Write coordinates in Selig format: upper TE -> LE -> lower TE
+        # Upper surface from TE to LE (reverse order)
+        for i in range(len(upper_surface) - 1, -1, -1):
+            x, y = upper_surface[i]
+            f.write(f"{x:.6f} {y:.6f}\n")
+        
+        # Lower surface from LE to TE (skip first point as it's the same as upper LE)
+        for i in range(1, len(lower_surface)):
+            x, y = lower_surface[i]
+            f.write(f"{x:.6f} {y:.6f}\n")

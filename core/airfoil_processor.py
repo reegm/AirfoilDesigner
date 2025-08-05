@@ -334,19 +334,43 @@ class AirfoilProcessor(QObject):
         if self.upper_data is None or self.lower_data is None:
             self.log_message.emit("Error: No airfoil data loaded. Cannot recalculate TE vectors.")
             return
+        
         upper_te_tangent_vector, lower_te_tangent_vector = self._calculate_te_tangent(
             self.upper_data, self.lower_data, te_vector_points
         )
         # Update the stored TE tangent vectors in CoreProcessor
         self.upper_te_tangent_vector = upper_te_tangent_vector
         self.lower_te_tangent_vector = lower_te_tangent_vector
+        
+        # Create plot data that preserves existing model data while updating TE vectors
         plot_data = {
             'upper_data': self.upper_data,
             'lower_data': self.lower_data,
             'upper_te_tangent_vector': upper_te_tangent_vector,
             'lower_te_tangent_vector': lower_te_tangent_vector,
-            # The rest of the plot data is left as None or not updated
+            'worst_single_bezier_upper_max_error': getattr(self, 'last_single_bezier_upper_max_error', None),
+            'worst_single_bezier_upper_max_error_idx': getattr(self, 'last_single_bezier_upper_max_error_idx', None),
+            'worst_single_bezier_lower_max_error': getattr(self, 'last_single_bezier_lower_max_error', None),
+            'worst_single_bezier_lower_max_error_idx': getattr(self, 'last_single_bezier_lower_max_error_idx', None),
+            'single_bezier_upper_poly': self.upper_poly_sharp,
+            'single_bezier_lower_poly': self.lower_poly_sharp,
+            'thickened_single_bezier_upper_poly': None,
+            'thickened_single_bezier_lower_poly': None,
+            'comb_single_bezier': None,
         }
+        
+        # Preserve thickened model data if it exists
+        if self._is_thickened and self._thickened_single_bezier_polygons:
+            plot_data['thickened_single_bezier_upper_poly'] = self._thickened_single_bezier_polygons[0]
+            plot_data['thickened_single_bezier_lower_poly'] = self._thickened_single_bezier_polygons[1]
+            plot_data['comb_single_bezier'] = self._calculate_curvature_comb_data(self._thickened_single_bezier_polygons)
+        elif self.upper_poly_sharp is not None:
+            # Use sharp model for comb data if no thickened model
+            plot_data['comb_single_bezier'] = self._calculate_curvature_comb_data([
+                self.upper_poly_sharp,
+                self.lower_poly_sharp
+            ])
+        
         self.plot_update_requested.emit(plot_data)
         self.log_message.emit(f"Trailing edge vectors recalculated with {te_vector_points} points.")
 
