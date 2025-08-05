@@ -59,6 +59,12 @@ class AirfoilPlotWidget(pg.PlotWidget):
         worst_single_bezier_lower_max_error_idx=None,
         comb_single_bezier=None,
         chord_length_mm=None,
+        # CST data parameters
+        original_upper=None,
+        original_lower=None,
+        cst_upper=None,
+        cst_lower=None,
+        cst_metrics=None,
     ):
         """Render everything supplied in *kwargs* on the canvas."""
         # Clear all items to ensure no remnants
@@ -68,6 +74,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
 
         # Colours -------------------------------------------------------
         COLOR_ORIGINAL_DATA = (135, 206, 250, 200)  # SkyBlue
+        COLOR_CST_DATA = (255, 140, 0, 200)  # DarkOrange
         COLOR_SINGLE_UPPER_CURVE = pg.mkPen("blue", width=2.0)
         COLOR_SINGLE_LOWER_CURVE = pg.mkPen("cyan", width=2.0)
 
@@ -109,6 +116,46 @@ class AirfoilPlotWidget(pg.PlotWidget):
             symbolBrush=pg.mkBrush(COLOR_ORIGINAL_DATA),
             name="Original Data",
         )
+
+        # --------------------------------------------------------------
+        # 1.5) CST data (if available)
+        # --------------------------------------------------------------
+        if cst_upper is not None and cst_lower is not None:
+            # Plot CST fit as continuous lines
+            self.plot_items["CST Data"] = [
+                self.plot(
+                    cst_upper[:, 0],
+                    cst_upper[:, 1],
+                    pen=pg.mkPen(COLOR_CST_DATA, width=2),
+                    name="CST Fit - Upper",
+                ),
+                self.plot(
+                    cst_lower[:, 0],
+                    cst_lower[:, 1],
+                    pen=pg.mkPen(COLOR_CST_DATA, width=2),
+                    name="CST Fit - Lower",
+                )
+            ]
+            
+            # Add CST metrics to legend if available
+            if cst_metrics:
+                # Create a text item showing CST error metrics
+                metrics_text = (
+                    f"CST Errors:\n"
+                    f"Upper RMSE: {cst_metrics.get('upper_rmse', 0):.6f}\n"
+                    f"Upper Max Orth: {cst_metrics.get('upper_orthogonal_max_error', 0):.6f}\n"
+                    f"Lower RMSE: {cst_metrics.get('lower_rmse', 0):.6f}\n"
+                    f"Lower Max Orth: {cst_metrics.get('lower_orthogonal_max_error', 0):.6f}"
+                )
+                text_item = pg.TextItem(
+                    text=metrics_text,
+                    color=(255, 140, 0),  # Orange color matching CST data
+                    anchor=(0, 0)
+                )
+                self.addItem(text_item)
+                self.plot_items["CST Error Text"] = text_item
+                # Position the text in the top-left corner
+                text_item.setPos(0.02, 0.98)
 
         # --------------------------------------------------------------
         # 2) Single-Bezier curves (thickened has priority)

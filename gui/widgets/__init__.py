@@ -10,4 +10,5 @@ from .file_control_panel import FileControlPanel  # noqa: F401
 from .optimizer_settings import OptimizerSettingsWidget  # noqa: F401
 from .airfoil_settings import AirfoilSettingsWidget  # noqa: F401
 from .comb_panel import CombPanelWidget  # noqa: F401
-from .status_log import StatusLogWidget  # noqa: F401 
+from .status_log import StatusLogWidget  # noqa: F401
+from .cst_settings import CSTSettingsWidget  # noqa: F401 

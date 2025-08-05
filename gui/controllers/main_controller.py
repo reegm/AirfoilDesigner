@@ -10,11 +10,13 @@ from typing import Any
 from PySide6.QtCore import QObject
 
 from core.airfoil_processor import AirfoilProcessor
+from core.cst_processor import CSTProcessor
 from gui.main_window import MainWindow
 
 from .file_controller import FileController
 from .optimization_controller import OptimizationController
 from .ui_state_controller import UIStateController
+from .cst_controller import CSTController
 
 
 class MainController(QObject):
@@ -25,10 +27,12 @@ class MainController(QObject):
 
         self.window = window
         self.processor = AirfoilProcessor()
+        self.cst_processor = CSTProcessor()
         
         # Initialize sub-controllers
         self.ui_state_controller = UIStateController(self.processor, self.window)
         self.file_controller = FileController(self.processor, self.window, self.ui_state_controller)
+        self.cst_controller = CSTController(self.cst_processor, self.window, self)
         self.optimization_controller = OptimizationController(self.processor, self.window, self.ui_state_controller)
 
         # ------------------------------------------------------------------

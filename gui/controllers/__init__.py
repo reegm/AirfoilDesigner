@@ -8,10 +8,12 @@ from .main_controller import MainController
 from .file_controller import FileController
 from .optimization_controller import OptimizationController
 from .ui_state_controller import UIStateController
+from .cst_controller import CSTController
 
 __all__ = [
     "MainController",
     "FileController", 
     "OptimizationController",
     "UIStateController",
+    "CSTController",
 ] 

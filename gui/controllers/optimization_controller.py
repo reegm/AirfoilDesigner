@@ -89,6 +89,7 @@ class OptimizationController:
         
         self._generation_queue = multiprocessing.Queue()
         self._abort_flag = multiprocessing.Value('b', False)  # Shared boolean flag
+        
         args = (
             self.processor.upper_data,
             self.processor.lower_data,

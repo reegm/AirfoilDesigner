@@ -22,6 +22,7 @@ from gui.widgets import (
     CombPanelWidget,
     StatusLogWidget,
     AirfoilPlotWidget,
+    CSTSettingsWidget,
 )
 
 
@@ -50,12 +51,14 @@ class MainWindow(QMainWindow):
         control_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.file_panel = FileControlPanel(self)
+        self.cst_panel = CSTSettingsWidget(self)
         self.optimizer_panel = OptimizerSettingsWidget(self)
         self.airfoil_settings_panel = AirfoilSettingsWidget(self)
         self.comb_panel = CombPanelWidget(self)
         self.status_log = StatusLogWidget(self)
 
         control_layout.addWidget(self.file_panel)
+        control_layout.addWidget(self.cst_panel)
         control_layout.addWidget(self.optimizer_panel)
         control_layout.addWidget(self.airfoil_settings_panel)
         control_layout.addWidget(self.comb_panel)
