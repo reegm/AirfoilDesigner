@@ -142,20 +142,18 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 # Create a text item showing CST error metrics
                 metrics_text = (
                     f"CST Errors:\n"
-                    f"Upper RMSE: {cst_metrics.get('upper_rmse', 0):.6f}\n"
-                    f"Upper Max Orth: {cst_metrics.get('upper_orthogonal_max_error', 0):.6f}\n"
-                    f"Lower RMSE: {cst_metrics.get('lower_rmse', 0):.6f}\n"
-                    f"Lower Max Orth: {cst_metrics.get('lower_orthogonal_max_error', 0):.6f}"
+                    f"Upper RMSE: {cst_metrics.get('upper_rmse', 0):.3e}\n"
+                    f"Upper Max Orth: {cst_metrics.get('upper_orthogonal_max_error', 0):.3e}\n"
+                    f"Lower RMSE: {cst_metrics.get('lower_rmse', 0):.3e}\n"
+                    f"Lower Max Orth: {cst_metrics.get('lower_orthogonal_max_error', 0):.3e}"
                 )
                 text_item = pg.TextItem(
                     text=metrics_text,
                     color=(255, 140, 0),  # Orange color matching CST data
-                    anchor=(0, 0)
+                    anchor=(1, 1)  # Anchor to top-left
                 )
                 self.addItem(text_item)
                 self.plot_items["CST Error Text"] = text_item
-                # Position the text in the top-left corner
-                text_item.setPos(0.02, 0.98)
 
         # --------------------------------------------------------------
         # 2) Single-Bezier curves (thickened has priority)
@@ -419,7 +417,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
     # Internals
     # ------------------------------------------------------------------
     def _update_error_text_positions(self):
-        """Keep error text anchored to the top-right corner on zoom/pan."""
+        """Keep error text anchored to the top corners on zoom/pan."""
         vb = self.getViewBox()
         if not vb:
             return
@@ -428,15 +426,21 @@ class AirfoilPlotWidget(pg.PlotWidget):
         x_padding = (x_range[1] - x_range[0]) * 0.04
         y_padding = (y_range[1] - y_range[0]) * 0.08
 
+        
+        # Position other error texts in top-right corner
         top_right_x = x_range[1] - x_padding
         current_y = y_range[1] - y_padding
 
         text_4_seg = self.plot_items.get("4-Seg Error Text")
         text_single = self.plot_items.get("Single Bezier Error Text")
-
+        text_cst = self.plot_items.get("CST Error Text")
+        
         y_offset = (y_range[1] - y_range[0]) * 0.06
         if text_4_seg:
             text_4_seg.setPos(top_right_x, current_y)
             current_y -= y_offset
         if text_single:
             text_single.setPos(top_right_x, current_y) 
+            current_y -= y_offset
+        if text_cst:
+            text_cst.setPos(top_right_x, current_y)
