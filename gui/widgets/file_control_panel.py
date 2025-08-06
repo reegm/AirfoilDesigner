@@ -62,6 +62,6 @@ class FileControlPanel(QGroupBox):
         # main_layout.setSpacing(10)
         main_layout.addLayout(file_layout)
         main_layout.addLayout(export_layout)
-        main_layout.addLayout(dat_export_layout)
+        # main_layout.addLayout(dat_export_layout)
 
         self.setLayout(main_layout) 
