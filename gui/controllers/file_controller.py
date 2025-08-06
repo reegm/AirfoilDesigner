@@ -11,7 +11,7 @@ from typing import Any
 from PySide6.QtWidgets import QFileDialog
 
 from core.airfoil_processor import AirfoilProcessor
-from utils.dxf_exporter import export_curves_to_dxf
+
 from utils.sampling_utils import sample_airfoil_surfaces
 from utils.data_loader import export_airfoil_to_selig_format
 
@@ -97,18 +97,15 @@ class FileController:
             )
             return
 
-        dxf_doc = export_curves_to_dxf(
-            polygons_to_export,
-            chord_length_mm,
-            self.processor.log_message.emit,
-        )
-
-        if not dxf_doc:
-            self.processor.log_message.emit(
-                "Single Bezier DXF export failed during document creation."
-            )
-            return
-
+        # Get export type from UI
+        export_type_map = {
+            "Clamped Spline": "clamped_spline",
+            "NURBS Fit": "nurbs_fit", 
+            "NURBS Control": "nurbs_control"
+        }
+        export_type = export_type_map.get(self.window.file_panel.dxf_export_type_combo.currentText(), "clamped_spline")
+        
+        # Get default filename and show file dialog
         default_filename = self._get_default_dxf_filename()
         file_path, _ = QFileDialog.getSaveFileName(
             self.window,
@@ -117,19 +114,31 @@ class FileController:
             "DXF Files (*.dxf)",
         )
         if not file_path:
-            self.processor.log_message.emit("Single Bezier DXF export cancelled by user.")
+            self.processor.log_message.emit("DXF export cancelled by user.")
             return
 
-        try:
-            dxf_doc.saveas(file_path)
+        # Get NURBS parameters
+        degree = self.window.file_panel.nurbs_degree_input.value()
+        num_samples = self.window.file_panel.nurbs_samples_input.value()
+        
+        # Use the processor's export method which now supports NURBS
+        success = self.processor.export_to_dxf(
+            file_path,
+            chord_length_mm,
+            export_type=export_type,
+            degree=degree,
+            num_samples=num_samples
+        )
+        
+        if success:
             self.processor.log_message.emit(
-                f"Single Bezier DXF export successful to '{os.path.basename(file_path)}'."
+                f"DXF export successful to '{os.path.basename(file_path)}' (type: {export_type})."
             )
             self.processor.log_message.emit(
                 "Note: For correct scale in CAD software, ensure import settings are configured for millimeters."
             )
-        except IOError as exc:
-            self.processor.log_message.emit(f"Could not save DXF file: {exc}")
+        else:
+            self.processor.log_message.emit("DXF export failed.")
     
     def _get_default_dxf_filename(self) -> str:
         """Return a safe default filename based on the loaded profile."""

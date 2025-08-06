@@ -10,6 +10,7 @@ from core.bezier_optimizer import build_bezier_fixed_x_msr, build_bezier_fixed_x
 from core.error_functions import calculate_single_bezier_fitting_error
 from utils.data_loader import load_airfoil_data
 from utils.dxf_exporter import export_curves_to_dxf
+from utils.nurbs_dxf_exporter import export_nurbs_curves_to_dxf, export_nurbs_curves_to_dxf_with_control_points
 
 
 class SignalLogHandler(logging.Handler):
@@ -136,9 +137,16 @@ class AirfoilProcessor(QObject):
         self._request_plot_update()
         return True
 
-    def export_to_dxf(self, file_path, chord_length_mm):
+    def export_to_dxf(self, file_path, chord_length_mm, export_type="clamped_spline", degree=3, num_samples=200):
         """
         Export the current Bezier model(s) as a DXF file.
+        
+        Args:
+            file_path (str): Path where to save the DXF file
+            chord_length_mm (float): Chord length in millimeters for scaling
+            export_type (str): Type of export - "clamped_spline", "nurbs_fit", or "nurbs_control"
+            degree (int): Degree of NURBS curves (for NURBS exports)
+            num_samples (int): Number of sample points for NURBS fit export
         """
         if self._is_thickened and self._thickened_single_bezier_polygons:
             polygons_to_export = self._thickened_single_bezier_polygons
@@ -150,19 +158,43 @@ class AirfoilProcessor(QObject):
             self.log_message.emit("Error: Single Bezier model not available for export. Please build it first.")
             return False
 
-        dxf_doc = export_curves_to_dxf(
-            polygons_to_export,
-            chord_length_mm,
-            self.log_message.emit,
-        )
+        # Choose export method based on export_type
+        if export_type == "clamped_spline":
+            dxf_doc = export_curves_to_dxf(
+                polygons_to_export,
+                chord_length_mm,
+                self.log_message.emit,
+            )
+        elif export_type == "nurbs_fit":
+            dxf_doc = export_nurbs_curves_to_dxf(
+                polygons_to_export,
+                chord_length_mm,
+                self.log_message.emit,
+                degree=degree,
+                num_samples=num_samples
+            )
+        elif export_type == "nurbs_control":
+            dxf_doc = export_nurbs_curves_to_dxf_with_control_points(
+                polygons_to_export,
+                chord_length_mm,
+                self.log_message.emit,
+                degree=degree
+            )
+        else:
+            self.log_message.emit(f"Error: Unknown export type '{export_type}'. Using clamped spline.")
+            dxf_doc = export_curves_to_dxf(
+                polygons_to_export,
+                chord_length_mm,
+                self.log_message.emit,
+            )
 
         if not dxf_doc:
-            self.log_message.emit("Single Bezier DXF export failed during document creation.")
+            self.log_message.emit(f"DXF export failed during document creation (type: {export_type}).")
             return False
 
         try:
             dxf_doc.saveas(file_path)
-            self.log_message.emit(f"DXF file exported to: {file_path}")
+            self.log_message.emit(f"DXF file exported to: {file_path} (type: {export_type})")
             return True
         except Exception as e:
             self.log_message.emit(f"Error saving DXF file: {e}")
