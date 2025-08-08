@@ -63,7 +63,7 @@ NUM_POINTS_CURVE_ERROR: int = 20000
 DEFAULT_TE_VECTOR_POINTS: int = 3
 
 # Debugging & Logging
-DEBUG_WORKER_LOGGING: bool = False
+DEBUG_WORKER_LOGGING: bool = True
 
 # Plot update control
 UPDATE_PLOT: bool = True  # Whether to update the plot during optimization (can be disabled for performance)
@@ -93,3 +93,5 @@ ABORT_TIMEOUT: float = 5.0
 CST_DEFAULT_DEGREE = 7
 CST_N1: float = 0.5
 CST_N2: float = 1.0
+## Mild smoothing for CST shape coefficients (Δ² penalty) — disabled by default
+CST_DEFAULT_LAMBDA_REG: float = 0.0

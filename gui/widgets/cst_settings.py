@@ -24,7 +24,7 @@ class CSTSettingsWidget(QGroupBox):
         # --- Inputs ------------------------------------------------------
         # Degree of Bernstein polynomials
         self.degree_spinbox = QSpinBox()
-        self.degree_spinbox.setRange(4, 15)
+        self.degree_spinbox.setRange(4, 20)
         self.degree_spinbox.setValue(config.CST_DEFAULT_DEGREE)
         self.degree_spinbox.setFixedWidth(80)
         self.degree_spinbox.setToolTip("Degree of Bernstein polynomials (number of coefficients = degree + 1)")
@@ -32,6 +32,10 @@ class CSTSettingsWidget(QGroupBox):
         # Action buttons
         self.fit_cst_button = QPushButton("Fit CST")
         self.fit_cst_button.setToolTip("Perform CST fitting on loaded airfoil data")
+        self.build_deg9_button = QPushButton("Build Deg-9 Bézier from CST")
+        self.build_deg9_button.setToolTip("Approximate CST with single-span degree-9 Bézier (orthogonal, constrained)")
+        self.export_cst_dat_button = QPushButton("Export CST DAT")
+        self.export_cst_dat_button.setToolTip("Export current CST curves as high-resolution .dat (Selig format)")
         
         # --- Layout ------------------------------------------------------
         layout = QVBoxLayout()
@@ -46,6 +50,8 @@ class CSTSettingsWidget(QGroupBox):
         # Buttons row
         button_row = QHBoxLayout()
         button_row.addWidget(self.fit_cst_button)
+        button_row.addWidget(self.build_deg9_button)
+        button_row.addWidget(self.export_cst_dat_button)
         layout.addLayout(button_row)
 
         layout.addStretch(1)
