@@ -88,3 +88,8 @@ ABORT_CHECK_INTERVAL: float = 0.1
 
 # Maximum time to wait for graceful shutdown after abort request
 ABORT_TIMEOUT: float = 5.0
+
+#CST Stettings
+CST_DEFAULT_DEGREE = 7
+CST_N1: float = 0.5
+CST_N2: float = 1.0

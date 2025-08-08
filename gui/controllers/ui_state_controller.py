@@ -38,16 +38,16 @@ class UIStateController:
             self.processor.upper_poly_sharp is not None
         )
         is_thickened = self.processor._is_thickened
-        is_trailing_edge_thickened = False
-        if hasattr(self.processor, "is_trailing_edge_thickened"):
-            is_trailing_edge_thickened = self.processor.is_trailing_edge_thickened()
+        blunt_TE = False
+        if hasattr(self.processor, "blunt_TE"):
+            blunt_TE = self.processor.blunt_TE()
 
         # Build button
         opt.build_single_bezier_button.setEnabled(is_file_loaded)
 
         # Thickening button
         airfoil.toggle_thickening_button.setEnabled(
-            is_model_built and not is_trailing_edge_thickened
+            is_model_built and not blunt_TE
         )
         airfoil.toggle_thickening_button.setText(
             "Remove Thickening" if is_thickened else "Apply Thickening"

@@ -32,11 +32,6 @@ class CSTController(QObject):
         
         # CST fitting buttons
         cst_panel.fit_cst_button.clicked.connect(self.fit_cst)
-        cst_panel.clear_cst_button.clicked.connect(self.clear_cst)
-        
-        # Display checkboxes
-        cst_panel.show_original_checkbox.toggled.connect(self._update_display)
-        cst_panel.show_cst_checkbox.toggled.connect(self._update_display)
         
     def fit_cst(self) -> None:
         """Perform CST fitting on the loaded airfoil data."""
@@ -49,15 +44,14 @@ class CSTController(QObject):
         
         # Set parameters in CST processor
         self.cst_processor.set_parameters(
-            degree=params['degree'],
-            n1=params['n1'],
-            n2=params['n2']
+            degree=params['degree']
         )
         
         # Perform CST fitting
         success = self.cst_processor.fit_airfoil(
             upper_data=self.main_controller.processor.upper_data,
-            lower_data=self.main_controller.processor.lower_data
+            lower_data=self.main_controller.processor.lower_data,
+            blunt_TE=self.main_controller.processor.blunt_TE()
         )
         
         if success:
@@ -71,12 +65,12 @@ class CSTController(QObject):
             try:
                 metrics = self.cst_processor.get_fitting_metrics()
                 self.window.status_log.append(
-                    f"CST Fit Complete - Upper RMSE: {metrics['upper']['rmse']:.6f}, "
-                    f"Lower RMSE: {metrics['lower']['rmse']:.6f}"
+                    f"CST Fit Complete - Upper RMSE: {metrics['upper']['rmse']:.3e}, "
+                    f"Lower RMSE: {metrics['lower']['rmse']:.3e}"
                 )
                 self.window.status_log.append(
-                    f"CST Orthogonal Errors - Upper Max: {metrics['upper']['orthogonal_max_error']:.6f}, "
-                    f"Lower Max: {metrics['lower']['orthogonal_max_error']:.6f}"
+                    f"CST Orthogonal Errors - Upper Max: {metrics['upper']['orthogonal_max_error']:.3e}, "
+                    f"Lower Max: {metrics['lower']['orthogonal_max_error']:.3e}"
                 )
             except Exception as e:
                 self.window.status_log.append(f"Error getting CST metrics: {e}")
@@ -100,14 +94,8 @@ class CSTController(QObject):
             self.main_controller.processor._request_plot_update()
             return
         
-        # Get display settings
-        params = self.window.cst_panel.get_parameters()
-        
         # Request plot update from CST processor
-        self.cst_processor.request_plot_update(
-            show_original=params['show_original'],
-            show_cst=params['show_cst']
-        )
+        self.cst_processor.request_plot_update()
     
     def _update_plot_from_cst(self, plot_data: dict[str, Any]) -> None:
         """Receive plot data from CST processor and forward to the widget."""

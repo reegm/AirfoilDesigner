@@ -43,7 +43,7 @@ class AirfoilProcessor(QObject):
         self._thickened_single_bezier_polygons = None # Stores thickened single Bezier polygons
         self._last_plot_data = None # Cache for the last plot data dictionary
         self._current_te_vector_points = None  # Store current TE vector points setting
-        self._is_trailing_edge_thickened = False # True if original airfoil has thickened TE
+        self._blunt_TE = False # True if original airfoil has thickened TE
         self.upper_poly_sharp = None
         self.lower_poly_sharp = None
         self.last_single_bezier_upper_max_error = None
@@ -64,7 +64,7 @@ class AirfoilProcessor(QObject):
         self.lower_data = None
         self.upper_te_tangent_vector = None
         self.lower_te_tangent_vector = None
-        self._is_trailing_edge_thickened = False
+        self._blunt_TE = False
         self.last_single_bezier_upper_max_error = None
         self.last_single_bezier_upper_max_error_idx = None
         self.last_single_bezier_lower_max_error = None
@@ -73,11 +73,11 @@ class AirfoilProcessor(QObject):
         self.lower_poly_sharp = None
 
         try:
-            upper, lower, airfoil_name, thickened = load_airfoil_data(file_path, logger_func=self.log_message.emit)
+            upper, lower, airfoil_name, blunt = load_airfoil_data(file_path, logger_func=self.log_message.emit)
             self.upper_data = upper
             self.lower_data = lower
             self.airfoil_name = airfoil_name
-            self._is_trailing_edge_thickened = thickened
+            self._blunt_TE = blunt
             # Recalculate TE tangent vectors using default (last 3 points)
             te_vector_points = 3
             self.upper_te_tangent_vector, self.lower_te_tangent_vector = self._calculate_te_tangent(
@@ -89,9 +89,9 @@ class AirfoilProcessor(QObject):
             self.log_message.emit(f"Failed to load or initialize airfoil data: {e}")
             return False
 
-    def is_trailing_edge_thickened(self):
+    def blunt_TE(self):
         """Returns True if the loaded airfoil has a thickened trailing edge."""
-        return self._is_trailing_edge_thickened
+        return self._blunt_TE
 
     def toggle_thickening(self, te_thickness_percent):
         """

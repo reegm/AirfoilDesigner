@@ -1,46 +1,13 @@
-"""
-CST (Class–Shape Transformation) fitter – **auto‑refine edition**
-================================================================
-Aim: push both *RMSE* **and** *max error* into the **e‑5** band while
-keeping the solver analytical and fast.
-
-Key additions
--------------
-1. **Adaptive degree sweep** – `fit_airfoil_cst(auto_degree=True)`
-   increases the Bernstein degree until the target error threshold is
-   met (default 1e‑5) or until `degree_max` is reached.
-
-2. **Optional uniform weighting** retained.  In practice the classic
-   `Φ = C·B` works best once the degree passes ~10, so the adaptive
-   sweep flips to *uniform* for the last two steps if it still can’t hit
-   the target.
-
-3. **n₁ / n₂ tuning** – a coarse grid‑search (`tune_n1_n2=True`) over a
-   user‑supplied range (default ±0.2 around 0.5 / 1.0) combined with the
-   degree sweep.  This adds ~30–50 ms even for degree 14 on a 3 k‑point
-   surface and usually drops the max error one extra order.
-
-Public API **unchanged**: all previous keyword names still accepted.
-```python
-result = fit_airfoil_cst(upper_pts, lower_pts,
-                         auto_degree=True,           # new
-                         degree_max=14,              # default 12
-                         target_max_err=1e‑5,        # default
-                         tune_n1_n2=True,
-                         logger_func=print)
-```
-You can still pin the degree manually by leaving `auto_degree` **False**.
-"""
-
 from __future__ import annotations
 
 import itertools
 import math
-import types
 from typing import Callable, Optional, Tuple
 
 import numpy as np
 from scipy.spatial import cKDTree
+
+from core import config
 
 __all__ = [
     "CSTFitter",
@@ -49,7 +16,7 @@ __all__ = [
 ]
 
 # ---------------------------------------------------------------------------
-#  Core CST fitter – identical maths, but packaged for reuse
+#  Core CST fitter
 # ---------------------------------------------------------------------------
 
 class CSTFitter:
@@ -81,7 +48,6 @@ class CSTFitter:
         if coeffs.size == self.num_coefficients + 1:  # ΔTE term present
             y += x * coeffs[-1] / 2.0
         return y
-
     # ------------------- analytical least‑squares --------------------------
     def lsq(
         self,
@@ -89,7 +55,6 @@ class CSTFitter:
         y: np.ndarray,
         *,
         fit_te_thickness: bool = False,
-        uniform_weight: bool = False,
         eps: float = 1e-12,
     ) -> Tuple[np.ndarray, float]:
         """Return (coeffs, max_abs_residual)"""
@@ -99,19 +64,24 @@ class CSTFitter:
         C = self.class_function(x)
         B = self.bernstein_polynomials(x)
 
-        if uniform_weight:
-            y_rhs = y / np.where(C < eps, eps, C)
-            Phi = B
-        else:
-            y_rhs = y
-            Phi = C[:, None] * B
+        edges = (x < 1e-4) | (x > 1-1e-4)      # drop rows where C ≈ 0
+        x_fit, y_fit, C_fit = x[~edges], y[~edges], C[~edges]
+
+        y_rhs = y_fit / C_fit                   # true shape values
+        Phi   = self.bernstein_polynomials(x_fit)
 
         if fit_te_thickness:
-            Phi = np.hstack([Phi, x[:, None]])
+            Phi = np.hstack([Phi, x_fit[:, None]])
+
+        # Tikhonov term, not doing any good so far
+        # lam = 1e-6 if self.degree > 10 else 0.0
+        # A   = Phi.T @ Phi + lam*np.eye(Phi.shape[1])
+        # b   = Phi.T @ y_rhs
+        # coeffs = np.linalg.solve(A, b)
 
         coeffs, *_ = np.linalg.lstsq(Phi, y_rhs, rcond=None)
-        max_err = float(np.max(np.abs(y_rhs - Phi @ coeffs)))
-        return coeffs, max_err
+        phys_err = np.max(np.abs(self.class_function(x_fit)*(Phi @ coeffs) - y_fit))
+        return coeffs, phys_err
 
     # -------------------------- metrics ------------------------------------
     def metrics(self, x: np.ndarray, y: np.ndarray, coeffs: np.ndarray) -> dict:
@@ -139,108 +109,54 @@ class CSTFitter:
 #  High‑level API with adaptive refinement
 # =============================================================================
 
-def _grid_n1n2(center_n1: float, center_n2: float, width: float = 0.2):
-    sweep = [-width, -width / 2, 0, width / 2, width]
-    for dn1, dn2 in itertools.product(sweep, sweep):
-        yield center_n1 + dn1, center_n2 + dn2
-
-
 def fit_airfoil_cst(
     upper_data: np.ndarray,
     lower_data: np.ndarray,
     *,
-    degree: int = 8,
-    degree_max: int = 12,
-    auto_degree: bool = False,
-    target_max_err: float = 1e-5,
-    tune_n1_n2: bool = False,
-    n1: float = 0.5,
-    n2: float = 1.0,
+    degree: int = config.CST_DEFAULT_DEGREE,
     fit_te_thickness: bool = False,
-    uniform_weight: bool = False,
     logger_func: Optional[Callable[[str], None]] = None,
 ):
-    """Adaptive CST fitting routine.
-
-    Parameters
-    ----------
-    auto_degree
-        If *True* increment degree until `target_max_err` is met or
-        `degree_max` reached.
-    tune_n1_n2
-        If *True* does a coarse ±0.2 grid search around n1/n2 before the
-        degree sweep.
-    All other arguments mirror the classic behaviour.
-    """
-
     ux, uy = upper_data[:, 0], upper_data[:, 1]
     lx, ly = lower_data[:, 0], lower_data[:, 1]
 
-    best = None  # (metric, fitter, coeffs_upper, coeffs_lower, metrics_u, m_l)
+    fitter = CSTFitter(degree=degree)
 
-    n1n2_iter = _grid_n1n2(n1, n2) if tune_n1_n2 else [(n1, n2)]
+    uc, umerr = fitter.lsq(
+        ux,
+        uy,
+        fit_te_thickness=fit_te_thickness,
+    )
+    lc, lmerr = fitter.lsq(
+        lx,
+        ly,
+        fit_te_thickness=fit_te_thickness,
+    )
 
-    for cand_n1, cand_n2 in n1n2_iter:
-        cur_degree = degree
-        while True:
-            fitter = CSTFitter(n1=cand_n1, n2=cand_n2, degree=cur_degree)
+    worst_err = max(umerr, lmerr)
+    if logger_func:
+        logger_func(
+            f"max={worst_err:.3e}"
+        )
 
-            uc, umerr = fitter.lsq(
-                ux,
-                uy,
-                fit_te_thickness=fit_te_thickness,
-                uniform_weight=uniform_weight,
-            )
-            lc, lmerr = fitter.lsq(
-                lx,
-                ly,
-                fit_te_thickness=fit_te_thickness,
-                uniform_weight=uniform_weight,
-            )
-
-            worst_err = max(umerr, lmerr)
-            if logger_func:
-                logger_func(
-                    f"n1={cand_n1:.3f}, n2={cand_n2:.3f}, degree={cur_degree}, "
-                    f"max={worst_err:.3e}"
-                )
-
-            if best is None or worst_err < best[0]:
-                best = (
-                    worst_err,
-                    fitter,
-                    uc,
-                    lc,
-                    fitter.metrics(ux, uy, uc),
-                    fitter.metrics(lx, ly, lc),
-                )
-
-            # Exit conditions
-            if not auto_degree or worst_err <= target_max_err or cur_degree >= degree_max:
-                break
-
-            # prepare next sweep step
-            cur_degree += 1
-            if cur_degree == degree_max - 1 and not uniform_weight:
-                # last two attempts: flip to uniform weighting for one final chance
-                uniform_weight = True
-
-    _, fitter, uc, lc, umet, lmet = best
+    
+    umetrics = fitter.metrics(ux, uy, uc)
+    lmetrics = fitter.metrics(lx, ly, lc)
 
     if logger_func:
         logger_func(
             f"Selected degree={fitter.degree}, n1={fitter.n1:.3f}, n2={fitter.n2:.3f}"
         )
         logger_func(
-            f"Upper CST: RMSE={umet['rmse']:.6e}, max={umet['max_error']:.6e} | "
-            f"Lower CST: RMSE={lmet['rmse']:.6e}, max={lmet['max_error']:.6e}"
+            f"Upper CST: RMSE={umetrics['rmse']:.6e}, max={umetrics['max_error']:.6e} | "
+            f"Lower CST: RMSE={lmetrics['rmse']:.6e}, max={lmetrics['max_error']:.6e}"
         )
 
     return {
         "upper_coefficients": uc,
         "lower_coefficients": lc,
-        "upper_metrics": umet,
-        "lower_metrics": lmet,
+        "upper_metrics": umetrics,
+        "lower_metrics": lmetrics,
         "fitter": fitter,
     }
 

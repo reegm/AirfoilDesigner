@@ -8,6 +8,7 @@ import numpy as np
 from typing import Optional, Dict, Any, Tuple
 from PySide6.QtCore import QObject, Signal
 
+from core import config
 from core.cst_fitter import CSTFitter, fit_airfoil_cst, generate_cst_airfoil_data
 
 
@@ -27,8 +28,9 @@ class CSTProcessor(QObject):
         
         # CST fitting parameters
         self.degree = 15
-        self.n1 = 0.5
-        self.n2 = 1.0
+        self.n1 = config.CST_N1
+        self.n2 = config.CST_N2
+        self.bluntTE = False
         
         # Fitting results
         self.cst_fitter = None
@@ -45,7 +47,7 @@ class CSTProcessor(QObject):
         self.original_upper_data = None
         self.original_lower_data = None
         
-    def set_parameters(self, degree: int = 8, n1: float = 0.5, n2: float = 1.0):
+    def set_parameters(self, degree: int = 8, n1: float = 0.5, n2: float = 1.0, blunt_TE = False):
         """
         Set CST fitting parameters.
         
@@ -57,8 +59,9 @@ class CSTProcessor(QObject):
         self.degree = degree
         self.n1 = n1
         self.n2 = n2
+        self.blunt_TE = blunt_TE
         
-    def fit_airfoil(self, upper_data: np.ndarray, lower_data: np.ndarray) -> bool:
+    def fit_airfoil(self, upper_data: np.ndarray, lower_data: np.ndarray, blunt_TE: bool) -> bool:
         """
         Fit CST functions to airfoil data.
         
@@ -72,6 +75,7 @@ class CSTProcessor(QObject):
         try:
             self.original_upper_data = upper_data.copy()
             self.original_lower_data = lower_data.copy()
+            self.blunt_TE = blunt_TE
             
             # Perform CST fitting
             # result = fit_airfoil_cst(
@@ -86,14 +90,8 @@ class CSTProcessor(QObject):
             result = fit_airfoil_cst(
                 upper_data=upper_data,
                 lower_data=lower_data,
-                degree=self.degree,           # initial degree “seed”
-                degree_max=max(self.degree, 14),
-                auto_degree=True,             # turn on adaptive sweep
-                target_max_err=1e-5,          # e-5 band
-                tune_n1_n2=True,              # n1/n2 grid-search
-                n1=self.n1,
-                n2=self.n2,
-                fit_te_thickness=False,       # leave as-is unless you need open TE
+                degree=self.degree,           
+                fit_te_thickness=blunt_TE,       # leave as-is unless you need open TE
                 logger_func=self.log_message.emit
             )
 
@@ -158,13 +156,9 @@ class CSTProcessor(QObject):
         
         return self.upper_coefficients, self.lower_coefficients
     
-    def request_plot_update(self, show_original: bool = True, show_cst: bool = True):
+    def request_plot_update(self):
         """
         Request a plot update showing the CST fit results.
-        
-        Args:
-            show_original: Whether to show the original airfoil data
-            show_cst: Whether to show the CST fit data
         """
         if self.cst_upper_data is None:
             self.log_message.emit("No CST data available for plotting.")
@@ -172,11 +166,12 @@ class CSTProcessor(QObject):
         
         plot_data = {}
         
-        if show_original and self.original_upper_data is not None:
+        if self.original_upper_data is not None:
             plot_data['original_upper'] = self.original_upper_data
+        if self.original_lower_data is not None:
             plot_data['original_lower'] = self.original_lower_data
         
-        if show_cst:
+        if self.cst_upper_data is not None:
             plot_data['cst_upper'] = self.cst_upper_data
             plot_data['cst_lower'] = self.cst_lower_data
         
