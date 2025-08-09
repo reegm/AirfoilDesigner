@@ -64,6 +64,11 @@ class CSTController(QObject):
             
             # Update plot
             self._update_display()
+            # Ensure UI elements reflect that CST results (and comb) are available
+            try:
+                self.main_controller.ui_state_controller.update_button_states()
+            except Exception:
+                pass
             
             # Log metrics
             try:
@@ -193,6 +198,8 @@ class CSTController(QObject):
             plot_kwargs['cst_upper'] = plot_data['cst_upper']
         if 'cst_lower' in plot_data:
             plot_kwargs['cst_lower'] = plot_data['cst_lower']
+        if 'comb_cst' in plot_data:
+            plot_kwargs['comb_cst'] = plot_data['comb_cst']
         if 'cst_metrics' in plot_data:
             plot_kwargs['cst_metrics'] = plot_data['cst_metrics']
         

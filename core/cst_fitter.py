@@ -41,6 +41,17 @@ class CSTFitter:
             B[:, i] = math.comb(n, i) * np.power(x, i) * np.power(1 - x, n - i)
         return B
 
+    def bernstein_polynomials_derivative(self, x: np.ndarray) -> np.ndarray:
+        """Derivative of Bernstein basis w.r.t x for degree n on [0,1]."""
+        n = self.degree
+        dB = np.empty((len(x), n + 1))
+        # Using d/dx [C(n,i) x^i (1-x)^{n-i}] = C(n,i)[ i x^{i-1}(1-x)^{n-i} - (n-i) x^i (1-x)^{n-i-1} ]
+        for i in range(n + 1):
+            term1 = 0.0 if i == 0 else i * np.power(x, i - 1) * np.power(1 - x, n - i)
+            term2 = 0.0 if (n - i) == 0 else (n - i) * np.power(x, i) * np.power(1 - x, n - i - 1)
+            dB[:, i] = math.comb(n, i) * (term1 - term2)
+        return dB
+
     # ----------------------- forward model ---------------------------------
     def cst_function(self, x: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
         x = np.asarray(x, float)
@@ -52,6 +63,27 @@ class CSTFitter:
         if coeffs.size == self.num_coefficients + 1:  # ΔTE term present
             y += x * coeffs[-1]
         return y
+
+    def cst_derivative(self, x: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
+        """Compute dy/dx for the CST curve y(x)."""
+        x = np.asarray(x, float)
+        # Avoid singularities at the endpoints for dC/dx
+        x_safe = np.clip(x, 1e-12, 1.0 - 1e-12)
+        coeffs = np.asarray(coeffs, float)
+        shape = coeffs[: self.num_coefficients]
+        C = self.class_function(x)
+        dC = (
+            self.n1 * np.power(x_safe, self.n1 - 1) * np.power(1 - x_safe, self.n2)
+            - self.n2 * np.power(x_safe, self.n1) * np.power(1 - x_safe, self.n2 - 1)
+        )
+        B = self.bernstein_polynomials(x)
+        dB = self.bernstein_polynomials_derivative(x)
+        poly = B @ shape
+        dpoly = dB @ shape
+        dydx = dC * poly + C * dpoly
+        if coeffs.size == self.num_coefficients + 1:
+            dydx += coeffs[-1]
+        return dydx
 
     # ------------------- analytical least‑squares --------------------------
     def lsq(
@@ -122,8 +154,24 @@ class CSTFitter:
         }
 
     # -------------------- sampling helper ----------------------------------
-    def sample(self, coeffs: np.ndarray, n: int = 10000):
-        x = np.linspace(0, 1, n)
+    def sample(self, coeffs: np.ndarray, n: int = 10000, method: str | None = None):
+        """Sample the CST curve with optional endpoint-clustered spacing.
+
+        method:
+          - "uniform" (default): x = linspace(0, 1, n)
+          - "cosine": x = 0.5 * (1 - cos(pi * t)), clusters near 0 and 1
+          - "sqrt-le": x = t**2, clusters near leading edge (x ≈ 0)
+        """
+        if method is None:
+            method = getattr(config, "CST_SAMPLING_METHOD", "uniform")
+
+        t = np.linspace(0.0, 1.0, n)
+        if method == "cosine":
+            x = 0.5 * (1.0 - np.cos(np.pi * t))
+        elif method == "sqrt-le":
+            x = t ** 2
+        else:
+            x = t
         return x, self.cst_function(x, coeffs)
 
 
@@ -180,69 +228,126 @@ def fit_airfoil_cst(
     lower_data: np.ndarray,
     *,
     degree: int = 8,
-    n1: float = 0.5,
-    n2: float = 1.0,
-    fit_te_thickness: bool = False,
+    te_slope_upper: Optional[float] = None,
+    te_slope_lower: Optional[float] = None,
     logger_func: Optional[Callable[[str], None]] = None,
-):
-    
-    def _chebyshev_nodes01(m: int) -> np.ndarray:
-        """Chebyshev nodes of the first kind mapped to [0, 1]."""
-        k = np.arange(1, m + 1, dtype=float)
-        return 0.5 * (1.0 - np.cos((2.0 * k - 1.0) * np.pi / (2.0 * m)))
+) -> dict:
+    """Coupled CST fit with fixed TE points, LE continuity penalty, and orthogonal reweighting.
 
-    def _resample_to_chebyshev(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Resample y(x) onto Chebyshev-spaced x in [0,1], including endpoints.
+    Solver options and class exponents are taken from core.config.
+    """
 
-        Keeps the number of samples the same by adding 0 and 1 to the Chebyshev set.
-        Assumes x is already in [0,1]. Handles non-strictly-monotone input by sorting
-        and uniquing x before interpolation.
-        """
-        x = np.asarray(x, float)
-        y = np.asarray(y, float)
-        m = x.size
-        if m <= 1:
-            return x, y
-        inner = max(0, m - 2)
-        if inner > 0:
-            x_new = np.concatenate([[0.0], _chebyshev_nodes01(inner), [1.0]])
-        else:
-            x_new = np.array([0.0, 1.0])
-        # Prepare monotone unique source for interpolation
-        order = np.argsort(x)
-        x_sorted = x[order]
-        y_sorted = y[order]
-        x_unique, idx = np.unique(x_sorted, return_index=True)
-        y_unique = y_sorted[idx]
-        # Clamp x_new to available range just in case
-        xmin = float(x_unique[0])
-        xmax = float(x_unique[-1])
-        x_new_clamped = np.clip(x_new, xmin, xmax)
-        y_new = np.interp(x_new_clamped, x_unique, y_unique)
-        return x_new_clamped, y_new
+    # Extract arrays
+    ux, uy = np.asarray(upper_data[:, 0], float), np.asarray(upper_data[:, 1], float)
+    lx, ly = np.asarray(lower_data[:, 0], float), np.asarray(lower_data[:, 1], float)
 
-    # Original data
-    ux_raw, uy_raw = upper_data[:, 0], upper_data[:, 1]
-    lx_raw, ly_raw = lower_data[:, 0], lower_data[:, 1]
+    # Determine trailing edge y-values from the max-x endpoints
+    u_te_idx = int(np.argmax(ux)); dte_u = float(uy[u_te_idx])
+    l_te_idx = int(np.argmax(lx)); dte_l = float(ly[l_te_idx])
 
-    # Resample to Chebyshev-distributed x including endpoints
-    ux, uy = _resample_to_chebyshev(ux_raw, uy_raw)
-    lx, ly = _resample_to_chebyshev(lx_raw, ly_raw)
+    # Fitter reads exponents from config
+    fitter = CSTFitter(n1=config.CST_N1, n2=config.CST_N2, degree=degree)
+    nu = fitter.num_coefficients
 
-    fitter = CSTFitter(n1=n1, n2=n2, degree=degree)
+    # Build design with TE fixed via RHS shift
+    C_u = fitter.class_function(ux)
+    B_u = fitter.bernstein_polynomials(ux)
+    A_u = C_u[:, None] * B_u
+    b_u = uy - (ux * dte_u)
 
-    uc, _ = fitter.lsq(
-        ux,
-        uy,
-        fit_te_thickness=fit_te_thickness,
-        lambda_reg=config.CST_DEFAULT_LAMBDA_REG,
-    )
-    lc, _ = fitter.lsq(
-        lx,
-        ly,
-        fit_te_thickness=fit_te_thickness,
-        lambda_reg=config.CST_DEFAULT_LAMBDA_REG,
-    )
+    C_l = fitter.class_function(lx)
+    B_l = fitter.bernstein_polynomials(lx)
+    A_l = C_l[:, None] * B_l
+    b_l = ly - (lx * dte_l)
+
+    # Stack coupled system with independent row counts
+    A_top = np.hstack([A_u, np.zeros((A_u.shape[0], nu))])
+    A_bot = np.hstack([np.zeros((A_l.shape[0], nu)), A_l])
+    A = np.vstack([A_top, A_bot])
+    bvec = np.concatenate([b_u, b_l])
+
+    # LE radius continuity penalty (always applied, weight from config)
+    pen = float(getattr(config, "CST_LE_RADIUS_PENALTY", 0.0) or 0.0)
+    AtA = A.T @ A + 1e-12 * np.eye(A.shape[1])
+    Atb = A.T @ bvec
+    if pen > 0.0:
+        L = np.zeros((1, 2 * nu))
+        L[0, 0] = 1.0
+        L[0, nu + 0] = 1.0
+        AtA += pen * (L.T @ L)
+
+    # TE slope equality constraints at x = 1 - eps using provided slopes
+    E = []
+    d_eq = []
+    eps = 1e-6
+    t_eq = 1.0 - eps
+    if te_slope_upper is not None:
+        Ceq = (t_eq ** fitter.n1) * ((1.0 - t_eq) ** fitter.n2)
+        dCeq = (
+            fitter.n1 * (t_eq ** (fitter.n1 - 1)) * ((1.0 - t_eq) ** fitter.n2)
+            - fitter.n2 * (t_eq ** fitter.n1) * ((1.0 - t_eq) ** (fitter.n2 - 1))
+        )
+        Bu = fitter.bernstein_polynomials(np.array([t_eq]))[0]
+        dB = fitter.bernstein_polynomials_derivative(np.array([t_eq]))[0]
+        v = dCeq * Bu + Ceq * dB
+        row = np.zeros(2 * nu)
+        row[0:nu] = v
+        E.append(row)
+        d_eq.append(te_slope_upper - dte_u)
+    if te_slope_lower is not None:
+        Ceq = (t_eq ** fitter.n1) * ((1.0 - t_eq) ** fitter.n2)
+        dCeq = (
+            fitter.n1 * (t_eq ** (fitter.n1 - 1)) * ((1.0 - t_eq) ** fitter.n2)
+            - fitter.n2 * (t_eq ** fitter.n1) * ((1.0 - t_eq) ** (fitter.n2 - 1))
+        )
+        Bl = fitter.bernstein_polynomials(np.array([t_eq]))[0]
+        dB = fitter.bernstein_polynomials_derivative(np.array([t_eq]))[0]
+        v = dCeq * Bl + Ceq * dB
+        row = np.zeros(2 * nu)
+        row[nu:2 * nu] = v
+        E.append(row)
+        d_eq.append(te_slope_lower - dte_l)
+
+    if E:
+        E = np.vstack(E)
+        d_eq = np.asarray(d_eq, float)
+        # KKT solve
+        K = np.block([[AtA, E.T], [E, np.zeros((E.shape[0], E.shape[0]))]])
+        rhsK = np.concatenate([Atb, d_eq])
+        sol = np.linalg.lstsq(K, rhsK, rcond=None)[0]
+        xshape = sol[: 2 * nu]
+    else:
+        xshape = np.linalg.lstsq(AtA, Atb, rcond=None)[0]
+
+    # Orthogonal reweighting (iterations from config)
+    orth_iters = int(getattr(config, "CST_ORTHOGONAL_REWEIGHT_ITERS", 0) or 0)
+    if orth_iters > 0:
+        for _ in range(orth_iters):
+            Pu = xshape[0:nu]
+            Pl = xshape[nu:2 * nu]
+            uc = np.concatenate([Pu, [dte_u]])
+            lc = np.concatenate([Pl, [dte_l]])
+            su = fitter.cst_derivative(ux, uc)
+            sl = fitter.cst_derivative(lx, lc)
+            w_u = 1.0 / np.sqrt(1.0 + su * su)
+            w_l = 1.0 / np.sqrt(1.0 + sl * sl)
+            W = np.diag(np.concatenate([w_u, w_l]))
+            AtA_w = (A.T @ W) @ (W @ A) + 1e-12 * np.eye(A.shape[1])
+            Atb_w = (A.T @ W) @ (W @ bvec)
+            if pen > 0.0:
+                AtA_w += pen * (L.T @ L)
+            if E:
+                K = np.block([[AtA_w, E.T], [E, np.zeros((E.shape[0], E.shape[0]))]])
+                rhsK = np.concatenate([Atb_w, d_eq])
+                sol = np.linalg.lstsq(K, rhsK, rcond=None)[0]
+                xshape = sol[: 2 * nu]
+            else:
+                xshape = np.linalg.lstsq(AtA_w, Atb_w, rcond=None)[0]
+
+    Pu = xshape[0:nu]
+    Pl = xshape[nu:2 * nu]
+    uc = np.concatenate([Pu, [dte_u]])
+    lc = np.concatenate([Pl, [dte_l]])
 
     umerr = fitter.metrics(ux, uy, uc)
     lmerr = fitter.metrics(lx, ly, lc)
@@ -251,7 +356,6 @@ def fit_airfoil_cst(
         logger_func(
             f"Selected degree={fitter.degree}, n1={fitter.n1:.3f}, n2={fitter.n2:.3f}"
         )
-        logger_func("CST fit using Chebyshev x-sampling of the target.")
         logger_func(
             f"Upper CST: RMSE={umerr['rmse']:.6e}, max={umerr['max_error']:.6e} | "
             f"Lower CST: RMSE={lmerr['rmse']:.6e}, max={lmerr['max_error']:.6e}"
@@ -274,11 +378,12 @@ def generate_cst_airfoil_data(
     upper_coefficients: Optional[np.ndarray] = None,
     lower_coefficients: Optional[np.ndarray] = None,
     fitter: CSTFitter,
-    num_points: int = 400,
+    num_points: int = 20000,
+    sampling_method: str | None = None,
 ):
     if upper_coefficients is None or lower_coefficients is None:
         raise TypeError("upper_coefficients and lower_coefficients are required")
 
-    xu, yu = fitter.sample(upper_coefficients, n=num_points)
-    xl, yl = fitter.sample(lower_coefficients, n=num_points)
+    xu, yu = fitter.sample(upper_coefficients, n=num_points, method=sampling_method)
+    xl, yl = fitter.sample(lower_coefficients, n=num_points, method=sampling_method)
     return np.column_stack([xu, yu]), np.column_stack([xl, yl])

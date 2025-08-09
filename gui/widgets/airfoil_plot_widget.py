@@ -65,6 +65,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
         cst_upper=None,
         cst_lower=None,
         cst_metrics=None,
+        comb_cst=None,
     ):
         """Render everything supplied in *kwargs* on the canvas."""
         # Clear all items to ensure no remnants
@@ -311,6 +312,46 @@ class AirfoilPlotWidget(pg.PlotWidget):
                         lambda: tips_item.setVisible(main_comb_item.isVisible())
                     )
                     tips_item.setVisible(main_comb_item.isVisible())
+
+        # 3b) Curvature comb for CST fit (with tips polyline similar to Bezier comb)
+        if comb_cst is not None and any(comb_cst):
+            all_comb_hairs_cst: list[np.ndarray] = []
+            all_cst_tips_segments: list[np.ndarray] = []
+            for comb_segments in comb_cst:
+                if not comb_segments:
+                    continue
+                all_comb_hairs_cst.extend(comb_segments)
+                # Build tip-to-tip polyline segments, skipping zero-length ones
+                cst_tips = np.array([hair[1] for hair in comb_segments])
+                for j in range(len(cst_tips) - 1):
+                    p1 = cst_tips[j]
+                    p2 = cst_tips[j + 1]
+                    if p1[1] != 0 or p2[1] != 0:
+                        all_cst_tips_segments.append(p1)
+                        all_cst_tips_segments.append(p2)
+            if all_comb_hairs_cst:
+                comb_array = np.concatenate(all_comb_hairs_cst)
+                cst_comb_item = self.plot(
+                    comb_array[:, 0],
+                    comb_array[:, 1],
+                    pen=pg.mkPen((255, 165, 0, 160), width=1),  # orange-ish comb
+                    name="CST Curvature Comb",
+                    connect="pairs",
+                )
+                self.plot_items["CST Curvature Comb"] = [cst_comb_item]
+                if all_cst_tips_segments:
+                    segments_array = np.array(all_cst_tips_segments)
+                    cst_tips_item = self.plot(
+                        segments_array[:, 0],
+                        segments_array[:, 1],
+                        pen=pg.mkPen("yellow", width=2, style=Qt.PenStyle.DotLine),
+                        connect="pairs",
+                    )
+                    self.plot_items["CST Comb Tips Polyline"] = [cst_tips_item]
+                    cst_comb_item.visibleChanged.connect(
+                        lambda: cst_tips_item.setVisible(cst_comb_item.isVisible())
+                    )
+                    cst_tips_item.setVisible(cst_comb_item.isVisible())
 
         # --------------------------------------------------------------
         # 4) Trailing-edge tangent vectors (only once)

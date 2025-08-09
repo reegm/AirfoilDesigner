@@ -37,6 +37,11 @@ class UIStateController:
         is_model_built = (
             self.processor.upper_poly_sharp is not None
         )
+        # CST fit available?
+        try:
+            cst_available = bool(self.window.main_controller.cst_processor.is_fitted())
+        except Exception:
+            cst_available = False
         is_thickened = self.processor._is_thickened
         blunt_TE = False
         if hasattr(self.processor, "blunt_TE"):
@@ -57,9 +62,10 @@ class UIStateController:
         fp.export_dxf_button.setEnabled(is_model_built)
         fp.export_dat_button.setEnabled(is_model_built)
 
-        # Comb sliders
-        comb.comb_scale_slider.setEnabled(is_model_built)
-        comb.comb_density_slider.setEnabled(is_model_built)
+        # Comb sliders: enable if either a single Bézier model is built or a CST fit exists
+        comb_enabled = bool(is_model_built or cst_available)
+        comb.comb_scale_slider.setEnabled(comb_enabled)
+        comb.comb_density_slider.setEnabled(comb_enabled)
     
     def handle_comb_params_changed(self) -> None:
         """Handle changes in comb scale/density sliders."""
@@ -69,12 +75,14 @@ class UIStateController:
         scale = comb.comb_scale_slider.value() / 1000.0
         density = comb.comb_density_slider.value()
 
-        is_model_present = (
-            self.processor.upper_poly_sharp is not None
-        )
-
-        if is_model_present:
+        # Update single Bezier comb if available
+        if self.processor.upper_poly_sharp is not None:
             self.processor.request_plot_update_with_comb_params(scale, density)
+        # Update CST comb if available
+        try:
+            self.window.main_controller.cst_processor.request_cst_comb_update(scale, density)
+        except Exception:
+            pass
     
     def handle_toggle_thickening(self) -> None:
         """Apply/remove trailing-edge thickening."""

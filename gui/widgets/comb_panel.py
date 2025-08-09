@@ -28,13 +28,14 @@ class CombPanelWidget(QGroupBox):
         self.comb_scale_label = QLabel("0.050")
         self.comb_scale_label.setFixedWidth(50)
 
-        # Density slider
+        # Density slider (number of hairs). Increase range for much denser combs.
         self.comb_density_slider = QSlider(Qt.Orientation.Horizontal)
-        self.comb_density_slider.setMinimum(10)
-        self.comb_density_slider.setMaximum(100)
-        self.comb_density_slider.setValue(40)
+        # Old max (100) becomes the new minimum; allow much denser up to 2000
+        self.comb_density_slider.setMinimum(100)
+        self.comb_density_slider.setMaximum(2000)
+        self.comb_density_slider.setValue(100)
         self.comb_density_slider.setFixedWidth(120)
-        self.comb_density_label = QLabel("40")
+        self.comb_density_label = QLabel("100")
         self.comb_density_label.setFixedWidth(50)
 
         # Layout

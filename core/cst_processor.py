@@ -49,6 +49,9 @@ class CSTProcessor(QObject):
         # Generated CST data
         self.cst_upper_data = None
         self.cst_lower_data = None
+        # CST comb parameters
+        self._cst_comb_scale = 0.05
+        self._cst_comb_density = 40
         
         # Original data (for comparison)
         self.original_upper_data = None
@@ -64,6 +67,7 @@ class CSTProcessor(QObject):
             n2: Class function parameter for trailing edge
         """
         self.degree = degree
+        # n1/n2 are now taken from config inside the fitter; keep local for UI display only
         self.n1 = n1
         self.n2 = n2
         self.blunt_TE = blunt_TE
@@ -94,50 +98,52 @@ class CSTProcessor(QObject):
             #     logger_func=self.log_message.emit
             # )
 
-            # If we already have coefficients and only degree increased, elevate instead of refitting
-            can_promote = (
-                self.cst_fitter is not None and
-                self.upper_coefficients is not None and
-                self.lower_coefficients is not None and
-                self.cst_fitter.degree <= self.degree
+            # Always refit when degree changes; do not promote without refit
+            # Compute TE slopes from stored unit tangent vectors if available
+            te_slope_upper = None
+            te_slope_lower = None
+            try:
+                # Tangent vectors are unit; dy/dx = tan_y / tan_x. Guard divide-by-zero.
+                ut = getattr(self.parent(), 'processor', None)
+                # Fallback: self has no parent processor; we cannot derive slopes here.
+                if ut is None:
+                    ut = None
+                if ut is not None:
+                    uvec = getattr(ut, 'upper_te_tangent_vector', None)
+                    lvec = getattr(ut, 'lower_te_tangent_vector', None)
+                    if uvec is not None and abs(float(uvec[0])) > 1e-12:
+                        te_slope_upper = float(uvec[1]) / float(uvec[0])
+                    if lvec is not None and abs(float(lvec[0])) > 1e-12:
+                        te_slope_lower = float(lvec[1]) / float(lvec[0])
+            except Exception:
+                te_slope_upper = None
+                te_slope_lower = None
+
+            result = fit_airfoil_cst(
+                upper_data=upper_data,
+                lower_data=lower_data,
+                degree=self.degree,
+                te_slope_upper=te_slope_upper,
+                te_slope_lower=te_slope_lower,
+                logger_func=self.log_message.emit,
             )
 
-            if can_promote and self.cst_fitter.degree < self.degree:
-                old_deg = self.cst_fitter.degree
-                # Elevate shape coefficients to new degree (preserve optional TE term)
-                uc_new = elevate_cst_coefficients(self.upper_coefficients, old_deg, self.degree)
-                lc_new = elevate_cst_coefficients(self.lower_coefficients, old_deg, self.degree)
-                # Update fitter and evaluate metrics on original data
-                self.cst_fitter = CSTFitter(n1=self.n1, n2=self.n2, degree=self.degree)
-                self.upper_coefficients = uc_new
-                self.lower_coefficients = lc_new
-                ux, uy = upper_data[:, 0], upper_data[:, 1]
-                lx, ly = lower_data[:, 0], lower_data[:, 1]
-                self.upper_metrics = self.cst_fitter.metrics(ux, uy, self.upper_coefficients)
-                self.lower_metrics = self.cst_fitter.metrics(lx, ly, self.lower_coefficients)
-                self.log_message.emit(f"Promoted CST degree from {old_deg} to {self.degree} without refit.")
-            else:
-                result = fit_airfoil_cst(
-                    upper_data=upper_data,
-                    lower_data=lower_data,
-                    degree=self.degree,           
-                    fit_te_thickness=blunt_TE,       # leave as-is unless you need open TE
-                    logger_func=self.log_message.emit
-                )
-
-                # Store results
-                self.cst_fitter = result['fitter']
-                self.upper_coefficients = result['upper_coefficients']
-                self.lower_coefficients = result['lower_coefficients']
-                self.upper_metrics = result['upper_metrics']
-                self.lower_metrics = result['lower_metrics']
+            # Store results
+            self.cst_fitter = result['fitter']
+            self.upper_coefficients = result['upper_coefficients']
+            self.lower_coefficients = result['lower_coefficients']
+            self.upper_metrics = result['upper_metrics']
+            self.lower_metrics = result['lower_metrics']
 
             # Generate CST data points
+            # Use configurable dense sampling with LE clustering to improve curvature smoothness near x≈0
+            num_pts = int(getattr(config, "CST_SAMPLING_POINTS", 4000))
             self.cst_upper_data, self.cst_lower_data = generate_cst_airfoil_data(
                 upper_coefficients=self.upper_coefficients,
                 lower_coefficients=self.lower_coefficients,
                 fitter=self.cst_fitter,
-                num_points=1000  # Generate many more points for high-fidelity representation
+                num_points=num_pts,
+                sampling_method=getattr(config, "CST_SAMPLING_METHOD", "cosine"),
             )
             
             self.log_message.emit("CST fitting completed successfully.")
@@ -203,7 +209,7 @@ class CSTProcessor(QObject):
         denom = np.maximum(xh1 - xh0, 1e-12)
         return (yh1 - yh0) / denom
 
-    def _build_degree9_bezier_for_surface(self, coeffs: np.ndarray, p: int = 2, samples: int = 200, lambda_reg: float = 0.0) -> np.ndarray:
+    def _build_degree9_bezier_for_surface(self, coeffs: np.ndarray, p: int = 2, samples: int = 20000, lambda_reg: float = 0.0) -> np.ndarray:
         """
         Build a single-span degree-9 Bézier polygon approximating the CST curve
         using x(u) = u^p (fixed in x), and solving for y(u) with orthogonal-weighted
@@ -368,6 +374,13 @@ class CSTProcessor(QObject):
         if self.cst_upper_data is not None:
             plot_data['cst_upper'] = self.cst_upper_data
             plot_data['cst_lower'] = self.cst_lower_data
+            # Build curvature comb for CST curves using current UI params
+            plot_data['comb_cst'] = self._build_cst_curvature_comb(
+                self.cst_upper_data,
+                self.cst_lower_data,
+                scale_factor=self._cst_comb_scale,
+                density=self._cst_comb_density,
+            )
         
         # Add metrics to plot data
         if self.upper_metrics and self.lower_metrics:
@@ -381,6 +394,62 @@ class CSTProcessor(QObject):
             }
         
         self.plot_update_requested.emit(plot_data)
+
+    def _build_cst_curvature_comb(self, upper_curve: np.ndarray, lower_curve: np.ndarray, *, scale_factor: float = 0.05, density: int = 40):
+        """Compute curvature comb hairs for sampled CST curves (upper and lower).
+
+        Returns a list [hairs_upper, hairs_lower], where each entry is a list of
+        2-point segments (np.ndarray shape (2,2)).
+        """
+        def comb_from_polyline(curve_xy: np.ndarray):
+            if curve_xy is None or len(curve_xy) < 3:
+                return []
+            xy = np.asarray(curve_xy, float)
+            # Central differences for first and second derivatives in arc-length parameterization approximation
+            # Use chordwise x as parameter; stable enough for visualization.
+            x = xy[:, 0]
+            y = xy[:, 1]
+            # First derivatives
+            dx = np.gradient(x)
+            dy = np.gradient(y)
+            # Second derivatives
+            ddx = np.gradient(dx)
+            ddy = np.gradient(dy)
+            # Signed curvature κ = (x'y'' − y'x'') / (x'^2 + y'^2)^(3/2)
+            denom_base = np.maximum(dx * dx + dy * dy, 1e-16)
+            denom = np.power(denom_base, 1.5)
+            kappa = (dx * ddy - dy * ddx) / denom
+            # Unit normals from tangents (rotate by +90 degrees)
+            norm = np.sqrt(np.maximum(dx * dx + dy * dy, 1e-16))
+            tx = dx / norm
+            ty = dy / norm
+            nx = -ty
+            ny = tx
+            # Comb end points; choose lengths so convex regions point inward
+            # inward ≈ along −sign(κ)·n (since sign(κ)·n gives outward for our parameterization)
+            lengths = -kappa * scale_factor
+            ends = xy + np.column_stack([nx, ny]) * lengths[:, None]
+            # Downsample to requested density by uniform index sampling
+            m = int(max(2, density))
+            idx = np.linspace(0, xy.shape[0] - 1, m).astype(int)
+            idx = np.unique(idx)
+            hairs = []
+            for j in idx:
+                hairs.append(np.array([xy[j], ends[j]]))
+            return hairs
+
+        # Both surfaces use signed curvature to point inward for convex regions
+        return [comb_from_polyline(upper_curve), comb_from_polyline(lower_curve)]
+
+    def request_cst_comb_update(self, scale: float, density: int) -> None:
+        """Update CST comb parameters and re-emit plot with updated comb."""
+        try:
+            self._cst_comb_scale = float(scale)
+            self._cst_comb_density = int(density)
+        except Exception:
+            pass
+        # Re-emit using current stored CST data and coefficients
+        self.request_plot_update()
     
     def clear_data(self):
         """Clear all stored data."""

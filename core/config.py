@@ -95,3 +95,15 @@ CST_N1: float = 0.5
 CST_N2: float = 1.0
 ## Mild smoothing for CST shape coefficients (Δ² penalty) — disabled by default
 CST_DEFAULT_LAMBDA_REG: float = 0.0
+
+# Advanced CST fitting toggles/defaults
+# Penalty weight for enforcing leading-edge radius continuity: lower c0 = -upper c0
+CST_LE_RADIUS_PENALTY: float = 0  # 0 disables; try 1e3 to enable softly
+# Default number of orthogonal-distance reweighting iterations (0 disables)
+CST_ORTHOGONAL_REWEIGHT_ITERS: int = 3
+
+# Sampling for CST curve rendering/export
+# Methods: "uniform", "cosine" (cluster near both ends), "sqrt-le" (cluster near LE)
+CST_SAMPLING_METHOD: str = "cosine"
+# Total points per surface when generating CST curves for display/export
+CST_SAMPLING_POINTS: int = 20000

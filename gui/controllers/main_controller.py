@@ -26,6 +26,9 @@ class MainController(QObject):
         super().__init__(window)
 
         self.window = window
+        # Provide back-reference for UI components that need to reach controllers
+        # (e.g., to access CST processor from UI state controller)
+        setattr(self.window, "main_controller", self)
         self.processor = AirfoilProcessor()
         self.cst_processor = CSTProcessor()
         
