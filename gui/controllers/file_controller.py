@@ -14,6 +14,7 @@ from core.airfoil_processor import AirfoilProcessor
 from utils.dxf_exporter import export_curves_to_dxf
 from utils.sampling_utils import sample_airfoil_surfaces
 from utils.data_loader import export_airfoil_to_selig_format
+import numpy as np
 
 
 class FileController:
@@ -143,67 +144,98 @@ class FileController:
         return "airfoil.dxf" 
 
     def export_dat_file(self) -> None:
-        """Export the current Bezier model(s) as a high-resolution .dat file using curvature-based sampling."""
+        """Export the current model as a high-resolution .dat file using the shared points-per-surface setting.
+        Exports Bézier if available; otherwise exports CST if a fit exists.
+        """
         # Get the number of points per surface from the UI
         try:
-            points_per_surface = self.window.file_panel.points_per_surface_input.value()
-        except ValueError:
+            points_per_surface = int(self.window.file_panel.points_per_surface_input.value())
+        except Exception:
             self.processor.log_message.emit(
                 "Error: Invalid number of points. Please enter a valid number."
             )
             return
 
         # Get the current airfoil name
-        airfoil_name = getattr(self.processor, "airfoil_name", "airfoil")
-        if not airfoil_name:
-            airfoil_name = "airfoil"
+        airfoil_name = getattr(self.processor, "airfoil_name", "airfoil") or "airfoil"
 
-        # Get the current Bezier polygons
-        upper_poly = None
-        lower_poly = None
-        
-        if self.processor._is_thickened and self.processor._thickened_single_bezier_polygons:
-            # Use thickened model if available
-            polygons = self.processor._thickened_single_bezier_polygons
-            if len(polygons) >= 2:
-                upper_poly = polygons[0]
-                lower_poly = polygons[1]
-            self.processor.log_message.emit(
-                "Preparing to export thickened single Bezier model as .dat file."
-            )
-        elif self.processor.upper_poly_sharp is not None and self.processor.lower_poly_sharp is not None:
-            # Use sharp model
-            upper_poly = self.processor.upper_poly_sharp
-            lower_poly = self.processor.lower_poly_sharp
-            self.processor.log_message.emit(
-                "Preparing to export sharp single Bezier model as .dat file."
-            )
-
-        if upper_poly is None or lower_poly is None:
-            self.processor.log_message.emit(
-                "Error: Single Bezier model not available for export. Please build it first."
-            )
-            return
-
+        # Check availability
+        has_bezier = (
+            (self.processor._is_thickened and bool(self.processor._thickened_single_bezier_polygons)) or
+            (self.processor.upper_poly_sharp is not None and self.processor.lower_poly_sharp is not None)
+        )
         try:
-            # Sample the surfaces using curvature-based sampling
-            upper_sampled, lower_sampled = sample_airfoil_surfaces(
-                upper_poly, lower_poly, points_per_surface, curvature_weight=0.7
-            )
-            
-            self.processor.log_message.emit(
-                f"Sampled {points_per_surface} points per surface using curvature-based sampling."
-            )
+            has_cst = bool(self.window.main_controller.cst_processor.is_fitted())
+        except Exception:
+            has_cst = False
 
-        except Exception as exc:
+        upper_sampled = None
+        lower_sampled = None
+        export_mode = None  # 'bezier' or 'cst'
+
+        if has_bezier:
+            # Resolve polygons
+            if self.processor._is_thickened and self.processor._thickened_single_bezier_polygons:
+                polygons = self.processor._thickened_single_bezier_polygons
+                upper_poly = polygons[0] if len(polygons) >= 1 else None
+                lower_poly = polygons[1] if len(polygons) >= 2 else None
+                self.processor.log_message.emit(
+                    "Preparing to export thickened single Bézier model as .dat file."
+                )
+            else:
+                upper_poly = self.processor.upper_poly_sharp
+                lower_poly = self.processor.lower_poly_sharp
+                self.processor.log_message.emit(
+                    "Preparing to export sharp single Bézier model as .dat file."
+                )
+
+            if upper_poly is None or lower_poly is None:
+                self.processor.log_message.emit(
+                    "Error: Single Bézier model not available for export. Please build it first."
+                )
+                return
+
+            # Sample the surfaces using curvature-based sampling
+            try:
+                upper_sampled, lower_sampled = sample_airfoil_surfaces(
+                    upper_poly, lower_poly, points_per_surface, curvature_weight=0.7
+                )
+                self.processor.log_message.emit(
+                    f"Sampled {points_per_surface} points per surface using curvature-based sampling."
+                )
+            except Exception as exc:
+                self.processor.log_message.emit(
+                    f"Error during curvature-based sampling: {exc}"
+                )
+                return
+            export_mode = 'bezier'
+        elif has_cst:
+            # Sample dense CST curves using the same points-per-surface control
+            try:
+                fitter = self.window.main_controller.cst_processor.cst_fitter
+                uc = self.window.main_controller.cst_processor.upper_coefficients
+                lc = self.window.main_controller.cst_processor.lower_coefficients
+                xs = np.linspace(0.0, 1.0, int(points_per_surface))
+                upper_sampled = np.column_stack([xs, fitter.cst_function(xs, uc)])
+                lower_sampled = np.column_stack([xs, fitter.cst_function(xs, lc)])
+                self.processor.log_message.emit(
+                    f"Sampled {points_per_surface} points per surface from CST curves."
+                )
+            except Exception as exc:
+                self.processor.log_message.emit(
+                    f"Error during CST sampling: {exc}"
+                )
+                return
+            export_mode = 'cst'
+        else:
             self.processor.log_message.emit(
-                f"Error during curvature-based sampling: {exc}"
+                "Error: Nothing to export. Build a Bézier model or fit CST first."
             )
             return
 
         # Get default filename
-        default_filename = self._get_default_dat_filename(airfoil_name)
-        
+        default_filename = self._get_default_dat_filename(airfoil_name, is_cst=(export_mode == 'cst'))
+
         # Show file dialog
         file_path, _ = QFileDialog.getSaveFileName(
             self.window,
@@ -211,7 +243,7 @@ class FileController:
             default_filename,
             "DAT Files (*.dat);;All Files (*)",
         )
-        
+
         if not file_path:
             self.processor.log_message.emit(".dat export cancelled by user.")
             return
@@ -219,25 +251,26 @@ class FileController:
         try:
             # Export to Selig format
             export_airfoil_to_selig_format(upper_sampled, lower_sampled, airfoil_name, file_path)
-            
+            mode_label = "CST" if export_mode == 'cst' else "Bézier"
             self.processor.log_message.emit(
-                f"High-resolution .dat export successful to '{os.path.basename(file_path)}'."
+                f"{mode_label} high-resolution .dat export successful to '{os.path.basename(file_path)}'."
             )
             self.processor.log_message.emit(
                 f"Exported {len(upper_sampled)} points per surface in Selig format."
             )
-            
         except IOError as exc:
             self.processor.log_message.emit(f"Could not save .dat file: {exc}")
         except Exception as exc:
             self.processor.log_message.emit(f"An unexpected error occurred during .dat export: {exc}")
 
-    def _get_default_dat_filename(self, airfoil_name: str) -> str:
-        """Return a safe default filename for .dat export based on the loaded profile."""
+    def _get_default_dat_filename(self, airfoil_name: str, is_cst: bool = False) -> str:
+        """Return a safe default filename for .dat export based on the loaded profile.
+        Uses a different suffix when exporting CST.
+        """
         import re
 
         if airfoil_name:
             sanitized = re.sub(r"[^A-Za-z0-9\-_]+", "_", airfoil_name)
             if sanitized:
-                return f"{sanitized}_highres.dat"
-        return "airfoil_highres.dat" 
+                return f"{sanitized}_{'cst_' if is_cst else ''}highres.dat"
+        return f"airfoil_{'cst_' if is_cst else ''}highres.dat" 

@@ -60,7 +60,7 @@ class UIStateController:
 
         # Export buttons
         fp.export_dxf_button.setEnabled(is_model_built)
-        fp.export_dat_button.setEnabled(is_model_built)
+        fp.export_dat_button.setEnabled(is_model_built or cst_available)
 
         # Comb sliders: enable if either a single Bézier model is built or a CST fit exists
         comb_enabled = bool(is_model_built or cst_available)

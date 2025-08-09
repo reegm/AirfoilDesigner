@@ -34,9 +34,7 @@ class CSTController(QObject):
         
         # CST fitting buttons
         cst_panel.fit_cst_button.clicked.connect(self.fit_cst)
-        cst_panel.build_deg9_button.clicked.connect(self.build_deg9_from_cst)
-        cst_panel.export_cst_dat_button.clicked.connect(self.export_cst_dat)
-        
+    
     def fit_cst(self) -> None:
         """Perform CST fitting on the loaded airfoil data."""
         if self.main_controller.processor.upper_data is None or self.main_controller.processor.lower_data is None:
@@ -85,75 +83,6 @@ class CSTController(QObject):
                 self.window.status_log.append(f"Error getting CST metrics: {e}")
         else:
             self.window.cst_panel.set_cst_fitted(False)
-    
-    def build_deg9_from_cst(self) -> None:
-        """Build degree-9 single-span Bézier curves from current CST fit and update view/export state."""
-        # Ensure we have a CST fit
-        if not self.cst_processor.is_fitted():
-            self.window.status_log.append("Please run CST fitting first.")
-            return
-        try:
-            # Add a mild regularization to suppress zig-zag; auto-select p per surface
-            upper_poly, lower_poly = self.cst_processor.build_degree9_beziers_from_cst(p='auto', samples=400, lambda_reg=1e-4)
-        except Exception as e:
-            self.window.status_log.append(f"Failed to build degree-9 Bézier from CST: {e}")
-            return
-
-        # Store in AirfoilProcessor so export/plot can use them
-        self.main_controller.processor.upper_poly_sharp = upper_poly
-        self.main_controller.processor.lower_poly_sharp = lower_poly
-        self.main_controller.processor._is_thickened = False
-        self.main_controller.processor._thickened_single_bezier_polygons = None
-
-        # Compute orthogonal max errors and indices for labels
-        try:
-            upper_distances, upper_rms, _ = calculate_single_bezier_fitting_error(
-                bezier_poly=upper_poly,
-                original_data=self.main_controller.processor.upper_data,
-                error_function="orthogonal",
-                return_all=True,
-            )
-            lower_distances, lower_rms, _ = calculate_single_bezier_fitting_error(
-                bezier_poly=lower_poly,
-                original_data=self.main_controller.processor.lower_data,
-                error_function="orthogonal",
-                return_all=True,
-            )
-            upper_abs = np.abs(upper_distances)
-            lower_abs = np.abs(lower_distances)
-            upper_max_err = float(np.max(upper_abs))
-            lower_max_err = float(np.max(lower_abs))
-            upper_max_idx = int(np.argmax(upper_abs))
-            lower_max_idx = int(np.argmax(lower_abs))
-
-            self.main_controller.processor.last_single_bezier_upper_max_error = upper_max_err
-            self.main_controller.processor.last_single_bezier_upper_max_error_idx = upper_max_idx
-            self.main_controller.processor.last_single_bezier_lower_max_error = lower_max_err
-            self.main_controller.processor.last_single_bezier_lower_max_error_idx = lower_max_idx
-
-            # Log achieved errors to status output (normalized and mm if available)
-            try:
-                chord_text = self.window.airfoil_settings_panel.chord_length_input.text()
-                chord_length_mm = float(chord_text)
-            except Exception:
-                chord_length_mm = None
-
-            if chord_length_mm is not None:
-                self.window.status_log.append(
-                    f"Deg-9 Bézier (orthogonal): Upper RMS={upper_rms:.3e}, Max={upper_max_err:.3e} ({upper_max_err*chord_length_mm:.3f} mm); "
-                    f"Lower RMS={lower_rms:.3e}, Max={lower_max_err:.3e} ({lower_max_err*chord_length_mm:.3f} mm)"
-                )
-            else:
-                self.window.status_log.append(
-                    f"Deg-9 Bézier (orthogonal): Upper RMS={upper_rms:.3e}, Max={upper_max_err:.3e}; "
-                    f"Lower RMS={lower_rms:.3e}, Max={lower_max_err:.3e}"
-                )
-        except Exception as e:
-            self.window.status_log.append(f"Warning: could not compute orthogonal errors for labels: {e}")
-
-        # Update plot
-        self.main_controller.processor._request_plot_update()
-        self.window.status_log.append("Built degree-9 single-span Bézier curves from CST (auto p). Ready to export.")
     
     def clear_cst(self) -> None:
         """Clear CST fitting results."""

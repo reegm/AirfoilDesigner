@@ -55,12 +55,12 @@ SLSQP_OPTIONS = {
 # Number of sample points used when evaluating Bezier curves for error
 # calculations (e.g. euclidedan error). Higher numbers give more accurate error
 # estimates at the cost of performance.
-NUM_POINTS_CURVE_ERROR: int = 20000
+NUM_POINTS_CURVE_ERROR: int = 50000
 
 
 # Number of points used for trailing edge vector calculations
 # Higher numbers provide more robust tangent estimates but may be less sensitive to local geometry
-DEFAULT_TE_VECTOR_POINTS: int = 3
+DEFAULT_TE_VECTOR_POINTS: int = 1
 
 # Debugging & Logging
 DEBUG_WORKER_LOGGING: bool = True
