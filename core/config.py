@@ -55,23 +55,37 @@ SLSQP_OPTIONS = {
 # Number of sample points used when evaluating Bezier curves for error
 # calculations (e.g. euclidedan error). Higher numbers give more accurate error
 # estimates at the cost of performance.
-NUM_POINTS_CURVE_ERROR: int = 20000
+NUM_POINTS_CURVE_ERROR: int = 50000
+
+
+# Plot sampling settings
+# Curvature-adaptive sampling improves visual smoothness near the leading edge
+# while keeping performance reasonable.
+PLOT_POINTS_PER_SURFACE: int = 250
+PLOT_CURVATURE_WEIGHT: float = 0.85  # 0 = uniform, 1 = fully curvature-driven
+
+# Curvature comb UI ranges
+# Old max density (100) becomes the new minimum. Allow much denser combs.
+COMB_DENSITY_MIN: int = 100
+COMB_DENSITY_MAX: int = 1000
+COMB_DENSITY_DEFAULT: int = 200
+COMB_SCALE_DEFAULT: float = 0.050
 
 
 # Number of points used for trailing edge vector calculations
 # Higher numbers provide more robust tangent estimates but may be less sensitive to local geometry
-DEFAULT_TE_VECTOR_POINTS: int = 3
+DEFAULT_TE_VECTOR_POINTS: int = 2
 
 # Debugging & Logging
-DEBUG_WORKER_LOGGING: bool = False
+DEBUG_WORKER_LOGGING: bool = True
 
 # Plot update control
-UPDATE_PLOT: bool = True  # Whether to update the plot during optimization (can be disabled for performance)
+UPDATE_PLOT: bool = False  # Whether to update the plot during optimization (can be disabled for performance)
 PROGRESS_UPDATE_INTERVAL: float = 0.5  # Seconds between progress updates (0.5 = 2 updates per second)
 
 # Orthogonal distance calculation settings
 ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 20
-ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-6
+ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-12
 
 # Softmax Settings
 SOFTMAX_ALPHA: float = 2000  # Reduced from 100 to be less aggressive about worst errors

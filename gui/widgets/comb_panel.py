@@ -11,6 +11,11 @@ from PySide6.QtWidgets import (
     QSlider,
     QWidget,
 )
+from core.config import (
+    COMB_DENSITY_MIN,
+    COMB_DENSITY_MAX,
+    COMB_DENSITY_DEFAULT,
+)
 
 
 class CombPanelWidget(QGroupBox):
@@ -30,11 +35,11 @@ class CombPanelWidget(QGroupBox):
 
         # Density slider
         self.comb_density_slider = QSlider(Qt.Orientation.Horizontal)
-        self.comb_density_slider.setMinimum(10)
-        self.comb_density_slider.setMaximum(100)
-        self.comb_density_slider.setValue(40)
+        self.comb_density_slider.setMinimum(COMB_DENSITY_MIN)
+        self.comb_density_slider.setMaximum(COMB_DENSITY_MAX)
+        self.comb_density_slider.setValue(COMB_DENSITY_DEFAULT)
         self.comb_density_slider.setFixedWidth(120)
-        self.comb_density_label = QLabel("40")
+        self.comb_density_label = QLabel(str(COMB_DENSITY_DEFAULT))
         self.comb_density_label.setFixedWidth(50)
 
         # Layout

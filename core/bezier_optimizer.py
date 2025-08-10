@@ -183,31 +183,13 @@ def build_bezier_fixed_x_minmax(
 ):
     """
     Uncoupled fixed-x single Bezier optimizer using minmax objective with softmax.
-    Uses the new unified optimizer logic with MSR initial guess stage.
+    Uses the unified optimizer directly (no preliminary MSR stage needed).
     """
-    # Stage 1: MSR for initial guess using unified optimizer
-    control_points = optimize_bezier(
-        initial_ctrl=None,  # Will be built internally
-        original_data=original_data,
-        mode="fixed-x",
-        coupled=False,
-        error_function="euclidean",
-        objective="msr",
-        te_y=float(original_data[-1, 1]),
-        te_tangent_vector=te_tangent_vector,
-        regularization_weight=0,
-        logger_func=logger_func,
-        abort_flag=abort_flag,
-        is_upper_surface=is_upper_surface,
-        num_control_points_new=num_control_points_new
-    )
-
     if logger_func:
         logger_func("Running unified fixed-x minmax optimization...")
 
-    # Stage 2: Minmax optimization using unified optimizer
     control_points = optimize_bezier(
-        initial_ctrl=control_points,
+        initial_ctrl=None,  # Build internally
         original_data=original_data,
         mode="fixed-x",
         coupled=False,

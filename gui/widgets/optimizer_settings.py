@@ -31,7 +31,7 @@ class OptimizerSettingsWidget(QGroupBox):
         # TE Vector Points dropdown
         self.default_te_vector_points = config.DEFAULT_TE_VECTOR_POINTS  # integer!
         self.te_vector_points_combo = QComboBox()
-        self.te_vector_points_combo.addItems([str(i) for i in range(1, 6)])  # 1-5
+        self.te_vector_points_combo.addItems([str(i) for i in range(2, 6)])  # 1-5
         self.te_vector_points_combo.setCurrentText(str(self.default_te_vector_points))
         self.te_vector_points_combo.setFixedWidth(80)
 

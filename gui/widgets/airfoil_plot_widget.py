@@ -11,7 +11,11 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt
 
-from utils.bezier_utils import general_bezier_curve
+from core.config import (
+    PLOT_POINTS_PER_SURFACE,
+    PLOT_CURVATURE_WEIGHT,
+)
+from utils.sampling_utils import curvature_based_sampling
 
 
 class AirfoilPlotWidget(pg.PlotWidget):
@@ -28,6 +32,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
         self.updateGeometry()
 
         # Initial plot settings
+        pg.setConfigOptions(antialias=True)
         self.setAspectLocked(True)  # Maintain aspect ratio
         self.showGrid(x=True, y=True)  # Show grid
         self.addLegend(offset=(30, 10))  # Add legend with some offset
@@ -117,11 +122,15 @@ class AirfoilPlotWidget(pg.PlotWidget):
             thickened_single_bezier_upper_poly is not None
             and thickened_single_bezier_lower_poly is not None
         ):
-            curves_thickened_single_upper = general_bezier_curve(
-                np.linspace(0, 1, 100), np.array(thickened_single_bezier_upper_poly)
+            curves_thickened_single_upper = curvature_based_sampling(
+                np.array(thickened_single_bezier_upper_poly),
+                PLOT_POINTS_PER_SURFACE,
+                curvature_weight=PLOT_CURVATURE_WEIGHT,
             )
-            curves_thickened_single_lower = general_bezier_curve(
-                np.linspace(0, 1, 100), np.array(thickened_single_bezier_lower_poly)
+            curves_thickened_single_lower = curvature_based_sampling(
+                np.array(thickened_single_bezier_lower_poly),
+                PLOT_POINTS_PER_SURFACE,
+                curvature_weight=PLOT_CURVATURE_WEIGHT,
             )
 
             self.plot_items["Thickened Airfoil"] = [
@@ -129,12 +138,14 @@ class AirfoilPlotWidget(pg.PlotWidget):
                     curves_thickened_single_upper[:, 0],
                     curves_thickened_single_upper[:, 1],
                     pen=COLOR_THICKENED_CURVE,
+                    antialias=True,
                     name="Thickened Airfoil - Upper",
                 ),
                 self.plot(
                     curves_thickened_single_lower[:, 0],
                     curves_thickened_single_lower[:, 1],
                     pen=COLOR_THICKENED_CURVE,
+                    antialias=True,
                     name="Thickened Airfoil - Lower",
                 ),
             ]
@@ -169,14 +180,17 @@ class AirfoilPlotWidget(pg.PlotWidget):
             
             # Plot upper surface if available
             if single_bezier_upper_poly is not None:
-                curves_single_upper = general_bezier_curve(
-                    np.linspace(0, 1, 100), np.array(single_bezier_upper_poly)
+                curves_single_upper = curvature_based_sampling(
+                    np.array(single_bezier_upper_poly),
+                    PLOT_POINTS_PER_SURFACE,
+                    curvature_weight=PLOT_CURVATURE_WEIGHT,
                 )
                 self.plot_items["Single Bezier Airfoil"].append(
                     self.plot(
                         curves_single_upper[:, 0],
                         curves_single_upper[:, 1],
                         pen=COLOR_SINGLE_UPPER_CURVE,
+                        antialias=True,
                         name="Single Bezier Airfoil - Upper",
                     )
                 )
@@ -196,14 +210,17 @@ class AirfoilPlotWidget(pg.PlotWidget):
             
             # Plot lower surface if available
             if single_bezier_lower_poly is not None:
-                curves_single_lower = general_bezier_curve(
-                    np.linspace(0, 1, 100), np.array(single_bezier_lower_poly)
+                curves_single_lower = curvature_based_sampling(
+                    np.array(single_bezier_lower_poly),
+                    PLOT_POINTS_PER_SURFACE,
+                    curvature_weight=PLOT_CURVATURE_WEIGHT,
                 )
                 self.plot_items["Single Bezier Airfoil"].append(
                     self.plot(
                         curves_single_lower[:, 0],
                         curves_single_lower[:, 1],
                         pen=COLOR_SINGLE_LOWER_CURVE,
+                        antialias=True,
                         name="Single Bezier Airfoil - Lower",
                     )
                 )

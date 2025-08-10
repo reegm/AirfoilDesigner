@@ -78,8 +78,8 @@ class AirfoilProcessor(QObject):
             self.lower_data = lower
             self.airfoil_name = airfoil_name
             self._is_trailing_edge_thickened = thickened
-            # Recalculate TE tangent vectors using default (last 3 points)
-            te_vector_points = 3
+            # Recalculate TE tangent vectors using configured default
+            te_vector_points = config.DEFAULT_TE_VECTOR_POINTS
             self.upper_te_tangent_vector, self.lower_te_tangent_vector = self._calculate_te_tangent(
                 self.upper_data, self.lower_data, te_vector_points)
             self.log_message.emit("Airfoil data loaded.")
@@ -224,7 +224,12 @@ class AirfoilProcessor(QObject):
         self.plot_update_requested.emit(updated_plot_data)
 
 
-    def _calculate_curvature_comb_data(self, polygons, num_points_per_segment=40, scale_factor=0.05):
+    def _calculate_curvature_comb_data(
+        self,
+        polygons,
+        num_points_per_segment=config.COMB_DENSITY_DEFAULT,
+        scale_factor=config.COMB_SCALE_DEFAULT,
+    ):
         """
         Calculates the curvature comb lines for a set of Bezier polygons.
         Returns a list of lists, where each inner list contains the hair segments for one polygon.
