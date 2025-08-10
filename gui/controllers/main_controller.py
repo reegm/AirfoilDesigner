@@ -61,6 +61,7 @@ class MainController(QObject):
         # Optimization operations
         opt = self.window.optimizer_panel
         opt.build_single_bezier_button.clicked.connect(self.optimization_controller.generate_or_abort)
+        opt.hybrid_opt_button.clicked.connect(self.optimization_controller.run_hybrid_or_abort)
         opt.recalculate_button.clicked.connect(self.optimization_controller.recalculate_te_vectors)
 
         # Airfoil settings

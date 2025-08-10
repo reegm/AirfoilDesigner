@@ -35,6 +35,11 @@ class OptimizationController:
         self._is_generating = False
         self._generation_start_time = None
         self._current_progress_info = None
+        # Track best-so-far per surface from progress updates
+        self._best_true_max_upper = float('inf')
+        self._best_true_max_lower = float('inf')
+        self._best_ctrl_upper = None
+        self._best_ctrl_lower = None
     
     def generate_or_abort(self) -> None:
         """Handle generate/abort button action."""
@@ -83,6 +88,10 @@ class OptimizationController:
         
         # Clear any progress info from previous runs
         self._current_progress_info = None
+        self._best_true_max_upper = float('inf')
+        self._best_true_max_lower = float('inf')
+        self._best_ctrl_upper = None
+        self._best_ctrl_lower = None
         
         # Update the plot to clear previous results
         self.processor._request_plot_update()
@@ -110,6 +119,69 @@ class OptimizationController:
         opt.build_single_bezier_button.setText("Abort")
         self._generation_timer.start()
         self.processor.log_message.emit("Started airfoil generation in background process...")
+        if not config.DEBUG_WORKER_LOGGING:
+            self.window.status_log.start_spinner("Processing...")
+
+    def run_hybrid_or_abort(self) -> None:
+        """Start or abort the hybrid uncoupled optimization pipeline."""
+        opt = self.window.optimizer_panel
+        if self._is_generating:
+            if self._abort_flag is not None:
+                self._abort_flag.value = True
+                self.processor.log_message.emit("Abort requested. Waiting for optimizer to finish up...")
+            return
+
+        # Start hybrid in a new process
+        try:
+            regularization_weight = float(opt.single_bezier_reg_weight_input.text())
+            te_vector_points = int(opt.te_vector_points_combo.currentText())
+            g2_flag = opt.g2_checkbox.isChecked()
+        except ValueError:
+            self.processor.log_message.emit("Error: Invalid input for regularization weight or TE vector points.")
+            return
+
+        # Force uncoupled for this first implementation
+        if g2_flag:
+            self.processor.log_message.emit("Hybrid optimizer currently supports uncoupled mode only. Please uncheck G2.")
+            return
+
+        # Clear previous results
+        self.processor.upper_poly_sharp = None
+        self.processor.lower_poly_sharp = None
+        self.processor.last_single_bezier_upper_max_error = None
+        self.processor.last_single_bezier_upper_max_error_idx = None
+        self.processor.last_single_bezier_lower_max_error = None
+        self.processor.last_single_bezier_lower_max_error_idx = None
+        self._current_progress_info = None
+        self._best_true_max_upper = float('inf')
+        self._best_true_max_lower = float('inf')
+        self._best_ctrl_upper = None
+        self._best_ctrl_lower = None
+        self.processor._request_plot_update()
+
+        self._generation_queue = multiprocessing.Queue()
+        self._abort_flag = multiprocessing.Value('b', False)
+        args = (
+            self.processor.upper_data,
+            self.processor.lower_data,
+            regularization_weight,
+            False,                   # g2_flag forced false
+            te_vector_points,
+            'hybrid',                # gui_strategy for worker
+            'euclidean',             # error function forced to euclidean
+            'minmax',                # objective placeholder
+            self._abort_flag,
+        )
+        self._generation_process = multiprocessing.Process(
+            target=_generation_worker,
+            args=(args, self._generation_queue)
+        )
+        self._generation_process.start()
+        self._is_generating = True
+        self._generation_start_time = time.time()
+        opt.hybrid_opt_button.setText("Abort")
+        self._generation_timer.start()
+        self.processor.log_message.emit("Started hybrid optimization in background process...")
         if not config.DEBUG_WORKER_LOGGING:
             self.window.status_log.start_spinner("Processing...")
     
@@ -156,7 +228,10 @@ class OptimizationController:
             self._generation_timer.stop()
             self._is_generating = False
             opt = self.window.optimizer_panel
+            # Reset both buttons to default text
             opt.build_single_bezier_button.setText("Generate Airfoil")
+            if hasattr(opt, 'hybrid_opt_button'):
+                opt.hybrid_opt_button.setText("Hybrid Optimization")
             
             # Stop spinner only if it was started (debug mode disabled)
             if not config.DEBUG_WORKER_LOGGING:
@@ -211,6 +286,8 @@ class OptimizationController:
             self._is_generating = False
             opt = self.window.optimizer_panel
             opt.build_single_bezier_button.setText("Generate Airfoil")
+            if hasattr(opt, 'hybrid_opt_button'):
+                opt.hybrid_opt_button.setText("Hybrid Optimization")
             
             # Stop spinner only if it was started (debug mode disabled)
             if not config.DEBUG_WORKER_LOGGING:
@@ -220,7 +297,45 @@ class OptimizationController:
             self._generation_process = None
             self._generation_queue = None
             self._abort_flag = None
-            self.processor.log_message.emit(f"Generation process exited unexpectedly. (Elapsed time: {elapsed_time:.2f}s)")
+            # Fallback: use best-so-far control points from progress updates if available
+            use_fallback = (self._best_ctrl_upper is not None and self._best_ctrl_lower is not None)
+            if use_fallback:
+                try:
+                    error_function = self.window.optimizer_panel.error_function_combo.currentText().lower()
+                except Exception:
+                    error_function = 'euclidean'
+                try:
+                    upper_result = calculate_single_bezier_fitting_error(
+                        self._best_ctrl_upper, self.processor.upper_data, error_function=error_function, return_max_error=True
+                    )
+                    lower_result = calculate_single_bezier_fitting_error(
+                        self._best_ctrl_lower, self.processor.lower_data, error_function=error_function, return_max_error=True
+                    )
+                    _, upper_max_error, upper_max_error_idx = upper_result
+                    _, lower_max_error, lower_max_error_idx = lower_result
+                except Exception:
+                    upper_max_error = lower_max_error = upper_max_error_idx = lower_max_error_idx = None
+                base_message = f"Single Bezier model built successfully (best-so-far after early exit). (Elapsed time: {elapsed_time:.2f}s)"
+                if upper_max_error is not None and lower_max_error is not None:
+                    try:
+                        chord_length_mm = float(self.window.airfoil_settings_panel.chord_length_input.text())
+                        umm = upper_max_error * chord_length_mm
+                        lmm = lower_max_error * chord_length_mm
+                        base_message += f"\n  Upper surface max error: {upper_max_error:.3e} ({umm:.3f}mm @ {chord_length_mm:.0f}mm chord)"
+                        base_message += f"\n  Lower surface max error: {lower_max_error:.3e} ({lmm:.3f}mm @ {chord_length_mm:.0f}mm chord)"
+                    except Exception:
+                        base_message += f"\n  Upper surface max error: {upper_max_error:.3e}"
+                        base_message += f"\n  Lower surface max error: {lower_max_error:.3e}"
+                self.processor.log_message.emit(base_message)
+                # Ensure final plot update reflects best-so-far control points
+                self.processor.upper_poly_sharp = self._best_ctrl_upper
+                self.processor.lower_poly_sharp = self._best_ctrl_lower
+                self.processor._request_plot_update()
+                # Update UI state after successful fallback
+                if self.ui_state_controller:
+                    self.ui_state_controller.update_button_states()
+            else:
+                self.processor.log_message.emit(f"Generation process exited unexpectedly. (Elapsed time: {elapsed_time:.2f}s)")
             self._generation_start_time = None
     
     def _handle_progress_update(self, progress_data: dict) -> None:
@@ -233,8 +348,19 @@ class OptimizationController:
         current_ctrl = progress_data.get("current_ctrl")
         surface_info = progress_data.get("surface_info")
         
-        # Update the plot with current control points if available
-        if current_ctrl is not None:
+        # Track best-so-far control points per surface
+        if current_ctrl is not None and best_true_max is not None:
+            if surface_info == "upper" or (surface_info is None and self.processor.lower_poly_sharp is None):
+                if best_true_max < self._best_true_max_upper:
+                    self._best_true_max_upper = best_true_max
+                    self._best_ctrl_upper = current_ctrl
+            elif surface_info == "lower" or (surface_info is None and self.processor.upper_poly_sharp is not None):
+                if best_true_max < self._best_true_max_lower:
+                    self._best_true_max_lower = best_true_max
+                    self._best_ctrl_lower = current_ctrl
+
+        # Update the plot only if enabled
+        if getattr(config, 'UPDATE_PLOT', False) and current_ctrl is not None:
             self._update_plot_with_progress(current_ctrl, iteration, elapsed, true_max, best_true_max, surface_info)
     
     def _update_plot_with_progress(self, current_ctrl, iteration, elapsed, true_max, best_true_max, surface_info=None) -> None:

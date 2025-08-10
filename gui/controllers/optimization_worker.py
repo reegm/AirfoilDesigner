@@ -42,7 +42,8 @@ def _generation_worker(args, queue):
         build_bezier_fixed_x_msr,
         build_bezier_fixed_x_minmax,
         build_bezier_free_x_msr,
-        build_bezier_free_x_minmax
+        build_bezier_free_x_minmax,
+        build_bezier_hybrid_uncoupled,
     )
     from core.coupled_bezier_optimizer import (
         build_coupled_bezier_fixed_x_msr,
@@ -74,11 +75,9 @@ def _generation_worker(args, queue):
             queue.put({"type": "log", "message": message})
     
     def progress_callback(iteration, elapsed, val, true_max, best_true_max, best_x, current_ctrl, surface_info=None):
-        """Progress callback that sends updates through the queue with rate limiting"""
-        # Skip progress updates entirely if UPDATE_PLOT is disabled
-        if not update_plot_enabled:
-            return
-            
+        """Progress callback that sends updates through the queue with rate limiting.
+        Always sends updates so the controller can cache best-so-far, regardless of plot updates setting.
+        """
         nonlocal last_progress_time
         import time
         current_time = time.time()
@@ -339,6 +338,63 @@ def _generation_worker(args, queue):
             else:
                 queue.put({"success": False, "error": f"Free-x objective not yet implemented: {objective_type}"})
                 return
+        elif gui_strategy == 'hybrid' and not g2_flag:
+            # Uncoupled hybrid pipeline (euclidean only)
+            le_tangent_upper = np.array([0.0, 1.0])
+            le_tangent_lower = np.array([0.0, -1.0])
+            num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+
+            def upper_logger(*args):
+                if len(args) == 7:
+                    iteration, elapsed, val, true_max, best_true_max, best_x, current_ctrl = args
+                    progress_callback(iteration, elapsed, val, true_max, best_true_max, best_x, current_ctrl, "upper")
+                else:
+                    combined_logger(*args)
+
+            def lower_logger(*args):
+                if len(args) == 7:
+                    iteration, elapsed, val, true_max, best_true_max, best_x, current_ctrl = args
+                    progress_callback(iteration, elapsed, val, true_max, best_true_max, best_x, current_ctrl, "lower")
+                else:
+                    combined_logger(*args)
+
+            # Force euclidean error regardless of UI selection for hybrid per spec
+            upper_poly = build_bezier_hybrid_uncoupled(
+                upper_data,
+                num_control_points,
+                True,
+                le_tangent_upper,
+                upper_te_tangent_vector,
+                regularization_weight=regularization_weight,
+                error_function='euclidean',
+                logger_func=upper_logger,
+                abort_flag=abort_flag,
+            )
+            lower_poly = build_bezier_hybrid_uncoupled(
+                lower_data,
+                num_control_points,
+                False,
+                le_tangent_lower,
+                lower_te_tangent_vector,
+                regularization_weight=regularization_weight,
+                error_function='euclidean',
+                logger_func=lower_logger,
+                abort_flag=abort_flag,
+            )
+
+            upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='euclidean', return_max_error=True)
+            lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='euclidean', return_max_error=True)
+            _, upper_max_error, upper_max_error_idx = upper_error_result
+            _, lower_max_error, lower_max_error_idx = lower_error_result
+            queue.put({
+                "success": True,
+                "upper_poly": upper_poly,
+                "lower_poly": lower_poly,
+                "upper_max_error": upper_max_error,
+                "upper_max_error_idx": upper_max_error_idx,
+                "lower_max_error": lower_max_error,
+                "lower_max_error_idx": lower_max_error_idx,
+            })
             # Error calculation (for reporting)
             if error_function == 'orthogonal':
                 upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)

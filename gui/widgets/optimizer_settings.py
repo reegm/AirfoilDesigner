@@ -82,6 +82,7 @@ class OptimizerSettingsWidget(QGroupBox):
 
         # Action buttons
         self.build_single_bezier_button = QPushButton("Generate Airfoil")
+        self.hybrid_opt_button = QPushButton("Hybrid Optimization")
         self.recalculate_button = QPushButton("Recalculate")
         self.recalculate_button.setEnabled(False)  # Initially disabled
 
@@ -133,6 +134,7 @@ class OptimizerSettingsWidget(QGroupBox):
         # Buttons
         button_row = QHBoxLayout()
         button_row.addWidget(self.build_single_bezier_button)
+        button_row.addWidget(self.hybrid_opt_button)
         layout.addLayout(button_row)
 
         self.setLayout(layout)

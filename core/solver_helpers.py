@@ -30,7 +30,8 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
     def detect_stall(current_iter):
         if no_improve_counter >= plateau_patience:
             print("⚠️ Optimizer appears to be stalled.")
-        
+            # Abort early on plateau and return best-so-far from the exception handler
+            raise EarlyStopException("plateau detected")
         # Manual maxiter enforcement since scipy's SLSQP doesn't always respect it
         if options and current_iter >= options.get('maxiter', 10000):
             print(f"⚠️ Manual maxiter limit reached: {current_iter}")
@@ -146,7 +147,8 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
             options=options
         )
     except EarlyStopException as e:
-        if "aborted by user" in str(e):
+        msg = str(e).lower()
+        if "aborted by user" in msg:
             result = OptimizeResult(
                 x=best_x,
                 fun=best_true_max,
@@ -154,28 +156,58 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
                 message="Optimization aborted by user - returning best result found",
                 nit=len(iteration_data)
             )
+        elif "plateau" in msg:
+            result = OptimizeResult(
+                x=best_x,
+                fun=best_true_max,
+                success=True,
+                message="Early stop: plateau detected",
+                nit=len(iteration_data)
+            )
+        elif "maxiter" in msg:
+            result = OptimizeResult(
+                x=best_x,
+                fun=best_true_max,
+                success=True,
+                message=str(e),
+                nit=len(iteration_data)
+            )
         else:
             result = OptimizeResult(
                 x=best_x,
                 fun=best_true_max,
                 success=True,
-                message=f"Early stop: max_error < threshold",
+                message="Early stop",
                 nit=len(iteration_data)
             )
 
-    if not result.success and no_improve_counter >= plateau_patience and best_x is not None:
-        print("⚠️ Early termination due to plateau. Returning best-so-far result.")
-        result = OptimizeResult(
-            x=best_x,
-            fun=best_true_max,
-            success=True,
-            message="Terminated early: plateau detected",
-            nit=len(iteration_data)
-        )
+    # Note: plateau is handled inside the loop via EarlyStopException now
 
     print("\nFinal result:")
     print(f"  Success: {result.success}")
     print(f"  Status:  {result.message}")
+
+    # If debug logging is enabled, print final control point configuration(s) to the terminal
+    try:
+        if config.DEBUG_WORKER_LOGGING:
+            get_ctrl = getattr(fun, "__build_ctrl__", None)
+            x_vec = result.x if result is not None and getattr(result, 'x', None) is not None else best_x
+            if get_ctrl is not None and x_vec is not None:
+                final_ctrl = get_ctrl(x_vec)
+                import numpy as _np
+                _np.set_printoptions(precision=6, suppress=True)
+                if isinstance(final_ctrl, tuple) and len(final_ctrl) == 2:
+                    upper_ctrl, lower_ctrl = final_ctrl
+                    print("  Final control points (upper):")
+                    print(upper_ctrl)
+                    print("  Final control points (lower):")
+                    print(lower_ctrl)
+                else:
+                    print("  Final control points:")
+                    print(final_ctrl)
+    except Exception:
+        # Avoid interrupting program flow if debug printing fails
+        pass
 
     return result, iteration_data
 

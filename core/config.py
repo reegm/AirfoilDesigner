@@ -102,3 +102,17 @@ ABORT_CHECK_INTERVAL: float = 0.1
 
 # Maximum time to wait for graceful shutdown after abort request
 ABORT_TIMEOUT: float = 5.0
+
+# ---- Hybrid optimizer settings -------------------------------------------
+# Basin-hopping hop counts per stage
+HYBRID_BH_HOPS_MSR: int = 0                 # 0 = skip MSR basin-hopping for speed
+HYBRID_BH_HOPS_FIXED_MINMAX: int = 3        # small number of fixed-x softmax hops
+HYBRID_BH_HOPS_FREE_MINMAX: int = 10        # more aggressive in free-x where gains are largest
+
+# Perturbation scale (normalized coordinates)
+HYBRID_BH_PERTURB_STD: float = 0.02
+
+# Per-stage local optimizer iteration budgets
+HYBRID_LOCAL_MAXITER_MSR: int = 400
+HYBRID_LOCAL_MAXITER_MINMAX_FIXED: int = 800
+HYBRID_LOCAL_MAXITER_MINMAX_FREE: int = 1500

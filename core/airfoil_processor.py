@@ -10,6 +10,11 @@ from core.bezier_optimizer import build_bezier_fixed_x_msr, build_bezier_fixed_x
 from core.error_functions import calculate_single_bezier_fitting_error
 from utils.data_loader import load_airfoil_data
 from utils.dxf_exporter import export_curves_to_dxf
+from utils.geometry_utils import (
+    compute_thickness_and_camber_percent,
+    compute_te_wedge_angle_deg,
+    compute_le_radius_percent,
+)
 
 
 class SignalLogHandler(logging.Handler):
@@ -298,6 +303,7 @@ class AirfoilProcessor(QObject):
             'thickened_single_bezier_upper_poly': None,
             'thickened_single_bezier_lower_poly': None,
             'comb_single_bezier': None,
+            'geometry_metrics': None,
         }
 
         # --- Populate Single Bezier Model Data ---
@@ -313,11 +319,59 @@ class AirfoilProcessor(QObject):
                 plot_data['thickened_single_bezier_upper_poly'] = self._thickened_single_bezier_polygons[0]
                 plot_data['thickened_single_bezier_lower_poly'] = self._thickened_single_bezier_polygons[1]
                 plot_data['comb_single_bezier'] = self._calculate_curvature_comb_data(self._thickened_single_bezier_polygons)
+                # Geometry metrics from thickened model
+                try:
+                    t_pct, c_pct, x_t_pct, x_c_pct = compute_thickness_and_camber_percent(
+                        self._thickened_single_bezier_polygons[0],
+                        self._thickened_single_bezier_polygons[1],
+                    )
+                    wedge = compute_te_wedge_angle_deg(
+                        self._thickened_single_bezier_polygons[0],
+                        self._thickened_single_bezier_polygons[1],
+                    )
+                    le_r_pct = compute_le_radius_percent(
+                        self._thickened_single_bezier_polygons[0],
+                        self._thickened_single_bezier_polygons[1],
+                    )
+                    plot_data['geometry_metrics'] = {
+                        'thickness_percent': t_pct,
+                        'camber_percent': c_pct,
+                        'x_t_percent': x_t_pct,
+                        'x_c_percent': x_c_pct,
+                        'te_wedge_angle_deg': wedge,
+                        'le_radius_percent': le_r_pct,
+                    }
+                except Exception:
+                    plot_data['geometry_metrics'] = None
             else:
                 plot_data['comb_single_bezier'] = self._calculate_curvature_comb_data([
                     self.upper_poly_sharp,
                     self.lower_poly_sharp
                 ])
+                # Geometry metrics from sharp model if available
+                try:
+                    t_pct, c_pct, x_t_pct, x_c_pct = compute_thickness_and_camber_percent(
+                        self.upper_poly_sharp,
+                        self.lower_poly_sharp,
+                    )
+                    wedge = compute_te_wedge_angle_deg(
+                        self.upper_poly_sharp,
+                        self.lower_poly_sharp,
+                    )
+                    le_r_pct = compute_le_radius_percent(
+                        self.upper_poly_sharp,
+                        self.lower_poly_sharp,
+                    )
+                    plot_data['geometry_metrics'] = {
+                        'thickness_percent': t_pct,
+                        'camber_percent': c_pct,
+                        'x_t_percent': x_t_pct,
+                        'x_c_percent': x_c_pct,
+                        'te_wedge_angle_deg': wedge,
+                        'le_radius_percent': le_r_pct,
+                    }
+                except Exception:
+                    plot_data['geometry_metrics'] = None
 
         self._last_plot_data = plot_data.copy()
         self.plot_update_requested.emit(plot_data)

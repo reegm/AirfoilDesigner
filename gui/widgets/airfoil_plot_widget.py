@@ -64,6 +64,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
         worst_single_bezier_lower_max_error_idx=None,
         comb_single_bezier=None,
         chord_length_mm=None,
+        geometry_metrics=None,
     ):
         """Render everything supplied in *kwargs* on the canvas."""
         # Clear all items to ensure no remnants
@@ -366,10 +367,34 @@ class AirfoilPlotWidget(pg.PlotWidget):
             )
             self.plot_items["Max. Error Markers"] = marker_item
 
+        # --------------------------------------------------------------
+        # 6) Geometry metrics panel (bottom-right)
+        # --------------------------------------------------------------
+        # Build and add the text item if available
+        if geometry_metrics:
+            t_pct = geometry_metrics.get('thickness_percent')
+            c_pct = geometry_metrics.get('camber_percent')
+            wedge = geometry_metrics.get('te_wedge_angle_deg')
+            le_r = geometry_metrics.get('le_radius_percent')
+            x_t = geometry_metrics.get('x_t_percent', 0.0)
+            x_c = geometry_metrics.get('x_c_percent', 0.0)
+            geo_html = (
+                '<div style="text-align: right; color: #F0E68C; font-size: 10pt;">'
+                f"Thickness: {t_pct:.2f}% (x: {x_t:.1f}%)<br/>"
+                f"Camber: {c_pct:.2f}% (x: {x_c:.1f}%)<br/>"
+                f"TE wedge: {wedge:.2f}°<br/>"
+                f"LE Radius: {le_r:.3f}%"
+                "</div>"
+            )
+            # Anchor at bottom-right so the text stays fully inside the viewport
+            geo_item = pg.TextItem(html=geo_html, anchor=(1, 1))
+            self.addItem(geo_item)
+            self.plot_items["Geometry Metrics Text"] = geo_item
+
         self._update_error_text_positions()
 
         # --------------------------------------------------------------
-        # 6) Initial view range
+        # 7) Initial view range
         # --------------------------------------------------------------
         if not self._first_plot_done:
             all_x = np.concatenate([upper_data[:, 0], lower_data[:, 0]])
@@ -403,6 +428,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
 
         text_4_seg = self.plot_items.get("4-Seg Error Text")
         text_single = self.plot_items.get("Single Bezier Error Text")
+        text_geo = self.plot_items.get("Geometry Metrics Text")
 
         y_offset = (y_range[1] - y_range[0]) * 0.06
         if text_4_seg:
@@ -410,3 +436,8 @@ class AirfoilPlotWidget(pg.PlotWidget):
             current_y -= y_offset
         if text_single:
             text_single.setPos(top_right_x, current_y) 
+            current_y -= y_offset
+        if text_geo:
+            # Position slightly above the bottom to avoid being clipped
+            bottom_right_y = y_range[0] + (y_range[1] - y_range[0]) * 0.02
+            text_geo.setPos(top_right_x, bottom_right_y)
