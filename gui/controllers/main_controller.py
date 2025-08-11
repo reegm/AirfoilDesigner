@@ -38,7 +38,7 @@ class MainController(QObject):
         self.processor.plot_update_requested.connect(self._update_plot_from_processor)
 
         # ------------------------------------------------------------------
-        # Connect widget signals → controller slots
+        # Connect widget signals -> controller slots
         # ------------------------------------------------------------------
         self._connect_signals()
 

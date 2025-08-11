@@ -67,8 +67,8 @@ def optimize_bezier(
             initial_guess_inner_y_full = get_initial_guess_inner_y(original_data, fixed_inner_x_coords)
             initial_guess_inner_y = initial_guess_inner_y_full[free_indices]
             
-            def error_func(ctrl):
-                return calculate_single_bezier_fitting_error(ctrl, original_data, error_function="euclidean", return_max_error=False)
+            def error_func(ctrl, current_max_error=None):
+                return calculate_single_bezier_fitting_error(ctrl, original_data, error_function="euclidean", return_max_error=False, adaptive_sampling=True, current_max_error=current_max_error)
             
             # Track best configuration during optimization (matching legacy behavior)
             best_max_error = float("inf")
@@ -77,13 +77,16 @@ def optimize_bezier(
             def obj(variables_y):
                 nonlocal best_max_error, best_vars
                 ctrl = build_control_points_with_fixed(variables_y, fixed_inner_x_coords, te_y, free_indices, fixed_indices, fixed_y_values)
-                errors = error_func(ctrl)
-                if isinstance(errors, tuple):
-                    errors = errors[0]
                 
-                # Calculate true max error for tracking (matching legacy behavior)
+                # Calculate true max error for tracking and adaptive sampling
                 residuals = calculate_single_bezier_fitting_error(ctrl, original_data, error_function=error_function, return_max_error=False, return_all=True)[0]
                 true_max_error = np.max(np.abs(residuals))
+                
+                # Use adaptive sampling based on current best error
+                current_sampling_error = min(best_max_error, true_max_error)
+                errors = error_func(ctrl, current_max_error=current_sampling_error)
+                if isinstance(errors, tuple):
+                    errors = errors[0]
                 
                 # Update best configuration if we found a better max error (matching legacy behavior)
                 if true_max_error < best_max_error:
@@ -99,13 +102,14 @@ def optimize_bezier(
             if config.DEBUG_WORKER_LOGGING:
                 def get_residuals_with_debug(variables_y):
                     ctrl = build_control_points_with_fixed(variables_y, fixed_inner_x_coords, te_y, free_indices, fixed_indices, fixed_y_values)
-                    return error_func(ctrl)
+                    # Use current best error for adaptive sampling in debug
+                    return error_func(ctrl, current_max_error=best_max_error if best_max_error != float("inf") else None)
                 
                 obj.__get_residuals__ = get_residuals_with_debug
                 # Use the same max error calculation as in the obj function
                 obj.__get_max_error__ = lambda variables_y: np.max(np.abs(calculate_single_bezier_fitting_error(
                     build_control_points_with_fixed(variables_y, fixed_inner_x_coords, te_y, free_indices, fixed_indices, fixed_y_values),
-                    original_data, error_function=error_function, return_max_error=False, return_all=True)[0]))
+                    original_data, error_function=error_function, return_max_error=False, return_all=True, adaptive_sampling=True, current_max_error=best_max_error if best_max_error != float("inf") else None)[0]))
             
             constraints = []
             # Only apply success threshold for free-x softmax/softmax objectives, not for fixed-x or MSR
@@ -162,9 +166,9 @@ def optimize_bezier(
             raise ValueError(f"Unknown mode: {mode}")
 
         if mode == "free-x":
-            def residuals_fn(ctrl):
+            def residuals_fn(ctrl, current_max_error=None):
                 residuals, _, _ = calculate_single_bezier_fitting_error(
-                    ctrl, original_data, error_function=error_function, return_max_error=False, return_all=True
+                    ctrl, original_data, error_function=error_function, return_max_error=False, return_all=True, adaptive_sampling=True, current_max_error=current_max_error
                 )
                 return residuals
 
@@ -175,15 +179,19 @@ def optimize_bezier(
             def full_obj(vars):
                 nonlocal best_max_error, best_vars
                 ctrl = build_ctrl(vars)
-                residuals = residuals_fn(ctrl)
                 
-                # Calculate true max error for tracking (matching legacy behavior)
-                true_max_error = np.max(np.abs(residuals))
+                # Get initial residuals for tracking
+                initial_residuals = residuals_fn(ctrl, current_max_error=None)  # No adaptive sampling for tracking
+                true_max_error = np.max(np.abs(initial_residuals))
                 
                 # Update best configuration if we found a better max error (matching legacy behavior)
                 if true_max_error < best_max_error:
                     best_max_error = true_max_error
                     best_vars = np.copy(vars)
+                
+                # Use adaptive sampling for objective calculation
+                current_sampling_error = min(best_max_error, true_max_error)
+                residuals = residuals_fn(ctrl, current_max_error=current_sampling_error)
                 
                 # Calculate objective value
                 obj_val = objective_fn(residuals)
@@ -229,10 +237,10 @@ def optimize_bezier(
             # Attach debug functions for logging (only if debug logging is enabled)
             if config.DEBUG_WORKER_LOGGING:
                 def get_residuals_with_debug(xy):
-                    return residuals_fn(build_ctrl(xy))
+                    return residuals_fn(build_ctrl(xy), current_max_error=best_max_error if best_max_error != float("inf") else None)
                 
                 full_obj.__get_residuals__ = get_residuals_with_debug
-                full_obj.__get_max_error__ = lambda xy: np.max(np.abs(residuals_fn(build_ctrl(xy))))
+                full_obj.__get_max_error__ = lambda xy: np.max(np.abs(residuals_fn(build_ctrl(xy), current_max_error=best_max_error if best_max_error != float("inf") else None)))
                 full_obj.__te_y__ = te_y
                 full_obj.__original_data__ = original_data
 

@@ -29,12 +29,12 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
 
     def detect_stall(current_iter):
         if no_improve_counter >= plateau_patience:
-            print("⚠️ Optimizer appears to be stalled.")
+            print("WARNING: Optimizer appears to be stalled.")
             # Abort early on plateau and return best-so-far from the exception handler
             raise EarlyStopException("plateau detected")
         # Manual maxiter enforcement since scipy's SLSQP doesn't always respect it
         if options and current_iter >= options.get('maxiter', 10000):
-            print(f"⚠️ Manual maxiter limit reached: {current_iter}")
+            print(f"WARNING: Manual maxiter limit reached: {current_iter}")
             raise EarlyStopException(f"Manual maxiter limit reached: {current_iter}")
 
     class EarlyStopException(Exception):
@@ -100,7 +100,7 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
             best_true_max = current_max_error
             should_update = True
             no_improve_counter = 0  # Reset counter when we find a better true_max
-            print(f"  → New best true_max: {current_max_error:.6e}")
+            print(f"  -> New best true_max: {current_max_error:.6e}")
             
         if should_update:
             best_x = np.copy(x)

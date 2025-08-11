@@ -47,15 +47,26 @@ DEFAULT_TE_THICKNESS_MM: float = 0.0
 SLSQP_OPTIONS = {
     "disp": False,
     "maxiter": 10000,
-    "ftol": 1e-12,  # Relaxed from 1e-12 to help escape local minima
-    "eps": 1e-6    # Added step size control for better gradient estimation
+    "ftol": 1e-12,  # Function tolerance for convergence
+    "gtol": 1e-8,   # Gradient tolerance for early termination
+    "eps": 1e-6     # Step size for gradient estimation
 }
 
 # ---- Sampling & Debugging -----------------------------------------------
-# Number of sample points used when evaluating Bezier curves for error
-# calculations (e.g. euclidedan error). Higher numbers give more accurate error
-# estimates at the cost of performance.
-NUM_POINTS_CURVE_ERROR: int = 38500
+# Adaptive sampling for error calculations
+# Start with coarse sampling, increase resolution as error improves
+NUM_POINTS_CURVE_ERROR_COARSE: int = 5000    # Initial optimization phases
+NUM_POINTS_CURVE_ERROR_MEDIUM: int = 12000   # Intermediate refinement
+NUM_POINTS_CURVE_ERROR_FINE: int = 20000     # Final precision
+NUM_POINTS_CURVE_ERROR_ULTRA: int = 35000    # Ultimate precision (rarely used)
+
+# Adaptive sampling thresholds - when to increase resolution
+ADAPTIVE_SAMPLING_THRESHOLD_MEDIUM: float = 5e-4  # Switch from coarse to medium
+ADAPTIVE_SAMPLING_THRESHOLD_FINE: float = 1e-4    # Switch from medium to fine
+ADAPTIVE_SAMPLING_THRESHOLD_ULTRA: float = 7e-5   # Switch from fine to ultra
+
+# Legacy setting for backward compatibility
+NUM_POINTS_CURVE_ERROR: int = NUM_POINTS_CURVE_ERROR_FINE
 
 
 # Plot sampling settings
@@ -94,7 +105,7 @@ SOFTMAX_ALPHA: float = 2000  # Reduced from 100 to be less aggressive about wors
 PLATEAU_THRESHOLD: float = 1e-10
 PLATEAU_PATIENCE: int = 30
 
-MAX_ERROR_THRESHOLD: float = 9e-5
+MAX_ERROR_THRESHOLD: float = 5e-5  # Ultimate target, fallback to 5e-4 for difficult airfoils
 
 # ---- Abort mechanism settings -------------------------------------------
 # Time interval (seconds) for checking abort flag during optimization
@@ -105,12 +116,15 @@ ABORT_TIMEOUT: float = 5.0
 
 # ---- Staged optimizer settings -------------------------------------------
 # Basin-hopping hop counts per stage
-HYBRID_BH_HOPS_MSR: int = 0                 # 0 = skip MSR basin-hopping for speed
+HYBRID_BH_HOPS_MSR: int = 3                 # Enable MSR basin-hopping for priming Stage 3
 HYBRID_BH_HOPS_FIXED_MINMAX: int = 3        # small number of fixed-x softmax hops
 HYBRID_BH_HOPS_FREE_MINMAX: int = 10        # more aggressive in free-x where gains are largest
 
+# Stage skip options
+SKIP_STAGE2_FIXED_SOFTMAX: bool = True      # Skip Stage 2 entirely for speed test
+
 # Perturbation scale (normalized coordinates)
-HYBRID_BH_PERTURB_STD: float = 0.02
+HYBRID_BH_PERTURB_STD: float = 0.005
 
 # Per-stage local optimizer iteration budgets
 HYBRID_LOCAL_MAXITER_MSR: int = 400

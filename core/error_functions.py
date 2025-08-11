@@ -10,7 +10,9 @@ def calculate_single_bezier_fitting_error(
         *,
         error_function: str = "euclidean",
         return_max_error: bool = False,
-        return_all: bool = False):
+        return_all: bool = False,
+        adaptive_sampling: bool = True,
+        current_max_error: float = None):
     """
     error calculator.
     """
@@ -19,7 +21,20 @@ def calculate_single_bezier_fitting_error(
         return np.log(np.sum(np.exp(alpha * abs_errors))) / alpha
 
     if error_function == "euclidean":
-        num_points_curve = config.NUM_POINTS_CURVE_ERROR
+        # Adaptive sampling: choose resolution based on current error level
+        if adaptive_sampling and current_max_error is not None:
+            if current_max_error > config.ADAPTIVE_SAMPLING_THRESHOLD_MEDIUM:
+                num_points_curve = config.NUM_POINTS_CURVE_ERROR_COARSE
+            elif current_max_error > config.ADAPTIVE_SAMPLING_THRESHOLD_FINE:
+                num_points_curve = config.NUM_POINTS_CURVE_ERROR_MEDIUM
+            elif current_max_error > config.ADAPTIVE_SAMPLING_THRESHOLD_ULTRA:
+                num_points_curve = config.NUM_POINTS_CURVE_ERROR_FINE
+            else:
+                num_points_curve = config.NUM_POINTS_CURVE_ERROR_ULTRA
+        else:
+            # Default or fallback sampling
+            num_points_curve = config.NUM_POINTS_CURVE_ERROR
+            
         t_samples = np.linspace(0, 1, num_points_curve)
         sampled_curve_points = general_bezier_curve(t_samples, bezier_poly)
         sampled_curve_points = sampled_curve_points[np.argsort(sampled_curve_points[:, 0])]
