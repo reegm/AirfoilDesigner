@@ -12,7 +12,7 @@ def calculate_single_bezier_fitting_error(
         return_max_error: bool = False,
         return_all: bool = False):
     """
-    Unified error calculator.
+    error calculator.
     """
     def soft_max(errors: np.ndarray, alpha: float = config.SOFTMAX_ALPHA):
         abs_errors = np.abs(errors)

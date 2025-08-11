@@ -105,10 +105,10 @@ def build_bezier_staged_uncoupled(
     perturb_std = float(config.HYBRID_BH_PERTURB_STD)
     current_best_y = center_y.copy()
     # Stage 1 logging
-    if logger_func and config.DEBUG_WORKER_LOGGING:
+    if logger_func:
         logger_func(f"Stage 1 (fixed-x MSR) hops={hops_msr}")
     for hop in range(hops_msr):
-        if logger_func and config.DEBUG_WORKER_LOGGING:
+        if logger_func:
             logger_func(f"Stage 1 hop {hop+1}/{hops_msr}")
         if abort_flag is not None and abort_flag.value:
             break
@@ -137,7 +137,7 @@ def build_bezier_staged_uncoupled(
     # Stage 2: Fixed-x softmax (softmax objective) with basin-hopping restarts
     if abort_flag is not None and abort_flag.value:
         return best_ctrl
-    if logger_func and config.DEBUG_WORKER_LOGGING:
+    if logger_func:
         logger_func("Stage 2 (fixed-x softmax) starting")
     softmax_opts = dict(config.SLSQP_OPTIONS)
     softmax_opts["maxiter"] = config.HYBRID_LOCAL_MAXITER_MINMAX_FIXED
@@ -163,10 +163,10 @@ def build_bezier_staged_uncoupled(
         best_max_err = fixed_softmax_max
     # Basin-hopping restarts around fixed-x softmax
     current_ctrl = best_ctrl
-    if logger_func and config.DEBUG_WORKER_LOGGING:
+    if logger_func:
         logger_func(f"Stage 2 (fixed-x softmax) hops={hops_fixed}")
     for hop in range(hops_fixed):
-        if logger_func and config.DEBUG_WORKER_LOGGING:
+        if logger_func:
             logger_func(f"Stage 2 hop {hop+1}/{hops_fixed}")
         if abort_flag is not None and abort_flag.value:
             break
@@ -203,7 +203,7 @@ def build_bezier_staged_uncoupled(
     if abort_flag is not None and abort_flag.value:
         return best_ctrl
 
-    if logger_func and config.DEBUG_WORKER_LOGGING:
+    if logger_func:
         logger_func("Stage 3 (free-x softmax) starting")
     free_opts = dict(config.SLSQP_OPTIONS)
     free_opts["maxiter"] = config.HYBRID_LOCAL_MAXITER_MINMAX_FREE
@@ -231,10 +231,10 @@ def build_bezier_staged_uncoupled(
     n = len(best_ctrl)
     x_inner0 = best_ctrl[2:-1, 0]
     y_inner0 = best_ctrl[1:-1, 1]
-    if logger_func and config.DEBUG_WORKER_LOGGING:
+    if logger_func:
         logger_func(f"Stage 3 (free-x softmax) hops={hops_free}")
     for hop in range(hops_free):
-        if logger_func and config.DEBUG_WORKER_LOGGING:
+        if logger_func:
             logger_func(f"Stage 3 hop {hop+1}/{hops_free}")
         if abort_flag is not None and abort_flag.value:
             break
@@ -405,7 +405,7 @@ def build_bezier_free_x_softmax(
     )
 
     if logger_func:
-        logger_func("Running unified free-x softmax optimization...")
+        logger_func("Running free-x softmax optimization...")
 
     # Stage 2: Softmax optimization using unified optimizer
     control_points = optimize_bezier(
@@ -425,7 +425,7 @@ def build_bezier_free_x_softmax(
     )
     
     if logger_func:
-        logger_func("Unified free-x softmax optimization completed.")
+        logger_func("free-x softmax optimization completed.")
     
     return control_points
 
@@ -445,7 +445,7 @@ def build_bezier_fixed_x_softmax(
     Uses the unified optimizer directly (no preliminary MSR stage needed).
     """
     if logger_func:
-        logger_func("Running unified fixed-x softmax optimization...")
+        logger_func("Running fixed-x softmax optimization...")
 
     control_points = optimize_bezier(
         initial_ctrl=None,  # Build internally
@@ -464,7 +464,7 @@ def build_bezier_fixed_x_softmax(
     )
     
     if logger_func:
-        logger_func("Unified fixed-x softmax optimization completed.")
+        logger_func("fixed-x softmax optimization completed.")
     
     return control_points
 

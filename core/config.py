@@ -81,7 +81,7 @@ DEBUG_WORKER_LOGGING: bool = True
 
 # Plot update control
 UPDATE_PLOT: bool = False  # Whether to update the plot during optimization (can be disabled for performance)
-PROGRESS_UPDATE_INTERVAL: float = 0.5  # Seconds between progress updates (0.5 = 2 updates per second)
+PROGRESS_UPDATE_INTERVAL: float = 1  # Seconds between progress updates (0.5 = 2 updates per second)
 
 # Orthogonal distance calculation settings
 ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 20

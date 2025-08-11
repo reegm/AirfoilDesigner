@@ -50,7 +50,7 @@ class OptimizationController:
                 self._abort_flag.value = True
                 self.processor.log_message.emit("Abort requested. Waiting for optimizer to finish up...")
             # Do NOT set self._is_generating = False here
-            # Do NOT stop spinner, reset button, or update button states here
+            # Do NOT reset button or update button states here
             # Let _check_generation_result handle cleanup and GUI updates
             return
         
@@ -64,7 +64,7 @@ class OptimizationController:
             objective_gui = opt.objective_combo.currentText()
             if objective_gui == 'MSR':
                 objective_type = 'msr'
-            elif objective_gui == 'Max Error':
+            elif objective_gui == 'Softmax':
                 objective_type = 'softmax'
             else:
                 self.processor.log_message.emit(f"Error: Unsupported objective '{objective_gui}'.")
@@ -119,8 +119,6 @@ class OptimizationController:
         opt.build_single_bezier_button.setText("Abort")
         self._generation_timer.start()
         self.processor.log_message.emit("Started airfoil generation in background process...")
-        if not config.DEBUG_WORKER_LOGGING:
-            self.window.status_log.start_spinner("Processing...")
 
     def run_staged_or_abort(self) -> None:
         """Start or abort the staged uncoupled optimization pipeline."""
@@ -179,8 +177,6 @@ class OptimizationController:
         opt.staged_opt_button.setText("Abort")
         self._generation_timer.start()
         self.processor.log_message.emit("Started staged optimization in background process...")
-        if not config.DEBUG_WORKER_LOGGING:
-            self.window.status_log.start_spinner("Processing...")
     
     def recalculate_te_vectors(self) -> None:
         """Handle recalculate TE vectors action."""
@@ -210,10 +206,9 @@ class OptimizationController:
         if self._generation_queue is not None and not self._generation_queue.empty():
             result = self._generation_queue.get()
             
-            # Handle log messages from the worker process (only if debug logging is enabled)
+            # Handle log messages from the worker process (always show in GUI)
             if isinstance(result, dict) and result.get("type") == "log":
-                if config.DEBUG_WORKER_LOGGING:
-                    self.processor.log_message.emit(result["message"])
+                self.processor.log_message.emit(result["message"])
                 return  # Continue checking for more messages
             
             # Handle progress updates from the worker process
@@ -229,10 +224,6 @@ class OptimizationController:
             opt.build_single_bezier_button.setText("Generate Airfoil")
             if hasattr(opt, 'staged_opt_button'):
                 opt.staged_opt_button.setText("Staged Optimization")
-            
-            # Stop spinner only if it was started (debug mode disabled)
-            if not config.DEBUG_WORKER_LOGGING:
-                self.window.status_log.stop_spinner()
             
             self._generation_process = None
             self._generation_queue = None
@@ -286,10 +277,6 @@ class OptimizationController:
             if hasattr(opt, 'staged_opt_button'):
                 opt.staged_opt_button.setText("Staged Optimization")
             
-            # Stop spinner only if it was started (debug mode disabled)
-            if not config.DEBUG_WORKER_LOGGING:
-                self.window.status_log.stop_spinner()
-                
             elapsed_time = time.time() - self._generation_start_time if self._generation_start_time else 0
             self._generation_process = None
             self._generation_queue = None

@@ -30,7 +30,7 @@ def optimize_bezier(
     num_control_points_new=None,  # Required for fixed-x mode
 ):
     """
-    Unified Bezier optimizer for both single and coupled (G2) paths.
+    Bezier optimizer for both single and coupled (G2) paths.
     Handles fixed/free-x, softmax/msr/softmax, and constraints.
     Returns optimized control points (single or tuple for coupled).
     """
@@ -125,9 +125,9 @@ def optimize_bezier(
             
             if logger_func:
                 if result.success:
-                    logger_func("Unified optimization succeeded.")
+                    logger_func("Optimization succeeded.")
                 else:
-                    logger_func(f"Unified optimization failed: {result.message}")
+                    logger_func(f"Optimization failed: {result.message}")
             
             # Use the best configuration found during optimization (matching legacy behavior)
             if best_vars is not None:
@@ -254,9 +254,9 @@ def optimize_bezier(
             )
             if logger_func:
                 if result.success:
-                    logger_func("Unified optimization succeeded.")
+                    logger_func("Optimization succeeded.")
                 else:
-                    logger_func(f"Unified optimization failed: {result.message}")
+                    logger_func(f"Optimization failed: {result.message}")
             # Use the best configuration found during optimization (matching legacy behavior)
             if best_vars is not None:
                 final_ctrl = build_ctrl(best_vars)
@@ -378,12 +378,12 @@ def optimize_bezier(
             
             if logger_func:
                 if result.success:
-                    logger_func("Unified coupled fixed-x MSR optimization succeeded.")
+                    logger_func("Coupled fixed-x MSR optimization succeeded.")
                 else:
-                    logger_func(f"Unified coupled fixed-x MSR optimization failed: {result.message}")
+                    logger_func(f"Coupled fixed-x MSR optimization failed: {result.message}")
             
             if not result.success and logger_func:
-                logger_func(f"Unified coupled fixed-x MSR optimization failed. Using best result found. Reason: {result.message}")
+                logger_func(f"Coupled fixed-x MSR optimization failed. Using best result found. Reason: {result.message}")
             var_y_final = result.x
             
             # Use best configuration if available (matching legacy behavior)
@@ -559,9 +559,9 @@ def optimize_bezier(
         )
         if logger_func:
             if result.success:
-                logger_func("Unified coupled optimization succeeded.")
+                logger_func("Coupled optimization succeeded.")
             else:
-                logger_func(f"Unified coupled optimization failed: {result.message}")
+                logger_func(f"Coupled optimization failed: {result.message}")
         if best_xy is not None:
             final_ctrl_upper = build_ctrl_upper(best_xy)
             final_ctrl_lower = build_ctrl_lower(best_xy)

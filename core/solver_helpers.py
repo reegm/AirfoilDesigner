@@ -183,12 +183,12 @@ def minimize_with_debug_with_abort(fun, x0, args=(), method="SLSQP", jac=None, b
 
     # Note: plateau is handled inside the loop via EarlyStopException now
 
-    print("\nFinal result:")
-    print(f"  Success: {result.success}")
-    print(f"  Status:  {result.message}")
-
     # If debug logging is enabled, print final control point configuration(s) to the terminal
     try:
+        if config.DEBUG_WORKER_LOGGING:
+            print("\nFinal result:")
+            print(f"  Success: {result.success}")
+            print(f"  Status:  {result.message}")
         if config.DEBUG_WORKER_LOGGING:
             get_ctrl = getattr(fun, "__build_ctrl__", None)
             x_vec = result.x if result is not None and getattr(result, 'x', None) is not None else best_x
