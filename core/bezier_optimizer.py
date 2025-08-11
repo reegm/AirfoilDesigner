@@ -9,14 +9,14 @@ from core.solver_helpers import (
     extract_free_y_from_ctrl,
     make_build_ctrl_fn,
     make_residuals_fn,
-    run_minmax_stage,
+    run_softmax_stage,
     get_initial_guess_inner_y,
     minimize_with_debug_with_abort
 )
 from core.bezier_unified_optimizer import optimize_bezier
 
 
-def build_bezier_hybrid_uncoupled(
+def build_bezier_staged_uncoupled(
     original_data,
     num_control_points_new,
     is_upper_surface,
@@ -29,14 +29,14 @@ def build_bezier_hybrid_uncoupled(
     abort_flag=None,
 ):
     """
-    Uncoupled hybrid optimizer pipeline (euclidean error only):
+    Uncoupled staged optimizer pipeline (euclidean error only):
     1) Basin-hopping style fixed-x MSR with bounded SLSQP restarts
-    2) Switch to minmax (softmax objective) while still fixed-x
-    3) If stalled, switch to free-x minmax
+    2) Switch to softmax (softmax objective) while still fixed-x
+    3) If stalled, switch to free-x softmax
 
     Notes:
     - We deliberately ignore any orthogonal error variants for now and use euclidean only.
-    - Regularization weight is applied in minmax stages (fixed-x and free-x) consistent with existing design.
+    - Regularization weight is applied in softmax stages (fixed-x and free-x) consistent with existing design.
     - Uses plateau detection from minimize_with_debug_with_abort via progress to determine stalling implicitly by
       limiting per-stage max iterations and checking no best_true_max improvement across hops.
     """
@@ -106,10 +106,10 @@ def build_bezier_hybrid_uncoupled(
     current_best_y = center_y.copy()
     # Stage 1 logging
     if logger_func and config.DEBUG_WORKER_LOGGING:
-        logger_func(f"Hybrid: Stage 1 (fixed-x MSR) hops={hops_msr}")
+        logger_func(f"Stage 1 (fixed-x MSR) hops={hops_msr}")
     for hop in range(hops_msr):
         if logger_func and config.DEBUG_WORKER_LOGGING:
-            logger_func(f"Hybrid: Stage 1 hop {hop+1}/{hops_msr}")
+            logger_func(f"Stage 1 hop {hop+1}/{hops_msr}")
         if abort_flag is not None and abort_flag.value:
             break
         trial_y = current_best_y + rng.normal(0.0, perturb_std, size=current_best_y.shape)
@@ -132,17 +132,17 @@ def build_bezier_hybrid_uncoupled(
             best_ctrl = candidate_ctrl
             current_best_y = candidate_y
             if logger_func:
-                logger_func(f"Hybrid: Stage 1 hop {hop+1}/{hops_msr} improved best max error to {best_max_err:.6e}")
+                logger_func(f"Stage 1 hop {hop+1}/{hops_msr} improved best max error to {best_max_err:.6e}")
 
-    # Stage 2: Fixed-x minmax (softmax objective) with basin-hopping restarts
+    # Stage 2: Fixed-x softmax (softmax objective) with basin-hopping restarts
     if abort_flag is not None and abort_flag.value:
         return best_ctrl
     if logger_func and config.DEBUG_WORKER_LOGGING:
-        logger_func("Hybrid: Stage 2 (fixed-x softmax) starting")
+        logger_func("Stage 2 (fixed-x softmax) starting")
     softmax_opts = dict(config.SLSQP_OPTIONS)
     softmax_opts["maxiter"] = config.HYBRID_LOCAL_MAXITER_MINMAX_FIXED
     # First local softmax
-    ctrl_fixed_minmax = optimize_bezier(
+    ctrl_fixed_softmax = optimize_bezier(
         initial_ctrl=best_ctrl,
         original_data=original_data,
         mode="fixed-x",
@@ -157,17 +157,17 @@ def build_bezier_hybrid_uncoupled(
         is_upper_surface=is_upper_surface,
         num_control_points_new=num_control_points_new,
     )
-    _, fixed_minmax_max, _ = calculate_single_bezier_fitting_error(ctrl_fixed_minmax, original_data, error_function="euclidean", return_max_error=True)
-    if fixed_minmax_max < best_max_err:
-        best_ctrl = ctrl_fixed_minmax
-        best_max_err = fixed_minmax_max
-    # Basin-hopping restarts around fixed-x minmax
+    _, fixed_softmax_max, _ = calculate_single_bezier_fitting_error(ctrl_fixed_softmax, original_data, error_function="euclidean", return_max_error=True)
+    if fixed_softmax_max < best_max_err:
+        best_ctrl = ctrl_fixed_softmax
+        best_max_err = fixed_softmax_max
+    # Basin-hopping restarts around fixed-x softmax
     current_ctrl = best_ctrl
     if logger_func and config.DEBUG_WORKER_LOGGING:
-        logger_func(f"Hybrid: Stage 2 (fixed-x softmax) hops={hops_fixed}")
+        logger_func(f"Stage 2 (fixed-x softmax) hops={hops_fixed}")
     for hop in range(hops_fixed):
         if logger_func and config.DEBUG_WORKER_LOGGING:
-            logger_func(f"Hybrid: Stage 2 hop {hop+1}/{hops_fixed}")
+            logger_func(f"Stage 2 hop {hop+1}/{hops_fixed}")
         if abort_flag is not None and abort_flag.value:
             break
         # Perturb current best inner y only (keep fixed-x)
@@ -176,7 +176,7 @@ def build_bezier_hybrid_uncoupled(
         y_trial = np.clip(y_free + rng.normal(0.0, perturb_std, size=y_free.shape), -1.0, 1.0)
         ctrl_trial = build_control_points_with_fixed(y_trial, fixed_inner_x, float(original_data[-1, 1]), free_idx, fixed_idx, fixed_y_vals)
         # Local softmax from this trial
-        ctrl_trial_minmax = optimize_bezier(
+        ctrl_trial_softmax = optimize_bezier(
             initial_ctrl=ctrl_trial,
             original_data=original_data,
             mode="fixed-x",
@@ -191,20 +191,20 @@ def build_bezier_hybrid_uncoupled(
             is_upper_surface=is_upper_surface,
             num_control_points_new=num_control_points_new,
         )
-        _, trial_max, _ = calculate_single_bezier_fitting_error(ctrl_trial_minmax, original_data, error_function="euclidean", return_max_error=True)
+        _, trial_max, _ = calculate_single_bezier_fitting_error(ctrl_trial_softmax, original_data, error_function="euclidean", return_max_error=True)
         if trial_max < best_max_err:
             best_max_err = trial_max
-            best_ctrl = ctrl_trial_minmax
-            current_ctrl = ctrl_trial_minmax
+            best_ctrl = ctrl_trial_softmax
+            current_ctrl = ctrl_trial_softmax
             if logger_func:
-                logger_func(f"Hybrid: Stage 2 hop {hop+1}/{hops_fixed} improved best max error to {best_max_err:.6e}")
+                logger_func(f"Stage 2 hop {hop+1}/{hops_fixed} improved best max error to {best_max_err:.6e}")
 
-    # Stage 3: Free-x minmax (softmax objective) with basin-hopping restarts if not aborted
+    # Stage 3: Free-x softmax (softmax objective) with basin-hopping restarts if not aborted
     if abort_flag is not None and abort_flag.value:
         return best_ctrl
 
     if logger_func and config.DEBUG_WORKER_LOGGING:
-        logger_func("Hybrid: Stage 3 (free-x softmax) starting")
+        logger_func("Stage 3 (free-x softmax) starting")
     free_opts = dict(config.SLSQP_OPTIONS)
     free_opts["maxiter"] = config.HYBRID_LOCAL_MAXITER_MINMAX_FREE
     final_ctrl = optimize_bezier(
@@ -222,20 +222,20 @@ def build_bezier_hybrid_uncoupled(
         is_upper_surface=is_upper_surface,
         num_control_points_new=num_control_points_new,
     )
-    _, free_minmax_max, _ = calculate_single_bezier_fitting_error(final_ctrl, original_data, error_function="euclidean", return_max_error=True)
-    if free_minmax_max < best_max_err:
+    _, free_softmax_max, _ = calculate_single_bezier_fitting_error(final_ctrl, original_data, error_function="euclidean", return_max_error=True)
+    if free_softmax_max < best_max_err:
         best_ctrl = final_ctrl
-        best_max_err = free_minmax_max
+        best_max_err = free_softmax_max
 
     # Basin-hopping restarts for free-x: perturb inner x and y slightly
     n = len(best_ctrl)
     x_inner0 = best_ctrl[2:-1, 0]
     y_inner0 = best_ctrl[1:-1, 1]
     if logger_func and config.DEBUG_WORKER_LOGGING:
-        logger_func(f"Hybrid: Stage 3 (free-x softmax) hops={hops_free}")
+        logger_func(f"Stage 3 (free-x softmax) hops={hops_free}")
     for hop in range(hops_free):
         if logger_func and config.DEBUG_WORKER_LOGGING:
-            logger_func(f"Hybrid: Stage 3 hop {hop+1}/{hops_free}")
+            logger_func(f"Stage 3 hop {hop+1}/{hops_free}")
         if abort_flag is not None and abort_flag.value:
             break
         x_trial = np.clip(x_inner0 + rng.normal(0.0, perturb_std, size=x_inner0.shape), 0.0, 1.0)
@@ -270,7 +270,7 @@ def build_bezier_hybrid_uncoupled(
             x_inner0 = trial_local[2:-1, 0]
             y_inner0 = trial_local[1:-1, 1]
             if logger_func:
-                logger_func(f"Hybrid: Stage 3 hop {hop+1}/{hops_free} improved best max error to {best_max_err:.6e}")
+                logger_func(f"Stage 3 hop {hop+1}/{hops_free} improved best max error to {best_max_err:.6e}")
 
     return best_ctrl
 
@@ -372,7 +372,7 @@ def build_bezier_free_x_msr(
 
 
 
-def build_bezier_free_x_minmax(
+def build_bezier_free_x_softmax(
     original_data,
     num_control_points_new,
     is_upper_surface,
@@ -384,7 +384,7 @@ def build_bezier_free_x_minmax(
     abort_flag=None,
 ):
     """
-    Uncoupled free-x single Bezier optimizer using minmax objective with softmax.
+    Uncoupled free-x single Bezier optimizer using softmax objective with softmax.
     Uses the new unified optimizer logic with MSR initial guess stage.
     """
     # Stage 1: MSR for initial guess using unified optimizer
@@ -405,9 +405,9 @@ def build_bezier_free_x_minmax(
     )
 
     if logger_func:
-        logger_func("Running unified free-x minmax optimization...")
+        logger_func("Running unified free-x softmax optimization...")
 
-    # Stage 2: Minmax optimization using unified optimizer
+    # Stage 2: Softmax optimization using unified optimizer
     control_points = optimize_bezier(
         initial_ctrl=control_points,
         original_data=original_data,
@@ -425,11 +425,11 @@ def build_bezier_free_x_minmax(
     )
     
     if logger_func:
-        logger_func("Unified free-x minmax optimization completed.")
+        logger_func("Unified free-x softmax optimization completed.")
     
     return control_points
 
-def build_bezier_fixed_x_minmax(
+def build_bezier_fixed_x_softmax(
     original_data,
     num_control_points_new,
     is_upper_surface,
@@ -441,11 +441,11 @@ def build_bezier_fixed_x_minmax(
     abort_flag=None,
 ):
     """
-    Uncoupled fixed-x single Bezier optimizer using minmax objective with softmax.
+    Uncoupled fixed-x single Bezier optimizer using softmax objective with softmax.
     Uses the unified optimizer directly (no preliminary MSR stage needed).
     """
     if logger_func:
-        logger_func("Running unified fixed-x minmax optimization...")
+        logger_func("Running unified fixed-x softmax optimization...")
 
     control_points = optimize_bezier(
         initial_ctrl=None,  # Build internally
@@ -464,7 +464,7 @@ def build_bezier_fixed_x_minmax(
     )
     
     if logger_func:
-        logger_func("Unified fixed-x minmax optimization completed.")
+        logger_func("Unified fixed-x softmax optimization completed.")
     
     return control_points
 

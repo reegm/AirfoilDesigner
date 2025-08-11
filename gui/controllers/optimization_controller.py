@@ -14,7 +14,7 @@ from PySide6.QtCore import QTimer
 from core import config
 from core.airfoil_processor import AirfoilProcessor
 from core.error_functions import calculate_single_bezier_fitting_error
-from .optimization_worker import calculate_te_tangent, _generation_worker
+from .optimization_worker import _generation_worker
 
 
 class OptimizationController:
@@ -60,12 +60,12 @@ class OptimizationController:
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
             gui_strategy = opt.strategy_combo.currentText().lower()  # 'fixed-x' or 'free-x'
-            error_function = opt.error_function_combo.currentText().lower()  # 'euclidean' or 'orthogonal'
+            error_function = "euclidean" #opt.error_function_combo.currentText().lower()  # 'euclidean' or 'orthogonal'
             objective_gui = opt.objective_combo.currentText()
             if objective_gui == 'MSR':
                 objective_type = 'msr'
             elif objective_gui == 'Max Error':
-                objective_type = 'minmax'
+                objective_type = 'softmax'
             else:
                 self.processor.log_message.emit(f"Error: Unsupported objective '{objective_gui}'.")
                 return
@@ -122,8 +122,8 @@ class OptimizationController:
         if not config.DEBUG_WORKER_LOGGING:
             self.window.status_log.start_spinner("Processing...")
 
-    def run_hybrid_or_abort(self) -> None:
-        """Start or abort the hybrid uncoupled optimization pipeline."""
+    def run_staged_or_abort(self) -> None:
+        """Start or abort the staged uncoupled optimization pipeline."""
         opt = self.window.optimizer_panel
         if self._is_generating:
             if self._abort_flag is not None:
@@ -131,7 +131,7 @@ class OptimizationController:
                 self.processor.log_message.emit("Abort requested. Waiting for optimizer to finish up...")
             return
 
-        # Start hybrid in a new process
+        # Start staged in a new process
         try:
             regularization_weight = float(opt.single_bezier_reg_weight_input.text())
             te_vector_points = int(opt.te_vector_points_combo.currentText())
@@ -140,10 +140,7 @@ class OptimizationController:
             self.processor.log_message.emit("Error: Invalid input for regularization weight or TE vector points.")
             return
 
-        # Force uncoupled for this first implementation
-        if g2_flag:
-            self.processor.log_message.emit("Hybrid optimizer currently supports uncoupled mode only. Please uncheck G2.")
-            return
+        # Staged optimization now supports both coupled and uncoupled modes
 
         # Clear previous results
         self.processor.upper_poly_sharp = None
@@ -165,11 +162,11 @@ class OptimizationController:
             self.processor.upper_data,
             self.processor.lower_data,
             regularization_weight,
-            False,                   # g2_flag forced false
+            g2_flag,                 # Use actual G2 flag value
             te_vector_points,
-            'hybrid',                # gui_strategy for worker
+            'staged',                # gui_strategy for worker
             'euclidean',             # error function forced to euclidean
-            'minmax',                # objective placeholder
+            'softmax',                # objective placeholder
             self._abort_flag,
         )
         self._generation_process = multiprocessing.Process(
@@ -179,9 +176,9 @@ class OptimizationController:
         self._generation_process.start()
         self._is_generating = True
         self._generation_start_time = time.time()
-        opt.hybrid_opt_button.setText("Abort")
+        opt.staged_opt_button.setText("Abort")
         self._generation_timer.start()
-        self.processor.log_message.emit("Started hybrid optimization in background process...")
+        self.processor.log_message.emit("Started staged optimization in background process...")
         if not config.DEBUG_WORKER_LOGGING:
             self.window.status_log.start_spinner("Processing...")
     
@@ -230,8 +227,8 @@ class OptimizationController:
             opt = self.window.optimizer_panel
             # Reset both buttons to default text
             opt.build_single_bezier_button.setText("Generate Airfoil")
-            if hasattr(opt, 'hybrid_opt_button'):
-                opt.hybrid_opt_button.setText("Hybrid Optimization")
+            if hasattr(opt, 'staged_opt_button'):
+                opt.staged_opt_button.setText("Staged Optimization")
             
             # Stop spinner only if it was started (debug mode disabled)
             if not config.DEBUG_WORKER_LOGGING:
@@ -286,8 +283,8 @@ class OptimizationController:
             self._is_generating = False
             opt = self.window.optimizer_panel
             opt.build_single_bezier_button.setText("Generate Airfoil")
-            if hasattr(opt, 'hybrid_opt_button'):
-                opt.hybrid_opt_button.setText("Hybrid Optimization")
+            if hasattr(opt, 'staged_opt_button'):
+                opt.staged_opt_button.setText("Staged Optimization")
             
             # Stop spinner only if it was started (debug mode disabled)
             if not config.DEBUG_WORKER_LOGGING:
@@ -300,10 +297,7 @@ class OptimizationController:
             # Fallback: use best-so-far control points from progress updates if available
             use_fallback = (self._best_ctrl_upper is not None and self._best_ctrl_lower is not None)
             if use_fallback:
-                try:
-                    error_function = self.window.optimizer_panel.error_function_combo.currentText().lower()
-                except Exception:
-                    error_function = 'euclidean'
+                error_function = 'euclidean'
                 try:
                     upper_result = calculate_single_bezier_fitting_error(
                         self._best_ctrl_upper, self.processor.upper_data, error_function=error_function, return_max_error=True
@@ -389,8 +383,8 @@ class OptimizationController:
         lower_max_error_idx = None
         
         # Get the error function from the optimizer settings
-        opt = self.window.optimizer_panel
-        error_function = opt.error_function_combo.currentText().lower()
+        # opt = self.window.optimizer_panel
+        error_function = "euclidean" #opt.error_function_combo.currentText().lower()
         
         if self.processor.upper_poly_sharp is not None and self.processor.upper_data is not None:
             try:

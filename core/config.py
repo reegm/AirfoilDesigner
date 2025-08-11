@@ -55,7 +55,7 @@ SLSQP_OPTIONS = {
 # Number of sample points used when evaluating Bezier curves for error
 # calculations (e.g. euclidedan error). Higher numbers give more accurate error
 # estimates at the cost of performance.
-NUM_POINTS_CURVE_ERROR: int = 50000
+NUM_POINTS_CURVE_ERROR: int = 38500
 
 
 # Plot sampling settings
@@ -103,7 +103,7 @@ ABORT_CHECK_INTERVAL: float = 0.1
 # Maximum time to wait for graceful shutdown after abort request
 ABORT_TIMEOUT: float = 5.0
 
-# ---- Hybrid optimizer settings -------------------------------------------
+# ---- Staged optimizer settings -------------------------------------------
 # Basin-hopping hop counts per stage
 HYBRID_BH_HOPS_MSR: int = 0                 # 0 = skip MSR basin-hopping for speed
 HYBRID_BH_HOPS_FIXED_MINMAX: int = 3        # small number of fixed-x softmax hops

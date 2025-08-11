@@ -50,19 +50,19 @@ class OptimizerSettingsWidget(QGroupBox):
             "Note: Check 'Enforce G2 at leading edge' to use coupled optimization with G2 continuity\n"
         )
 
-        # Error Function dropdown (new)
-        self.error_function_combo = QComboBox()
-        self.error_function_combo.addItems([
-            "Euclidean",
-            "Orthogonal"
-        ])
-        self.error_function_combo.setCurrentText("Euclidean")  # Default as requested
-        self.error_function_combo.setFixedWidth(120)
-        # Tooltips for error function dropdown
-        self.error_function_combo.setToolTip(
-            "Euclidean: Uses linear sampling, measures point-to-point distance\n"
-            "Orthogonal: Uses dynamic sampling, measures perpendicular distance to curve\n"
-        )
+        # # Error Function dropdown (new)
+        # self.error_function_combo = QComboBox()
+        # self.error_function_combo.addItems([
+        #     "Euclidean",
+        #     "Orthogonal"
+        # ])
+        # self.error_function_combo.setCurrentText("Euclidean")  # Default as requested
+        # self.error_function_combo.setFixedWidth(120)
+        # # Tooltips for error function dropdown
+        # self.error_function_combo.setToolTip(
+        #     "Euclidean: Uses linear sampling, measures point-to-point distance\n"
+        #     "Orthogonal: Uses dynamic sampling, measures perpendicular distance to curve\n"
+        # )
 
         # Objective dropdown (new)
         self.objective_combo = QComboBox()
@@ -74,7 +74,7 @@ class OptimizerSettingsWidget(QGroupBox):
         self.objective_combo.setFixedWidth(120)
         self.objective_combo.setToolTip(
             "MSR: Mean squared residual (sum of squared errors)\n"
-            "Max Error: Minimize the maximum absolute error (minmax objective)\n"
+            "Max Error: Minimize the maximum absolute error (softmax objective)\n"
         )
 
         # Enforce G2 at leading edge
@@ -82,7 +82,7 @@ class OptimizerSettingsWidget(QGroupBox):
 
         # Action buttons
         self.build_single_bezier_button = QPushButton("Generate Airfoil")
-        self.hybrid_opt_button = QPushButton("Hybrid Optimization")
+        self.staged_opt_button = QPushButton("Staged Optimization")
         self.recalculate_button = QPushButton("Recalculate")
         self.recalculate_button.setEnabled(False)  # Initially disabled
 
@@ -111,12 +111,12 @@ class OptimizerSettingsWidget(QGroupBox):
         strategy_row.addStretch(1)
         layout.addLayout(strategy_row)
 
-        # Error Function (new)
-        error_row = QHBoxLayout()
-        error_row.addWidget(QLabel("Error Function:"))
-        error_row.addWidget(self.error_function_combo)
-        error_row.addStretch(1)
-        layout.addLayout(error_row)
+        # # Error Function (new)
+        # error_row = QHBoxLayout()
+        # error_row.addWidget(QLabel("Error Function:"))
+        # error_row.addWidget(self.error_function_combo)
+        # error_row.addStretch(1)
+        # layout.addLayout(error_row)
 
         # Objective (new)
         objective_row = QHBoxLayout()
@@ -134,7 +134,7 @@ class OptimizerSettingsWidget(QGroupBox):
         # Buttons
         button_row = QHBoxLayout()
         button_row.addWidget(self.build_single_bezier_button)
-        button_row.addWidget(self.hybrid_opt_button)
+        button_row.addWidget(self.staged_opt_button)
         layout.addLayout(button_row)
 
         self.setLayout(layout)

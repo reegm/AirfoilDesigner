@@ -357,14 +357,14 @@ def make_build_ctrl_fn(fixed_inner_x_coords, te_y, free_indices, fixed_indices, 
         return build_control_points_with_fixed(y, fixed_inner_x_coords, te_y, free_indices, fixed_indices, fixed_y_values)
     return build_ctrl
 
-def make_residuals_fn(original_data, error_function, minmax=False):
+def make_residuals_fn(original_data, error_function, softmax=False):
     """
     Returns a function that computes residuals for a given control polygon.
     """
     def residuals(ctrl):
         efun = error_function
-        if minmax:
-            efun = efun + "_minmax" if not efun.endswith("_minmax") else efun
+        if softmax:
+            efun = efun + "_softmax" if not efun.endswith("_softmax") else efun
         residuals, _, _ = __import__('core.error_functions', fromlist=['calculate_single_bezier_fitting_error']).calculate_single_bezier_fitting_error(
             ctrl, original_data, error_function=efun, return_max_error=False, return_all=True)
         return residuals
@@ -414,7 +414,7 @@ def log_residuals(ctrl, residual_fn, max_display=10):
 
 
 
-def run_minmax_stage(
+def run_softmax_stage(
     initial_y,
     build_control_points_fn,
     residuals_fn,

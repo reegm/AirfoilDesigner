@@ -35,7 +35,7 @@ def calculate_single_bezier_fitting_error(
             return sum_sq, max_error, max_error_idx
         return sum_sq
 
-    elif error_function == "orthogonal_minmax":
+    elif error_function == "orthogonal_softmax":
         distances, max_distance, max_distance_idx, proj_pts, normals = calculate_all_orthogonal_distances_optimized(
             original_data, bezier_poly
         )
@@ -64,7 +64,7 @@ def calculate_single_bezier_fitting_error(
             return sum_sq, max_err, max_idx
         return sum_sq
 
-    elif error_function == "euclidean_minmax":
+    elif error_function == "euclidean_softmax":
         num_points_curve = config.NUM_POINTS_CURVE_ERROR
         t_samples = np.linspace(0, 1, num_points_curve)
         sampled_curve_points = general_bezier_curve(t_samples, bezier_poly)

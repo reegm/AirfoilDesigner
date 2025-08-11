@@ -40,16 +40,17 @@ def _generation_worker(args, queue):
     # Import new optimizer
     from core.bezier_optimizer import (
         build_bezier_fixed_x_msr,
-        build_bezier_fixed_x_minmax,
+        build_bezier_fixed_x_softmax,
         build_bezier_free_x_msr,
-        build_bezier_free_x_minmax,
-        build_bezier_hybrid_uncoupled,
+        build_bezier_free_x_softmax,
+        build_bezier_staged_uncoupled,
     )
     from core.coupled_bezier_optimizer import (
         build_coupled_bezier_fixed_x_msr,
-        build_coupled_bezier_fixed_x_minmax,
+        build_coupled_bezier_fixed_x_softmax,
         build_coupled_bezier_free_x_msr,
-        build_coupled_bezier_free_x_minmax
+        build_coupled_bezier_free_x_softmax,
+        build_coupled_bezier_staged
     )
     from core.error_functions import calculate_single_bezier_fitting_error
 
@@ -174,8 +175,8 @@ def _generation_worker(args, queue):
                     logger_func=lower_logger,
                     abort_flag=abort_flag
                 )
-            elif objective_type == 'minmax':
-                upper_poly = build_bezier_fixed_x_minmax(
+            elif objective_type == 'softmax':
+                upper_poly = build_bezier_fixed_x_softmax(
                     upper_data,
                     num_control_points,
                     True,
@@ -186,7 +187,7 @@ def _generation_worker(args, queue):
                     logger_func=upper_logger,
                     abort_flag=abort_flag
                 )
-                lower_poly = build_bezier_fixed_x_minmax(
+                lower_poly = build_bezier_fixed_x_softmax(
                     lower_data,
                     num_control_points,
                     False,
@@ -232,8 +233,8 @@ def _generation_worker(args, queue):
                     logger_func=combined_logger,
                     abort_flag=abort_flag
                 )
-            elif objective_type == 'minmax':
-                upper_poly, lower_poly = build_coupled_bezier_fixed_x_minmax(
+            elif objective_type == 'softmax':
+                upper_poly, lower_poly = build_coupled_bezier_fixed_x_softmax(
                     upper_data,
                     lower_data,
                     regularization_weight,
@@ -312,8 +313,8 @@ def _generation_worker(args, queue):
                     logger_func=lower_logger,
                     abort_flag=abort_flag
                 )
-            elif objective_type == 'minmax':
-                upper_poly = build_bezier_free_x_minmax(
+            elif objective_type == 'softmax':
+                upper_poly = build_bezier_free_x_softmax(
                     upper_data,
                     num_control_points,
                     True,
@@ -324,7 +325,7 @@ def _generation_worker(args, queue):
                     logger_func=upper_logger,
                     abort_flag=abort_flag
                 )
-                lower_poly = build_bezier_free_x_minmax(
+                lower_poly = build_bezier_free_x_softmax(
                     lower_data,
                     num_control_points,
                     False,
@@ -338,8 +339,8 @@ def _generation_worker(args, queue):
             else:
                 queue.put({"success": False, "error": f"Free-x objective not yet implemented: {objective_type}"})
                 return
-        elif gui_strategy == 'hybrid' and not g2_flag:
-            # Uncoupled hybrid pipeline (euclidean only)
+        elif gui_strategy == 'staged' and not g2_flag:
+            # Uncoupled staged pipeline (euclidean only)
             le_tangent_upper = np.array([0.0, 1.0])
             le_tangent_lower = np.array([0.0, -1.0])
             num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
@@ -358,8 +359,8 @@ def _generation_worker(args, queue):
                 else:
                     combined_logger(*args)
 
-            # Force euclidean error regardless of UI selection for hybrid per spec
-            upper_poly = build_bezier_hybrid_uncoupled(
+            # Force euclidean error regardless of UI selection for staged per spec
+            upper_poly = build_bezier_staged_uncoupled(
                 upper_data,
                 num_control_points,
                 True,
@@ -370,7 +371,7 @@ def _generation_worker(args, queue):
                 logger_func=upper_logger,
                 abort_flag=abort_flag,
             )
-            lower_poly = build_bezier_hybrid_uncoupled(
+            lower_poly = build_bezier_staged_uncoupled(
                 lower_data,
                 num_control_points,
                 False,
@@ -427,8 +428,8 @@ def _generation_worker(args, queue):
                     logger_func=combined_logger,
                     abort_flag=abort_flag
                 )
-            elif objective_type == 'minmax':
-                upper_poly, lower_poly = build_coupled_bezier_free_x_minmax(
+            elif objective_type == 'softmax':
+                upper_poly, lower_poly = build_coupled_bezier_free_x_softmax(
                     upper_data,
                     lower_data,
                     regularization_weight,
@@ -441,6 +442,40 @@ def _generation_worker(args, queue):
             else:
                 queue.put({"success": False, "error": f"Coupled free-x objective not yet implemented: {objective_type}"})
                 return
+            # Error calculation (for reporting)
+            if error_function == 'orthogonal':
+                upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)
+                lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='orthogonal', return_max_error=True)
+            else:
+                upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='euclidean', return_max_error=True)
+                lower_error_result = calculate_single_bezier_fitting_error(lower_poly, lower_data, error_function='euclidean', return_max_error=True)
+            _, upper_max_error, upper_max_error_idx = upper_error_result
+            _, lower_max_error, lower_max_error_idx = lower_error_result
+            queue.put({
+                "success": True,
+                "upper_poly": upper_poly,
+                "lower_poly": lower_poly,
+                "upper_max_error": upper_max_error,
+                "upper_max_error_idx": upper_max_error_idx,
+                "lower_max_error": lower_max_error,
+                "lower_max_error_idx": lower_max_error_idx,
+            })
+        elif gui_strategy == 'staged' and g2_flag:
+            # Coupled staged pipeline (G2 enabled, euclidean only)
+            worker_logger("Starting coupled staged optimization...")
+            
+            # Force euclidean error regardless of UI selection for staged per spec
+            upper_poly, lower_poly = build_coupled_bezier_staged(
+                upper_data,
+                lower_data,
+                regularization_weight,
+                upper_te_tangent_vector,
+                lower_te_tangent_vector,
+                error_function='euclidean',
+                logger_func=combined_logger,
+                abort_flag=abort_flag
+            )
+            
             # Error calculation (for reporting)
             if error_function == 'orthogonal':
                 upper_error_result = calculate_single_bezier_fitting_error(upper_poly, upper_data, error_function='orthogonal', return_max_error=True)

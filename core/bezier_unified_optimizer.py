@@ -11,7 +11,7 @@ def optimize_bezier(
     mode="free-x",  # or "fixed-x"
     coupled=False,
     error_function="euclidean",
-    objective="softmax",  # or "msr", "minmax"
+    objective="softmax",  # or "msr", "softmax"
     te_y=None,
     te_tangent_vector=None,
     regularization_weight=0.0,
@@ -31,7 +31,7 @@ def optimize_bezier(
 ):
     """
     Unified Bezier optimizer for both single and coupled (G2) paths.
-    Handles fixed/free-x, softmax/msr/minmax, and constraints.
+    Handles fixed/free-x, softmax/msr/softmax, and constraints.
     Returns optimized control points (single or tuple for coupled).
     """
     # Helper: select objective function
@@ -48,7 +48,7 @@ def optimize_bezier(
             return softmax_obj
         elif obj_type == "msr":
             return lambda residuals: np.sum(residuals ** 2)  # Sum of squares, not mean
-        elif obj_type == "minmax":
+        elif obj_type == "softmax":
             return lambda residuals: np.max(np.abs(residuals))
         else:
             raise ValueError(f"Unknown objective type: {obj_type}")
@@ -68,10 +68,7 @@ def optimize_bezier(
             initial_guess_inner_y = initial_guess_inner_y_full[free_indices]
             
             def error_func(ctrl):
-                if error_function == "orthogonal":
-                    return calculate_single_bezier_fitting_error(ctrl, original_data, error_function="orthogonal", return_max_error=False)
-                else:
-                    return calculate_single_bezier_fitting_error(ctrl, original_data, error_function="euclidean", return_max_error=False)
+                return calculate_single_bezier_fitting_error(ctrl, original_data, error_function="euclidean", return_max_error=False)
             
             # Track best configuration during optimization (matching legacy behavior)
             best_max_error = float("inf")
@@ -111,9 +108,9 @@ def optimize_bezier(
                     original_data, error_function=error_function, return_max_error=False, return_all=True)[0]))
             
             constraints = []
-            # Only apply success threshold for free-x minmax/softmax objectives, not for fixed-x or MSR
+            # Only apply success threshold for free-x softmax/softmax objectives, not for fixed-x or MSR
             # Fixed-x should run to completion like MSR, while free-x can use the threshold
-            success_threshold = config.MAX_ERROR_THRESHOLD if (mode == "free-x" and objective in ["softmax", "minmax"]) else None
+            success_threshold = config.MAX_ERROR_THRESHOLD if (mode == "free-x" and objective in ["softmax", "softmax"]) else None
             
             result, iteration_data = minimize_with_debug_with_abort(
                 fun=obj,
@@ -239,9 +236,9 @@ def optimize_bezier(
                 full_obj.__te_y__ = te_y
                 full_obj.__original_data__ = original_data
 
-            # Only apply success threshold for free-x minmax/softmax objectives, not for fixed-x or MSR
+            # Only apply success threshold for free-x softmax/softmax objectives, not for fixed-x or MSR
             # Fixed-x should run to completion like MSR, while free-x can use the threshold
-            success_threshold = config.MAX_ERROR_THRESHOLD if (mode == "free-x" and objective in ["softmax", "minmax"]) else None
+            success_threshold = config.MAX_ERROR_THRESHOLD if (mode == "free-x" and objective in ["softmax", "softmax"]) else None
             
 
             result, trace = minimize_with_debug_with_abort(
@@ -299,16 +296,10 @@ def optimize_bezier(
             n_free_l = len(free_idx_l)
             
             def error_func_upper(ctrl):
-                if error_function == "orthogonal":
-                    return calculate_single_bezier_fitting_error(ctrl, original_data, error_function="orthogonal", return_max_error=False)
-                else:
-                    return calculate_single_bezier_fitting_error(ctrl, original_data, error_function="euclidean", return_max_error=False)
+                return calculate_single_bezier_fitting_error(ctrl, original_data, error_function="euclidean", return_max_error=False)
             
             def error_func_lower(ctrl):
-                if error_function == "orthogonal":
-                    return calculate_single_bezier_fitting_error(ctrl, lower_data, error_function="orthogonal", return_max_error=False)
-                else:
-                    return calculate_single_bezier_fitting_error(ctrl, lower_data, error_function="euclidean", return_max_error=False)
+                return calculate_single_bezier_fitting_error(ctrl, lower_data, error_function="euclidean", return_max_error=False)
             
             def assemble_polygons(var_y):
                 y_u = var_y[:n_free_u]
@@ -380,7 +371,7 @@ def optimize_bezier(
                 method='SLSQP',
                 constraints=constraints,
                 options=config.SLSQP_OPTIONS,
-                success_threshold=config.MAX_ERROR_THRESHOLD if (mode == "free-x" and objective in ["softmax", "minmax"]) else None,  # Only use threshold for free-x minmax objectives
+                success_threshold=config.MAX_ERROR_THRESHOLD if (mode == "free-x" and objective in ["softmax", "softmax"]) else None,  # Only use threshold for free-x softmax objectives
                 abort_flag=abort_flag,
                 progress_callback=logger_func
             )
@@ -562,7 +553,7 @@ def optimize_bezier(
             bounds=bounds,
             constraints=constraints,
             options=config.SLSQP_OPTIONS,
-            success_threshold=config.MAX_ERROR_THRESHOLD if (mode == "free-x" and objective in ["softmax", "minmax"]) else None,
+            success_threshold=config.MAX_ERROR_THRESHOLD if (mode == "free-x" and objective in ["softmax", "softmax"]) else None,
             abort_flag=abort_flag,
             progress_callback=logger_func
         )
