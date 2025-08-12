@@ -91,7 +91,7 @@ DEFAULT_TE_VECTOR_POINTS: int = 2
 DEBUG_WORKER_LOGGING: bool = True
 
 # Plot update control
-UPDATE_PLOT: bool = False  # Whether to update the plot during optimization (can be disabled for performance)
+UPDATE_PLOT: bool = True  # Whether to update the plot during optimization (can be disabled for performance)
 PROGRESS_UPDATE_INTERVAL: float = 1  # Seconds between progress updates (0.5 = 2 updates per second)
 
 # Orthogonal distance calculation settings
@@ -105,7 +105,7 @@ SOFTMAX_ALPHA: float = 2000  # Reduced from 100 to be less aggressive about wors
 PLATEAU_THRESHOLD: float = 1e-10
 PLATEAU_PATIENCE: int = 30
 
-MAX_ERROR_THRESHOLD: float = 5e-5  # Ultimate target, fallback to 5e-4 for difficult airfoils
+MAX_ERROR_THRESHOLD: float = 5e-5  # Ultimate target
 
 # ---- Abort mechanism settings -------------------------------------------
 # Time interval (seconds) for checking abort flag during optimization
@@ -116,17 +116,13 @@ ABORT_TIMEOUT: float = 5.0
 
 # ---- Staged optimizer settings -------------------------------------------
 # Basin-hopping hop counts per stage
-HYBRID_BH_HOPS_MSR: int = 3                 # Enable MSR basin-hopping for priming Stage 3
-HYBRID_BH_HOPS_FIXED_MINMAX: int = 3        # small number of fixed-x softmax hops
-HYBRID_BH_HOPS_FREE_MINMAX: int = 10        # more aggressive in free-x where gains are largest
+HYBRID_BH_HOPS_MSR: int = 5                 # Enable MSR basin-hopping for priming Stage 2
+HYBRID_BH_HOPS_FREE_MINMAX: int = 15        # more aggressive in free-x where gains are largest
 
-# Stage skip options
-SKIP_STAGE2_FIXED_SOFTMAX: bool = True      # Skip Stage 2 entirely for speed test
 
 # Perturbation scale (normalized coordinates)
 HYBRID_BH_PERTURB_STD: float = 0.005
 
 # Per-stage local optimizer iteration budgets
 HYBRID_LOCAL_MAXITER_MSR: int = 400
-HYBRID_LOCAL_MAXITER_MINMAX_FIXED: int = 800
 HYBRID_LOCAL_MAXITER_MINMAX_FREE: int = 1500

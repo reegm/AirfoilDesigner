@@ -301,12 +301,11 @@ def build_coupled_bezier_staged(
     """
     Coupled staged optimizer pipeline (G2 enabled, euclidean error only):
     1) Basin-hopping style coupled fixed-x MSR with bounded SLSQP restarts
-    2) Switch to coupled softmax (softmax objective) while still fixed-x
-    3) If stalled, switch to coupled free-x softmax
+    2) Switch to coupled free-x softmax (softmax objective)
 
     Notes:
     - We deliberately ignore any orthogonal error variants for now and use euclidean only.
-    - Regularization weight is applied in softmax stages (fixed-x and free-x) consistent with existing design.
+    - Regularization weight is applied in Stage 2 softmax consistent with existing design.
     - Uses plateau detection from minimize_with_debug_with_abort via progress to determine stalling implicitly by
       limiting per-stage max iterations and checking no best_true_max improvement across hops.
     - G2 constraint is maintained throughout all stages.
@@ -430,136 +429,13 @@ def build_coupled_bezier_staged(
                 if logger_func:
                     logger_func(f"Stage 1 hop {hop+1}/{hops_msr} improved best max error to {best_max_err:.6e}")
 
-    # Stage 2: Coupled fixed-x softmax (softmax objective) with basin-hopping restarts
-    if abort_flag is not None and abort_flag.value:
-        return (best_upper, best_lower)
-    
-    # Check if Stage 2 should be skipped
-    if getattr(config, 'SKIP_STAGE2_FIXED_SOFTMAX', False):
-        if logger_func:
-            logger_func("Stage 2 (coupled fixed-x softmax) SKIPPED - testing Stage 1 -> Stage 3 direct transition")
-    else:
-        if logger_func:
-            logger_func("Stage 2 (coupled fixed-x softmax) starting")
-        
-        # First local coupled fixed-x softmax
-        fixed_softmax_result = optimize_bezier(
-            initial_ctrl=best_upper,
-            original_data=original_upper_data,
-            mode="fixed-x",
-            coupled=True,
-            error_function="euclidean",
-            objective="softmax",
-            te_y=te_y_upper,
-            te_tangent_vector=te_tangent_vector_upper,
-            regularization_weight=regularization_weight,
-            logger_func=logger_func,
-            abort_flag=abort_flag,
-            g2_constraint=True,
-            lower_data=original_lower_data,
-            lower_initial_ctrl=best_lower,
-            lower_te_y=te_y_lower,
-            lower_te_tangent_vector=te_tangent_vector_lower,
-            is_upper_surface=True,
-            num_control_points_new=config.NUM_CONTROL_POINTS_SINGLE_BEZIER,
-        )
-        
-        if fixed_softmax_result is not None:
-            fixed_upper, fixed_lower = fixed_softmax_result
-            fixed_upper_distances, _, _ = calculate_single_bezier_fitting_error(
-                fixed_upper, original_upper_data, error_function="euclidean", return_all=True
-            )
-            fixed_lower_distances, _, _ = calculate_single_bezier_fitting_error(
-                fixed_lower, original_lower_data, error_function="euclidean", return_all=True
-            )
-            fixed_upper_max = np.max(np.abs(fixed_upper_distances))
-            fixed_lower_max = np.max(np.abs(fixed_lower_distances))
-            fixed_max_err = max(fixed_upper_max, fixed_lower_max)
-            
-            if fixed_max_err < best_max_err:
-                best_upper = fixed_upper
-                best_lower = fixed_lower
-                best_max_err = fixed_max_err
-        
-        # Basin-hopping restarts around coupled fixed-x softmax
-        hops_fixed = max(0, int(config.HYBRID_BH_HOPS_FIXED_MINMAX))
-        current_upper = best_upper.copy()
-        current_lower = best_lower.copy()
-        
-        if logger_func:
-            logger_func(f"Stage 2 (coupled fixed-x softmax) hops={hops_fixed}")
-        
-        for hop in range(hops_fixed):
-            if logger_func:
-                logger_func(f"Stage 2 hop {hop+1}/{hops_fixed}")
-            if abort_flag is not None and abort_flag.value:
-                break
-                
-            # Perturb current best inner y only (keep fixed-x)
-            trial_upper = current_upper.copy()
-            trial_lower = current_lower.copy()
-            
-            for i in range(1, len(trial_upper) - 1):
-                trial_upper[i, 1] += rng.normal(0.0, perturb_std)
-                trial_lower[i, 1] += rng.normal(0.0, perturb_std)
-            
-            # Clamp y values to reasonable range
-            trial_upper[:, 1] = np.clip(trial_upper[:, 1], -1.0, 1.0)
-            trial_lower[:, 1] = np.clip(trial_lower[:, 1], -1.0, 1.0)
-            
-            # Local coupled softmax from this trial
-            trial_result = optimize_bezier(
-                initial_ctrl=trial_upper,
-                original_data=original_upper_data,
-                mode="fixed-x",
-                coupled=True,
-                error_function="euclidean",
-                objective="softmax",
-                te_y=te_y_upper,
-                te_tangent_vector=te_tangent_vector_upper,
-                regularization_weight=regularization_weight,
-                logger_func=logger_func,
-                abort_flag=abort_flag,
-                g2_constraint=True,
-                lower_data=original_lower_data,
-                lower_initial_ctrl=trial_lower,
-                lower_te_y=te_y_lower,
-                lower_te_tangent_vector=te_tangent_vector_lower,
-                is_upper_surface=True,
-                num_control_points_new=config.NUM_CONTROL_POINTS_SINGLE_BEZIER,
-            )
-            
-            if trial_result is not None:
-                trial_upper_opt, trial_lower_opt = trial_result
-                trial_upper_distances, _, _ = calculate_single_bezier_fitting_error(
-                    trial_upper_opt, original_upper_data, error_function="euclidean", return_all=True
-                )
-                trial_lower_distances, _, _ = calculate_single_bezier_fitting_error(
-                    trial_lower_opt, original_lower_data, error_function="euclidean", return_all=True
-                )
-                trial_upper_max = np.max(np.abs(trial_upper_distances))
-                trial_lower_max = np.max(np.abs(trial_lower_distances))
-                trial_max_err = max(trial_upper_max, trial_lower_max)
-                
-                # Always update current_upper/current_lower to the result of this hop
-                # (whether it improves or not) for proper basin-hopping behavior
-                current_upper = trial_upper_opt
-                current_lower = trial_lower_opt
-                
-                if trial_max_err < best_max_err:
-                    best_max_err = trial_max_err
-                    best_upper = trial_upper_opt
-                    best_lower = trial_lower_opt
-                    if logger_func:
-                        logger_func(f"Stage 2 hop {hop+1}/{hops_fixed} improved best max error to {best_max_err:.6e}")
-
-    # Stage 3: Coupled free-x softmax (softmax objective) with basin-hopping restarts if not aborted
+    # Stage 2: Coupled free-x softmax (softmax objective) with basin-hopping restarts if not aborted
     if abort_flag is not None and abort_flag.value:
         return (best_upper, best_lower)
 
     if logger_func:
-        logger_func("Stage 3 (coupled free-x softmax) starting")
-    
+        logger_func("Stage 2 (coupled free-x softmax) starting")
+        
     # Final coupled free-x softmax
     final_result = optimize_bezier(
         initial_ctrl=best_upper,
@@ -600,15 +476,15 @@ def build_coupled_bezier_staged(
     # Basin-hopping restarts for coupled free-x: perturb inner x and y slightly
     hops_free = max(0, int(config.HYBRID_BH_HOPS_FREE_MINMAX))
     
-    # Early success detection: reduce hops if Stage 2 achieved good results
-    if best_max_err < 1e-4:  # Excellent Stage 2 result
+    # Early success detection: reduce hops if Stage 1 achieved good results
+    if best_max_err < 1e-4:  # Excellent Stage 1 result
         hops_free = min(hops_free, 3)
         if logger_func:
-            logger_func(f"Stage 2 achieved excellent error {best_max_err:.6e}, reducing Stage 3 hops to {hops_free}")
-    elif best_max_err < 5e-4:  # Good Stage 2 result
+            logger_func(f"Stage 1 achieved excellent error {best_max_err:.6e}, reducing Stage 2 hops to {hops_free}")
+    elif best_max_err < 5e-4:  # Good Stage 1 result
         hops_free = min(hops_free, 5)
         if logger_func:
-            logger_func(f"Stage 2 achieved good error {best_max_err:.6e}, reducing Stage 3 hops to {hops_free}")
+            logger_func(f"Stage 1 achieved good error {best_max_err:.6e}, reducing Stage 2 hops to {hops_free}")
     n_upper = len(best_upper)
     n_lower = len(best_lower)
     x_inner_upper = best_upper[2:-1, 0]
@@ -629,11 +505,11 @@ def build_coupled_bezier_staged(
             return base_scale * 2.0
     
     if logger_func:
-        logger_func(f"Stage 3 (coupled free-x softmax) hops={hops_free}")
+        logger_func(f"Stage 2 (coupled free-x softmax) hops={hops_free}")
     
     for hop in range(hops_free):
         if logger_func:
-            logger_func(f"Stage 3 hop {hop+1}/{hops_free}")
+            logger_func(f"Stage 2 hop {hop+1}/{hops_free}")
         if abort_flag is not None and abort_flag.value:
             break
             
@@ -711,7 +587,7 @@ def build_coupled_bezier_staged(
                 x_inner_lower = trial_lower_opt[2:-1, 0]
                 y_inner_lower = trial_lower_opt[1:-1, 1]
                 if logger_func:
-                    logger_func(f"Stage 3 hop {hop+1}/{hops_free} improved best max error to {best_max_err:.6e}")
+                    logger_func(f"Stage 2 hop {hop+1}/{hops_free} improved best max error to {best_max_err:.6e}")
             # If hop didn't improve, keep current coordinates for next perturbation
 
     return (best_upper, best_lower) 

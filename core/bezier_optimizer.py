@@ -31,12 +31,11 @@ def build_bezier_staged_uncoupled(
     """
     Uncoupled staged optimizer pipeline (euclidean error only):
     1) Basin-hopping style fixed-x MSR with bounded SLSQP restarts
-    2) Switch to softmax (softmax objective) while still fixed-x
-    3) If stalled, switch to free-x softmax
+    2) Switch to free-x softmax (softmax objective)
 
     Notes:
     - We deliberately ignore any orthogonal error variants for now and use euclidean only.
-    - Regularization weight is applied in softmax stages (fixed-x and free-x) consistent with existing design.
+    - Regularization weight is applied in Stage 2 softmax consistent with existing design.
     - Uses plateau detection from minimize_with_debug_with_abort via progress to determine stalling implicitly by
       limiting per-stage max iterations and checking no best_true_max improvement across hops.
     """
@@ -100,7 +99,6 @@ def build_bezier_staged_uncoupled(
     # Run basin-hopping style restarts
     # Stage-specific hop counts
     hops_msr = max(0, int(config.HYBRID_BH_HOPS_MSR))
-    hops_fixed = max(0, int(config.HYBRID_BH_HOPS_FIXED_MINMAX))
     hops_free = max(0, int(config.HYBRID_BH_HOPS_FREE_MINMAX))
     perturb_std = float(config.HYBRID_BH_PERTURB_STD)
     current_best_y = center_y.copy()
@@ -134,77 +132,12 @@ def build_bezier_staged_uncoupled(
             if logger_func:
                 logger_func(f"Stage 1 hop {hop+1}/{hops_msr} improved best max error to {best_max_err:.6e}")
 
-    # Stage 2: Fixed-x softmax (softmax objective) with basin-hopping restarts
-    if abort_flag is not None and abort_flag.value:
-        return best_ctrl
-    if logger_func:
-        logger_func("Stage 2 (fixed-x softmax) starting")
-    softmax_opts = dict(config.SLSQP_OPTIONS)
-    softmax_opts["maxiter"] = config.HYBRID_LOCAL_MAXITER_MINMAX_FIXED
-    # First local softmax
-    ctrl_fixed_softmax = optimize_bezier(
-        initial_ctrl=best_ctrl,
-        original_data=original_data,
-        mode="fixed-x",
-        coupled=False,
-        error_function="euclidean",
-        objective="softmax",
-        te_y=float(original_data[-1, 1]),
-        te_tangent_vector=te_tangent_vector,
-        regularization_weight=regularization_weight,
-        logger_func=logger_func,
-        abort_flag=abort_flag,
-        is_upper_surface=is_upper_surface,
-        num_control_points_new=num_control_points_new,
-    )
-    _, fixed_softmax_max, _ = calculate_single_bezier_fitting_error(ctrl_fixed_softmax, original_data, error_function="euclidean", return_max_error=True)
-    if fixed_softmax_max < best_max_err:
-        best_ctrl = ctrl_fixed_softmax
-        best_max_err = fixed_softmax_max
-    # Basin-hopping restarts around fixed-x softmax
-    current_ctrl = best_ctrl
-    if logger_func:
-        logger_func(f"Stage 2 (fixed-x softmax) hops={hops_fixed}")
-    for hop in range(hops_fixed):
-        if logger_func:
-            logger_func(f"Stage 2 hop {hop+1}/{hops_fixed}")
-        if abort_flag is not None and abort_flag.value:
-            break
-        # Perturb current best inner y only (keep fixed-x)
-        y_full = np.interp(fixed_inner_x, current_ctrl[:, 0], current_ctrl[:, 1])
-        y_free = y_full[free_idx]
-        y_trial = np.clip(y_free + rng.normal(0.0, perturb_std, size=y_free.shape), -1.0, 1.0)
-        ctrl_trial = build_control_points_with_fixed(y_trial, fixed_inner_x, float(original_data[-1, 1]), free_idx, fixed_idx, fixed_y_vals)
-        # Local softmax from this trial
-        ctrl_trial_softmax = optimize_bezier(
-            initial_ctrl=ctrl_trial,
-            original_data=original_data,
-            mode="fixed-x",
-            coupled=False,
-            error_function="euclidean",
-            objective="softmax",
-            te_y=float(original_data[-1, 1]),
-            te_tangent_vector=te_tangent_vector,
-            regularization_weight=regularization_weight,
-            logger_func=logger_func,
-            abort_flag=abort_flag,
-            is_upper_surface=is_upper_surface,
-            num_control_points_new=num_control_points_new,
-        )
-        _, trial_max, _ = calculate_single_bezier_fitting_error(ctrl_trial_softmax, original_data, error_function="euclidean", return_max_error=True)
-        if trial_max < best_max_err:
-            best_max_err = trial_max
-            best_ctrl = ctrl_trial_softmax
-            current_ctrl = ctrl_trial_softmax
-            if logger_func:
-                logger_func(f"Stage 2 hop {hop+1}/{hops_fixed} improved best max error to {best_max_err:.6e}")
-
-    # Stage 3: Free-x softmax (softmax objective) with basin-hopping restarts if not aborted
+    # Stage 2: Free-x softmax (softmax objective) with basin-hopping restarts if not aborted
     if abort_flag is not None and abort_flag.value:
         return best_ctrl
 
     if logger_func:
-        logger_func("Stage 3 (free-x softmax) starting")
+        logger_func("Stage 2 (free-x softmax) starting")
     free_opts = dict(config.SLSQP_OPTIONS)
     free_opts["maxiter"] = config.HYBRID_LOCAL_MAXITER_MINMAX_FREE
     final_ctrl = optimize_bezier(
@@ -232,10 +165,10 @@ def build_bezier_staged_uncoupled(
     x_inner0 = best_ctrl[2:-1, 0]
     y_inner0 = best_ctrl[1:-1, 1]
     if logger_func:
-        logger_func(f"Stage 3 (free-x softmax) hops={hops_free}")
+        logger_func(f"Stage 2 (free-x softmax) hops={hops_free}")
     for hop in range(hops_free):
         if logger_func:
-            logger_func(f"Stage 3 hop {hop+1}/{hops_free}")
+            logger_func(f"Stage 2 hop {hop+1}/{hops_free}")
         if abort_flag is not None and abort_flag.value:
             break
         x_trial = np.clip(x_inner0 + rng.normal(0.0, perturb_std, size=x_inner0.shape), 0.0, 1.0)
@@ -270,7 +203,7 @@ def build_bezier_staged_uncoupled(
             x_inner0 = trial_local[2:-1, 0]
             y_inner0 = trial_local[1:-1, 1]
             if logger_func:
-                logger_func(f"Stage 3 hop {hop+1}/{hops_free} improved best max error to {best_max_err:.6e}")
+                logger_func(f"Stage 2 hop {hop+1}/{hops_free} improved best max error to {best_max_err:.6e}")
 
     return best_ctrl
 
