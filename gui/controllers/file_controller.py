@@ -210,16 +210,24 @@ class FileController:
                 return
             export_mode = 'bezier'
         elif has_cst:
-            # Sample dense CST curves using the same points-per-surface control
+            # Sample dense CST curves using curvature-based sampling method
             try:
                 fitter = self.window.main_controller.cst_processor.cst_fitter
                 uc = self.window.main_controller.cst_processor.upper_coefficients
                 lc = self.window.main_controller.cst_processor.lower_coefficients
-                xs = np.linspace(0.0, 1.0, int(points_per_surface))
-                upper_sampled = np.column_stack([xs, fitter.cst_function(xs, uc)])
-                lower_sampled = np.column_stack([xs, fitter.cst_function(xs, lc)])
+                
+                # Use the CST fitter's built-in sampling method from config (e.g., "cosine" for curvature distribution)
+                from core import config
+                sampling_method = getattr(config, "CST_SAMPLING_METHOD", "cosine")
+                
+                xu, yu = fitter.sample(uc, n=int(points_per_surface), method=sampling_method)
+                xl, yl = fitter.sample(lc, n=int(points_per_surface), method=sampling_method)
+                
+                upper_sampled = np.column_stack([xu, yu])
+                lower_sampled = np.column_stack([xl, yl])
+                
                 self.processor.log_message.emit(
-                    f"Sampled {points_per_surface} points per surface from CST curves."
+                    f"Sampled {points_per_surface} points per surface from CST curves using '{sampling_method}' distribution."
                 )
             except Exception as exc:
                 self.processor.log_message.emit(
