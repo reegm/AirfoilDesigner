@@ -66,6 +66,8 @@ class OptimizationController:
                 objective_type = 'msr'
             elif objective_gui == 'Softmax':
                 objective_type = 'softmax'
+            elif objective_gui == 'Chebyshev (LP)':
+                objective_type = 'chebyshev'
             else:
                 self.processor.log_message.emit(f"Error: Unsupported objective '{objective_gui}'.")
                 return

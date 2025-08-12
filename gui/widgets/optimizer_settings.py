@@ -68,13 +68,15 @@ class OptimizerSettingsWidget(QGroupBox):
         self.objective_combo = QComboBox()
         self.objective_combo.addItems([
             "MSR",
-            "Softmax"
+            "Softmax",
+            "Chebyshev (LP)"
         ])
         self.objective_combo.setCurrentText("MSR")
         self.objective_combo.setFixedWidth(120)
         self.objective_combo.setToolTip(
             "MSR: Mean squared residual (sum of squared errors)\n"
             "Softmax: Minimize the maximum absolute error (softmax objective)\n"
+            "Chebyshev (LP): True optimal minimax solution using Linear Programming (fixed-x only)\n"
         )
 
         # Enforce G2 at leading edge

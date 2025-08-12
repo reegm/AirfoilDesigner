@@ -11,7 +11,7 @@ def optimize_bezier(
     mode="free-x",  # or "fixed-x"
     coupled=False,
     error_function="euclidean",
-    objective="softmax",  # or "msr", "softmax"
+    objective="softmax",  # or "msr", "softmax", "chebyshev"
     te_y=None,
     te_tangent_vector=None,
     regularization_weight=0.0,
@@ -50,6 +50,9 @@ def optimize_bezier(
             return lambda residuals: np.sum(residuals ** 2)  # Sum of squares, not mean
         elif obj_type == "softmax":
             return lambda residuals: np.max(np.abs(residuals))
+        elif obj_type == "chebyshev":
+            # Chebyshev is handled separately via LP, but provide fallback
+            return lambda residuals: np.max(np.abs(residuals))
         else:
             raise ValueError(f"Unknown objective type: {obj_type}")
 
@@ -61,6 +64,42 @@ def optimize_bezier(
             # Use legacy fixed-x logic exactly
             if is_upper_surface is None or num_control_points_new is None:
                 raise ValueError("is_upper_surface and num_control_points_new required for fixed-x mode")
+            
+            # Special case: Use LP solver for Chebyshev approximation
+            if objective == "chebyshev" and error_function == "euclidean":
+                if logger_func:
+                    logger_func("Using Chebyshev LP solver for fixed-x mode")
+                
+                from core.chebyshev_lp_optimizer import solve_chebyshev_lp_fixed_x
+                
+                # Get the fixed-x partition
+                fixed_inner_x_coords, free_indices, fixed_indices, fixed_y_values = get_fixed_inner_x_partition(
+                    is_upper_surface, num_control_points_new, original_data, te_tangent_vector, te_y)
+                
+                # Solve using LP
+                optimal_y = solve_chebyshev_lp_fixed_x(
+                    original_data=original_data,
+                    fixed_inner_x_coords=fixed_inner_x_coords,
+                    te_y=te_y,
+                    free_indices=free_indices,
+                    fixed_indices=fixed_indices,
+                    fixed_y_values=fixed_y_values,
+                    error_function=error_function,
+                    regularization_weight=regularization_weight,
+                    logger_func=logger_func,
+                    abort_flag=abort_flag
+                )
+                
+                if optimal_y is not None:
+                    # Build final control points
+                    final_ctrl = build_control_points_with_fixed(
+                        optimal_y, fixed_inner_x_coords, te_y, free_indices, fixed_indices, fixed_y_values)
+                    return final_ctrl
+                else:
+                    if logger_func:
+                        logger_func("LP solver failed, falling back to softmax")
+                    # Fall back to softmax if LP fails
+                    objective = "softmax"
             
             fixed_inner_x_coords, free_indices, fixed_indices, fixed_y_values = get_fixed_inner_x_partition(
                 is_upper_surface, num_control_points_new, original_data, te_tangent_vector, te_y)

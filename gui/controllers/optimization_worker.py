@@ -183,6 +183,32 @@ def _generation_worker(args, queue):
                     logger_func=lower_logger,
                     abort_flag=abort_flag
                 )
+            elif objective_type == 'chebyshev':
+                worker_logger("Processing upper surface (fixed-x Chebyshev LP)...")
+                from core.bezier_chebyshev_wrapper import build_bezier_fixed_x_chebyshev
+                upper_poly = build_bezier_fixed_x_chebyshev(
+                    upper_data,
+                    num_control_points,
+                    True,
+                    le_tangent_upper,
+                    upper_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=upper_logger,
+                    abort_flag=abort_flag
+                )
+                worker_logger("Processing lower surface (fixed-x Chebyshev LP)...")
+                lower_poly = build_bezier_fixed_x_chebyshev(
+                    lower_data,
+                    num_control_points,
+                    False,
+                    le_tangent_lower,
+                    lower_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=lower_logger,
+                    abort_flag=abort_flag
+                )
             elif objective_type == 'softmax':
                 worker_logger("Processing upper surface (fixed-x softmax)...")
                 upper_poly = build_bezier_fixed_x_softmax(
@@ -244,6 +270,9 @@ def _generation_worker(args, queue):
                     logger_func=combined_logger,
                     abort_flag=abort_flag
                 )
+            elif objective_type == 'chebyshev':
+                queue.put({"success": False, "error": "Chebyshev LP solver currently only supports uncoupled fixed-x mode. Please uncheck 'Enforce G2 at leading edge' to test."})
+                return
             elif objective_type == 'softmax':
                 upper_poly, lower_poly = build_coupled_bezier_fixed_x_softmax(
                     upper_data,
@@ -327,6 +356,9 @@ def _generation_worker(args, queue):
                     logger_func=lower_logger,
                     abort_flag=abort_flag
                 )
+            elif objective_type == 'chebyshev':
+                queue.put({"success": False, "error": "Chebyshev LP solver only works with fixed-x mode. Please select 'Fixed-x' strategy to test."})
+                return
             elif objective_type == 'softmax':
                 worker_logger("Processing upper surface (free-x softmax)...")
                 upper_poly = build_bezier_free_x_softmax(
