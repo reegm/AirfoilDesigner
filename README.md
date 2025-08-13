@@ -13,16 +13,15 @@ The graphical front‑end is implemented with Qt 6.
 *   **Curvature Combs**: Visualize the curvature of the airfoil using curvature combs.
 *   **DXF Export**: Export the Bézier curves to a DXF file for use in CAD software.
 *   **Fixed-x fitting strategy**: Uses the fixed x-coordinates from Venkataraman 2017 for the fastest fit.
-*   **Free-x fitting strategy**: Employs a full optimization loop that includes x-coordinates, often resulting in a better fit but requiring significantly more processing time.
-*   **Euclidean and orthogonal error calculation**: Orthogonal usually produces better results, but comes with more processing time.
-*   **Softmax optimization**: Optimizes the max error instead of the mean squared error. Should in theory improve the fit. Currently uses fixed-x and orthogonal error only.
+*   **Free-x fitting strategy**: Employs a full optimization loop that includes x-coordinates, requires significantly more processing time.
+*   **Softmax optimization**: Softmax objective instead of mean squared residuals, requires more processing time.
 *   **Enforce G2**: Combines upper and lower curve in a single optimization run and adds a constraint to enforce G2 across the leading edge. Usually comes with a slight degradation of the fit. Increases processing time considerably.
 
 ## Usage
 
 1.  **Load Airfoil Data**: Click the `Load Airfoil` button to load a `.dat` file. Currently Selig and Ledniceer are supported.
-2.  **Select Strategy**: Select fixed-x for speed, free-x for accuracy, softmax for overkill. Results depend highly on the inpuit data, so experimenting with different combinations might improve your result. Higher settings might take several minutes to complete!
-3. **Regularization Weight** Set optimizer penalty for uneven control point flow. Set to 0 for the best fit, 0.001 is a good starting point for a smooth control point flow.
+2.  **Select Strategy**: Select fixed-x for speed, free-x for accuracy, softmax for overkill. Results depend highly on the input data, so experimenting with different combinations might improve your result. Higher settings might take several minutes to complete!
+3. **Smoothing** Set optimizer penalty for uneven control point flow. Set to 0 for the best fit, 0.001 is a good starting point for smoothing.
 
 4.  **Generate Airfoil**: Click the `Generate Airfoil` button to fit a Bézier curve to the airfoil data.
 5.  **Toggle Thickening**: Click the `Toggle Thickening` button to apply or remove trailing edge thickening. 
