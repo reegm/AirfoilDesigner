@@ -83,6 +83,84 @@ class CSTController(QObject):
                 self.window.status_log.append(f"Error getting CST metrics: {e}")
         else:
             self.window.cst_panel.set_cst_fitted(False)
+
+    def thicken_cst(self) -> None:
+        """If a sharp TE CST exists, refit with a specified TE thickness (mm)."""
+        if not self.cst_processor.is_fitted():
+            self.window.status_log.append("No CST fit available. Please fit CST first.")
+            return
+        # If a Bezier model is present, defer to legacy thickening behavior
+        if self.main_controller.processor.upper_poly_sharp is not None and self.main_controller.processor.lower_poly_sharp is not None:
+            try:
+                # Use existing UI thickening entry and legacy thickening
+                te_mm = float(self.window.airfoil_settings_panel.te_thickness_input.text())
+                chord_mm = float(self.window.airfoil_settings_panel.chord_length_input.text())
+                te_percent = te_mm / chord_mm
+                self.main_controller.processor.toggle_thickening(te_percent * 100.0)
+                self.window.status_log.append("Applied thickening to Bezier model (legacy path).")
+                return
+            except Exception as e:
+                self.window.status_log.append(f"Error applying legacy thickening: {e}")
+                return
+        # Otherwise, refit CST with TE override
+        try:
+            # Read TE thickness in mm from CST panel; fallback to general airfoil panel
+            try:
+                te_mm = float(self.window.cst_panel.cst_te_thickness_input.text())
+            except Exception:
+                te_mm = float(self.window.airfoil_settings_panel.te_thickness_input.text())
+            chord_mm = float(self.window.airfoil_settings_panel.chord_length_input.text())
+            te_chord = te_mm / chord_mm
+        except Exception:
+            self.window.status_log.append("Invalid TE thickness/chord length. Check inputs.")
+            return
+
+        # Refit using the same degree, but override trailing-edge values
+        params = self.window.cst_panel.get_parameters()
+        self.cst_processor.set_parameters(degree=params['degree'])
+
+        # Re-run fitter with override TE per surface
+        try:
+            # Compute per-surface TE targets from original data sign at TE
+            udata = self.main_controller.processor.upper_data
+            ldata = self.main_controller.processor.lower_data
+            ux, uy = udata[:, 0], udata[:, 1]
+            lx, ly = ldata[:, 0], ldata[:, 1]
+            u_te_idx = int(np.argmax(ux)); l_te_idx = int(np.argmax(lx))
+            sign_u = 1.0 if uy[u_te_idx] >= 0.0 else -1.0
+            sign_l = -1.0 if ly[l_te_idx] <= 0.0 else 1.0
+            te_u = sign_u * (0.5 * te_chord)
+            te_l = sign_l * (0.5 * te_chord)
+
+            # Call underlying fit with overrides
+            from core.cst_fitter import fit_airfoil_cst
+            result = fit_airfoil_cst(
+                upper_data=udata,
+                lower_data=ldata,
+                degree=params['degree'],
+                override_te_upper=te_u,
+                override_te_lower=te_l,
+                logger_func=self.cst_processor.log_message.emit,
+            )
+            self.cst_processor.cst_fitter = result['fitter']
+            self.cst_processor.upper_coefficients = result['upper_coefficients']
+            self.cst_processor.lower_coefficients = result['lower_coefficients']
+            self.cst_processor.upper_metrics = result['upper_metrics']
+            self.cst_processor.lower_metrics = result['lower_metrics']
+            # Resample
+            num_pts = int(getattr(self.cst_processor.__class__, "CST_SAMPLES_FOR_PLOT", 4000) if hasattr(self.cst_processor.__class__, "CST_SAMPLES_FOR_PLOT") else 4000)
+            from core.cst_fitter import generate_cst_airfoil_data
+            self.cst_processor.cst_upper_data, self.cst_processor.cst_lower_data = generate_cst_airfoil_data(
+                upper_coefficients=self.cst_processor.upper_coefficients,
+                lower_coefficients=self.cst_processor.lower_coefficients,
+                fitter=self.cst_processor.cst_fitter,
+                num_points=num_pts,
+                sampling_method=None,
+            )
+            self.window.status_log.append(f"CST thickening applied: TE={te_mm:.3f} mm (±{te_mm/2:.3f} per surface)")
+            self.cst_processor.request_plot_update()
+        except Exception as e:
+            self.window.status_log.append(f"Error during CST thickening: {e}")
     
     def clear_cst(self) -> None:
         """Clear CST fitting results."""
@@ -131,6 +209,15 @@ class CSTController(QObject):
             plot_kwargs['comb_cst'] = plot_data['comb_cst']
         if 'cst_metrics' in plot_data:
             plot_kwargs['cst_metrics'] = plot_data['cst_metrics']
+        # Add CST worst-error markers for visualization
+        if 'worst_cst_upper_max_error' in plot_data:
+            plot_kwargs['worst_cst_upper_max_error'] = plot_data['worst_cst_upper_max_error']
+        if 'worst_cst_lower_max_error' in plot_data:
+            plot_kwargs['worst_cst_lower_max_error'] = plot_data['worst_cst_lower_max_error']
+        if 'worst_cst_upper_max_error_idx' in plot_data:
+            plot_kwargs['worst_cst_upper_max_error_idx'] = plot_data['worst_cst_upper_max_error_idx']
+        if 'worst_cst_lower_max_error_idx' in plot_data:
+            plot_kwargs['worst_cst_lower_max_error_idx'] = plot_data['worst_cst_lower_max_error_idx']
         
         # Add chord length
         if chord_length_mm is not None:

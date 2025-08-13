@@ -8,6 +8,7 @@ import numpy as np
 import math
 from typing import Optional, Dict, Any, Tuple
 from PySide6.QtCore import QObject, Signal
+from scipy.spatial import cKDTree
 
 from core import config
 from core.cst_fitter import (
@@ -356,6 +357,102 @@ class CSTProcessor(QObject):
         
         return self.upper_coefficients, self.lower_coefficients
     
+    def cst_to_exact_bezier_control_points(self, coeffs: np.ndarray, delta_zle: float = 0.0) -> np.ndarray:
+        """
+        Convert CST coefficients to exact Bézier control points using Marshall's method.
+        
+        CRITICAL FIX: The Marshall paper creates a curve in parameter s, but we need
+        the final curve in the original parameter t where t² = s.
+        
+        Args:
+            coeffs: CST shape function coefficients (length n+1)  
+            delta_zle: Trailing edge offset (typically 0.0 for airfoils)
+            
+        Returns:
+            (m+1, 2) array of Bézier control points where m = 2*n + 3
+        """
+        # Determine CST shape degree and extract optional TE thickness from coeffs
+        # coeffs layout from fitter: [shape_0..shape_n, (optional ΔTE)]
+        if self.cst_fitter is not None:
+            n = int(self.cst_fitter.degree)
+        else:
+            # Fallback: infer assuming no TE thickness term
+            n = len(coeffs) - 1
+        shape_len = n + 1
+        has_te = len(coeffs) == (shape_len + 1)
+        te_thickness = float(coeffs[-1]) if has_te else float(delta_zle or 0.0)
+
+        m = 2 * n + 3        # Bézier degree
+
+        # Step 1: Convert CST shape function S(u) from Bernstein to power basis
+        # S(u) = sum_{i=0}^n coeffs[i] * B_{i,n}(u) = sum_{k=0}^n a_k u^k
+        # a_k = sum_{i=0}^k coeffs[i] * C(n,i) * C(n-i, k-i) * (-1)^(k-i)
+        a = np.zeros(n + 1)
+        for k in range(n + 1):
+            s = 0.0
+            for i in range(0, k + 1):
+                s += float(coeffs[i]) * math.comb(n, i) * math.comb(n - i, k - i) * ((-1) ** (k - i))
+            a[k] = s
+
+        # Step 2: Build polynomial coefficients in s-domain (Marshall Eq. 11b)
+        # ζ(s) = a0*s + s^2*Δζ_te + Σ_{i=1..n} (a_i - a_{i-1}) s^(2i+1) - a_n s^(2n+3)
+        b = np.zeros(m + 1)
+        if m >= 1:
+            b[1] = a[0]
+        if m >= 2:
+            b[2] = te_thickness
+        for i in range(1, n + 1):
+            power = 2 * i + 1
+            if power <= m:
+                b[power] = a[i] - a[i - 1]
+        final_power = 2 * n + 3
+        if final_power <= m:
+            b[final_power] -= a[n]
+
+        # Step 3: Keep the polynomial in the s-parameter.
+        # Build monomial coefficients for ξ(s) and ζ(s) directly.
+        # ξ(s) = s^2 -> d_xi[2] = 1
+        d_xi = np.zeros(m + 1)
+        d_xi[2] = 1.0
+        # ζ(s) = Σ b_i s^i
+        d_zeta = b.copy()
+
+        # Step 4: Convert monomial coefficients to Bézier control points of degree m
+        # Using t^j = Σ_{i=j..m} [C(i,j)/C(m,j)] B_{i,m}(t) ⇒ q_i = Σ_{j=0..i} d_j * C(i,j)/C(m,j)
+        control_points = np.zeros((m + 1, 2))
+        for i in range(m + 1):
+            # x-coordinate
+            x_sum = 0.0
+            for j in range(0, i + 1):
+                if d_xi[j] != 0.0:
+                    x_sum += d_xi[j] * (math.comb(i, j) / math.comb(m, j))
+            control_points[i, 0] = x_sum
+            # y-coordinate
+            y_sum = 0.0
+            for j in range(0, i + 1):
+                if d_zeta[j] != 0.0:
+                    y_sum += d_zeta[j] * (math.comb(i, j) / math.comb(m, j))
+            control_points[i, 1] = y_sum
+
+        # Enforce exact trailing-edge slope in x-space: dy/dx at x=1
+        # Using Marshall relations, dy/dx|_{x=1} = ΔTE - Σ a_k
+        # For Bézier in parameter s: y'(1) = m (Y_m - Y_{m-1}) and x'(1) = m (X_m - X_{m-1}) = 2
+        # ⇒ Y_{m-1} = Y_m - (2/m) * (dy/dx)|_{x=1}
+        # Prefer using the fitter's analytical dy/dx near x=1 for robustness
+        try:
+            if self.cst_fitter is not None:
+                eps = 1e-9
+                te_slope_x = float(self.cst_fitter.cst_derivative(np.array([1.0 - eps]), np.asarray(coeffs, float))[0])
+            else:
+                raise RuntimeError
+        except Exception:
+            # Fallback to Marshall closed form
+            te_slope_x = (te_thickness - float(np.sum(a)))
+        y_m = float(control_points[-1, 1])
+        control_points[-2, 1] = y_m - (2.0 * te_slope_x) / float(m)
+
+        return control_points
+        
     def request_plot_update(self):
         """
         Request a plot update showing the CST fit results.
@@ -381,6 +478,23 @@ class CSTProcessor(QObject):
                 scale_factor=self._cst_comb_scale,
                 density=self._cst_comb_density,
             )
+            # Compute worst orthogonal error markers against original data
+            try:
+                if self.original_upper_data is not None and self.cst_upper_data is not None:
+                    tree_u = cKDTree(self.cst_upper_data)
+                    d_u, _ = tree_u.query(self.original_upper_data)
+                    idx_u = int(np.argmax(d_u))
+                    plot_data['worst_cst_upper_max_error'] = float(d_u[idx_u])
+                    plot_data['worst_cst_upper_max_error_idx'] = idx_u
+                if self.original_lower_data is not None and self.cst_lower_data is not None:
+                    tree_l = cKDTree(self.cst_lower_data)
+                    d_l, _ = tree_l.query(self.original_lower_data)
+                    idx_l = int(np.argmax(d_l))
+                    plot_data['worst_cst_lower_max_error'] = float(d_l[idx_l])
+                    plot_data['worst_cst_lower_max_error_idx'] = idx_l
+            except Exception:
+                # Keep plotting robust; markers are optional
+                pass
         
         # Add metrics to plot data
         if self.upper_metrics and self.lower_metrics:

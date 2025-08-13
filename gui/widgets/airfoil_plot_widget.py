@@ -66,6 +66,11 @@ class AirfoilPlotWidget(pg.PlotWidget):
         cst_lower=None,
         cst_metrics=None,
         comb_cst=None,
+        # CST worst-error display
+        worst_cst_upper_max_error=None,
+        worst_cst_lower_max_error=None,
+        worst_cst_upper_max_error_idx=None,
+        worst_cst_lower_max_error_idx=None,
     ):
         """Render everything supplied in *kwargs* on the canvas."""
         # Clear all items to ensure no remnants
@@ -387,31 +392,53 @@ class AirfoilPlotWidget(pg.PlotWidget):
         max_single_lower = worst_single_bezier_lower_max_error
         max_single_upper_idx = worst_single_bezier_upper_max_error_idx
         max_single_lower_idx = worst_single_bezier_lower_max_error_idx
+        max_cst_upper = worst_cst_upper_max_error
+        max_cst_lower = worst_cst_lower_max_error
+        max_cst_upper_idx = worst_cst_upper_max_error_idx
+        max_cst_lower_idx = worst_cst_lower_max_error_idx
         
         # Show error labels for individual surfaces or both surfaces
-        if chord_length_mm is not None and (max_single_upper is not None or max_single_lower is not None):
+        if chord_length_mm is not None and (
+            (max_single_upper is not None or max_single_lower is not None)
+            or (max_cst_upper is not None or max_cst_lower is not None)
+        ):
             error_html = '<div style="text-align: right; color: #00BFFF; font-size: 10pt;">'
             
             if max_single_upper is not None and max_single_lower is not None:
                 # Both surfaces available
                 max_upper_mm = max_single_upper * chord_length_mm
                 max_lower_mm = max_single_lower * chord_length_mm
-                error_html += f"Max Error (Upper/Lower): {max_single_upper:.2e} ({max_upper_mm:.3f} mm) / {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
+                error_html += f"Bezier Max (U/L): {max_single_upper:.2e} ({max_upper_mm:.3f} mm) / {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
             elif max_single_upper is not None:
                 # Only upper surface available
                 max_upper_mm = max_single_upper * chord_length_mm
-                error_html += f"Max Error (Upper): {max_single_upper:.2e} ({max_upper_mm:.3f} mm)"
+                error_html += f"Bezier Max (U): {max_single_upper:.2e} ({max_upper_mm:.3f} mm)"
             elif max_single_lower is not None:
                 # Only lower surface available
                 max_lower_mm = max_single_lower * chord_length_mm
-                error_html += f"Max Error (Lower): {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
+                error_html += f"Bezier Max (L): {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
+
+            # Append CST section if available
+            if max_cst_upper is not None or max_cst_lower is not None:
+                if max_single_upper is not None or max_single_lower is not None:
+                    error_html += "<br/>"
+                if max_cst_upper is not None and max_cst_lower is not None:
+                    cu_mm = max_cst_upper * chord_length_mm
+                    cl_mm = max_cst_lower * chord_length_mm
+                    error_html += f"CST Max (U/L): {max_cst_upper:.2e} ({cu_mm:.3f} mm) / {max_cst_lower:.2e} ({cl_mm:.3f} mm)"
+                elif max_cst_upper is not None:
+                    cu_mm = max_cst_upper * chord_length_mm
+                    error_html += f"CST Max (U): {max_cst_upper:.2e} ({cu_mm:.3f} mm)"
+                elif max_cst_lower is not None:
+                    cl_mm = max_cst_lower * chord_length_mm
+                    error_html += f"CST Max (L): {max_cst_lower:.2e} ({cl_mm:.3f} mm)"
             
             error_html += "</div>"
             text_item = pg.TextItem(html=error_html, anchor=(1, 1))
             self.addItem(text_item)
             self.plot_items["Single Bezier Error Text"] = text_item
 
-        # Worst-error markers
+        # Worst-error markers (Bezier)
         x_err: list[float] = []
         y_err: list[float] = []
         if max_single_upper_idx is not None and 0 <= max_single_upper_idx < len(upper_data):
@@ -434,6 +461,30 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 name="Max. Error Markers",
             )
             self.plot_items["Max. Error Markers"] = marker_item
+
+        # Worst-error markers (CST)
+        x_err_cst: list[float] = []
+        y_err_cst: list[float] = []
+        if max_cst_upper_idx is not None and 0 <= max_cst_upper_idx < len(upper_data):
+            pt = upper_data[max_cst_upper_idx]
+            x_err_cst.append(pt[0])
+            y_err_cst.append(pt[1])
+        if max_cst_lower_idx is not None and 0 <= max_cst_lower_idx < len(lower_data):
+            pt = lower_data[max_cst_lower_idx]
+            x_err_cst.append(pt[0])
+            y_err_cst.append(pt[1])
+        if x_err_cst:
+            marker_item_cst = self.plot(
+                x_err_cst,
+                y_err_cst,
+                pen=None,
+                symbol="o",
+                symbolSize=14,
+                symbolBrush=None,
+                symbolPen=pg.mkPen((255, 165, 0), width=3),  # orange
+                name="CST Max. Error Markers",
+            )
+            self.plot_items["CST Max. Error Markers"] = marker_item_cst
 
         self._update_error_text_positions()
 

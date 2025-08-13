@@ -66,7 +66,29 @@ class FileController:
 
     
     def export_single_bezier_dxf(self) -> None:
-        """Export the current Bezier model(s) as a DXF file."""
+        """Export the current model as a DXF file (Bezier or CST)."""
+        # Check what's available for export
+        has_bezier = (
+            (self.processor._is_thickened and self.processor._thickened_single_bezier_polygons) or
+            (self.processor.upper_poly_sharp is not None)
+        )
+        
+        try:
+            has_cst = bool(self.window.main_controller.cst_processor.is_fitted())
+        except Exception:
+            has_cst = False
+
+        if has_bezier:
+            self._export_bezier_dxf()
+        elif has_cst:
+            self._export_cst_dxf()
+        else:
+            self.processor.log_message.emit(
+                "Error: No model available for DXF export. Please build a Bézier model or fit CST first."
+            )
+
+    def _export_bezier_dxf(self) -> None:
+        """Export Bezier model as DXF."""
         polygons_to_export = None
         if self.processor._is_thickened and self.processor._thickened_single_bezier_polygons:
             polygons_to_export = self.processor._thickened_single_bezier_polygons
@@ -84,7 +106,7 @@ class FileController:
 
         if polygons_to_export is None:
             self.processor.log_message.emit(
-                "Error: Single Bezier model not available for export. Please build it first."
+                "Error: Single Bezier model not available for export."
             )
             return
 
@@ -98,19 +120,11 @@ class FileController:
             )
             return
 
-        # Get export type from UI
-        export_type_map = {
-            "Clamped Spline": "clamped_spline",
-            "NURBS Fit": "nurbs_fit", 
-            "NURBS Control": "nurbs_control"
-        }
-        export_type = export_type_map.get(self.window.file_panel.dxf_export_type_combo.currentText(), "clamped_spline")
-        
         # Get default filename and show file dialog
         default_filename = self._get_default_dxf_filename()
         file_path, _ = QFileDialog.getSaveFileName(
             self.window,
-            "Save Single Bezier DXF File",
+            "Save Bezier DXF File",
             default_filename,
             "DXF Files (*.dxf)",
         )
@@ -118,30 +132,73 @@ class FileController:
             self.processor.log_message.emit("DXF export cancelled by user.")
             return
 
-        # Get NURBS parameters
-        degree = self.window.file_panel.nurbs_degree_input.value()
-        num_samples = self.window.file_panel.nurbs_samples_input.value()
-        
-        # Use the processor's export method which now supports NURBS
+        # Use the processor's simplified export method
         success = self.processor.export_to_dxf(
             file_path,
-            chord_length_mm,
-            export_type=export_type,
-            degree=degree,
-            num_samples=num_samples
+            chord_length_mm
         )
         
         if success:
             self.processor.log_message.emit(
-                f"DXF export successful to '{os.path.basename(file_path)}' (type: {export_type})."
+                f"Bezier DXF export successful to '{os.path.basename(file_path)}'."
             )
             self.processor.log_message.emit(
                 "Note: For correct scale in CAD software, ensure import settings are configured for millimeters."
             )
         else:
-            self.processor.log_message.emit("DXF export failed.")
+            self.processor.log_message.emit("Bezier DXF export failed.")
+
+    def _export_cst_dxf(self) -> None:
+        """Export CST model as DXF using exact conversion to NURBS."""
+        try:
+            chord_length_mm = float(
+                self.window.airfoil_settings_panel.chord_length_input.text()
+            )
+        except ValueError:
+            self.processor.log_message.emit(
+                "Error: Invalid chord length. Please enter a number."
+            )
+            return
+
+        # Get default filename and show file dialog  
+        default_filename = self._get_default_dxf_filename(is_cst=True)
+        file_path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Save CST DXF File",
+            default_filename,
+            "DXF Files (*.dxf)",
+        )
+        if not file_path:
+            self.processor.log_message.emit("CST DXF export cancelled by user.")
+            return
+
+        # Import and use the CST-to-NURBS exporter
+        from utils.dxf_exporter import export_cst_to_dxf_as_nurbs
+        
+        try:
+            doc = export_cst_to_dxf_as_nurbs(
+                self.window.main_controller.cst_processor,
+                chord_length_mm,
+                self.processor.log_message.emit
+            )
+            
+            if doc is not None:
+                doc.saveas(file_path)
+                self.processor.log_message.emit(
+                    f"CST-to-NURBS DXF export successful to '{os.path.basename(file_path)}'."
+                )
+                self.processor.log_message.emit(
+                    "Note: CST exported as exact NURBS curves. For correct scale in CAD software, ensure import settings are configured for millimeters."
+                )
+            else:
+                self.processor.log_message.emit("CST DXF export failed.")
+                
+        except Exception as e:
+            self.processor.log_message.emit(f"CST DXF export failed: {e}")
+            import traceback
+            self.processor.log_message.emit(traceback.format_exc())
     
-    def _get_default_dxf_filename(self) -> str:
+    def _get_default_dxf_filename(self, is_cst: bool = False) -> str:
         """Return a safe default filename based on the loaded profile."""
         import re
 
@@ -149,8 +206,8 @@ class FileController:
         if profile_name:
             sanitized = re.sub(r"[^A-Za-z0-9\-_]+", "_", profile_name)
             if sanitized:
-                return f"{sanitized}.dxf"
-        return "airfoil.dxf" 
+                return f"{sanitized}_{'cst' if is_cst else ''}.dxf"
+        return f"airfoil_{'cst_' if is_cst else ''}nurbs.dxf" 
 
     def export_dat_file(self) -> None:
         """Export the current model as a high-resolution .dat file using the shared points-per-surface setting.

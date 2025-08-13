@@ -14,3 +14,4 @@ basin.py
 
 # Test files
 test/
+.claude/settings.local.json

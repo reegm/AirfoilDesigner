@@ -230,6 +230,8 @@ def fit_airfoil_cst(
     degree: int = 8,
     te_slope_upper: Optional[float] = None,
     te_slope_lower: Optional[float] = None,
+    override_te_upper: Optional[float] = None,
+    override_te_lower: Optional[float] = None,
     logger_func: Optional[Callable[[str], None]] = None,
 ) -> dict:
     """Coupled CST fit with fixed TE points, LE continuity penalty, and orthogonal reweighting.
@@ -241,12 +243,141 @@ def fit_airfoil_cst(
     ux, uy = np.asarray(upper_data[:, 0], float), np.asarray(upper_data[:, 1], float)
     lx, ly = np.asarray(lower_data[:, 0], float), np.asarray(lower_data[:, 1], float)
 
-    # Determine trailing edge y-values from the max-x endpoints
-    u_te_idx = int(np.argmax(ux)); dte_u = float(uy[u_te_idx])
-    l_te_idx = int(np.argmax(lx)); dte_l = float(ly[l_te_idx])
+    # Determine trailing edge y-values from the max-x endpoints, allow override
+    u_te_idx = int(np.argmax(ux)); measured_u = float(uy[u_te_idx])
+    l_te_idx = int(np.argmax(lx)); measured_l = float(ly[l_te_idx])
+    dte_u = measured_u if (override_te_upper is None) else float(override_te_upper)
+    dte_l = measured_l if (override_te_lower is None) else float(override_te_lower)
 
     # Fitter reads exponents from config
-    fitter = CSTFitter(n1=config.CST_N1, n2=config.CST_N2, degree=degree)
+    def _solve_for_exponents(n1: float, n2: float) -> tuple[np.ndarray, np.ndarray, dict, dict, CSTFitter]:
+        fitter = CSTFitter(n1=n1, n2=n2, degree=degree)
+        nu = fitter.num_coefficients
+        C_u = fitter.class_function(ux)
+        B_u = fitter.bernstein_polynomials(ux)
+        A_u = C_u[:, None] * B_u
+        b_u = uy - (ux * dte_u)
+        C_l = fitter.class_function(lx)
+        B_l = fitter.bernstein_polynomials(lx)
+        A_l = C_l[:, None] * B_l
+        b_l = ly - (lx * dte_l)
+        A_top = np.hstack([A_u, np.zeros((A_u.shape[0], nu))])
+        A_bot = np.hstack([np.zeros((A_l.shape[0], nu)), A_l])
+        A = np.vstack([A_top, A_bot])
+        bvec = np.concatenate([b_u, b_l])
+        pen = float(getattr(config, "CST_LE_RADIUS_PENALTY", 0.0) or 0.0)
+        AtA = A.T @ A + 1e-12 * np.eye(A.shape[1])
+        Atb = A.T @ bvec
+        lam = float(getattr(config, "CST_DEFAULT_LAMBDA_REG", 0.0) or 0.0)
+        if lam > 0.0 and nu >= 3:
+            Du = np.zeros((nu - 2, nu))
+            for i in range(nu - 2):
+                Du[i, i] = 1.0
+                Du[i, i + 1] = -2.0
+                Du[i, i + 2] = 1.0
+            D = np.block(
+                [
+                    [Du, np.zeros_like(Du)],
+                    [np.zeros_like(Du), Du],
+                ]
+            )
+            AtA += lam * (D.T @ D)
+        if pen > 0.0:
+            L = np.zeros((1, 2 * nu))
+            L[0, 0] = 1.0
+            L[0, nu + 0] = 1.0
+            AtA += pen * (L.T @ L)
+        # TE slope constraints optional
+        E = []
+        d_eq = []
+        eps = 1e-6
+        t_eq = 1.0 - eps
+        if te_slope_upper is not None:
+            Ceq = (t_eq ** fitter.n1) * ((1.0 - t_eq) ** fitter.n2)
+            dCeq = (
+                fitter.n1 * (t_eq ** (fitter.n1 - 1)) * ((1.0 - t_eq) ** fitter.n2)
+                - fitter.n2 * (t_eq ** fitter.n1) * ((1.0 - t_eq) ** (fitter.n2 - 1))
+            )
+            Bu = fitter.bernstein_polynomials(np.array([t_eq]))[0]
+            dB = fitter.bernstein_polynomials_derivative(np.array([t_eq]))[0]
+            v = dCeq * Bu + Ceq * dB
+            row = np.zeros(2 * nu)
+            row[0:nu] = v
+            E.append(row)
+            d_eq.append(te_slope_upper - dte_u)
+        if te_slope_lower is not None:
+            Ceq = (t_eq ** fitter.n1) * ((1.0 - t_eq) ** fitter.n2)
+            dCeq = (
+                fitter.n1 * (t_eq ** (fitter.n1 - 1)) * ((1.0 - t_eq) ** fitter.n2)
+                - fitter.n2 * (t_eq ** fitter.n1) * ((1.0 - t_eq) ** (fitter.n2 - 1))
+            )
+            Bl = fitter.bernstein_polynomials(np.array([t_eq]))[0]
+            dB = fitter.bernstein_polynomials_derivative(np.array([t_eq]))[0]
+            v = dCeq * Bl + Ceq * dB
+            row = np.zeros(2 * nu)
+            row[nu:2 * nu] = v
+            E.append(row)
+            d_eq.append(te_slope_lower - dte_l)
+        if E:
+            E = np.vstack(E)
+            d_eq = np.asarray(d_eq, float)
+            K = np.block([[AtA, E.T], [E, np.zeros((E.shape[0], E.shape[0]))]])
+            rhsK = np.concatenate([Atb, d_eq])
+            sol = np.linalg.lstsq(K, rhsK, rcond=None)[0]
+            xshape = sol[: 2 * nu]
+        else:
+            xshape = np.linalg.lstsq(AtA, Atb, rcond=None)[0]
+        # Orthogonal reweighting
+        orth_iters = int(getattr(config, "CST_ORTHOGONAL_REWEIGHT_ITERS", 0) or 0)
+        if orth_iters > 0:
+            for _ in range(orth_iters):
+                Pu = xshape[0:nu]
+                Pl = xshape[nu:2 * nu]
+                uc = np.concatenate([Pu, [dte_u]])
+                lc = np.concatenate([Pl, [dte_l]])
+                su = fitter.cst_derivative(ux, uc)
+                sl = fitter.cst_derivative(lx, lc)
+                w_u = 1.0 / np.sqrt(1.0 + su * su)
+                w_l = 1.0 / np.sqrt(1.0 + sl * sl)
+                W = np.diag(np.concatenate([w_u, w_l]))
+                AtA_w = (A.T @ W) @ (W @ A) + 1e-12 * np.eye(A.shape[1])
+                Atb_w = (A.T @ W) @ (W @ bvec)
+                if pen > 0.0:
+                    AtA_w += pen * (L.T @ L)
+                if lam > 0.0 and nu >= 3:
+                    AtA_w += lam * (D.T @ D)
+                if E:
+                    K = np.block([[AtA_w, E.T], [E, np.zeros((E.shape[0], E.shape[0]))]])
+                    rhsK = np.concatenate([Atb_w, d_eq])
+                    sol = np.linalg.lstsq(K, rhsK, rcond=None)[0]
+                    xshape = sol[: 2 * nu]
+                else:
+                    xshape = np.linalg.lstsq(AtA_w, Atb_w, rcond=None)[0]
+        Pu = xshape[0:nu]
+        Pl = xshape[nu:2 * nu]
+        uc = np.concatenate([Pu, [dte_u]])
+        lc = np.concatenate([Pl, [dte_l]])
+        umerr = fitter.metrics(ux, uy, uc)
+        lmerr = fitter.metrics(lx, ly, lc)
+        return uc, lc, umerr, lmerr, fitter
+
+    # Optionally tune (n1, n2) over a small candidate grid
+    if getattr(config, "CST_OPTIMIZE_N1N2", False):
+        best = None
+        best_payload = None
+        for n1 in getattr(config, "CST_N1_CANDIDATES", [config.CST_N1]):
+            for n2 in getattr(config, "CST_N2_CANDIDATES", [config.CST_N2]):
+                try:
+                    uc, lc, um, lm, ft = _solve_for_exponents(float(n1), float(n2))
+                    score = um["orthogonal_rmse"] + lm["orthogonal_rmse"]
+                    if (best is None) or (score < best):
+                        best = score
+                        best_payload = (uc, lc, um, lm, ft)
+                except Exception:
+                    continue
+        uc, lc, umerr, lmerr, fitter = best_payload if best_payload is not None else _solve_for_exponents(config.CST_N1, config.CST_N2)
+    else:
+        uc, lc, umerr, lmerr, fitter = _solve_for_exponents(config.CST_N1, config.CST_N2)
     nu = fitter.num_coefficients
 
     # Build design with TE fixed via RHS shift
@@ -270,6 +401,21 @@ def fit_airfoil_cst(
     pen = float(getattr(config, "CST_LE_RADIUS_PENALTY", 0.0) or 0.0)
     AtA = A.T @ A + 1e-12 * np.eye(A.shape[1])
     Atb = A.T @ bvec
+    # Mild second-difference Tikhonov regularization on shape coefficients to
+    # suppress high-frequency oscillations in the CST polynomial shape terms.
+    lam = float(getattr(config, "CST_DEFAULT_LAMBDA_REG", 0.0) or 0.0)
+    if lam > 0.0 and nu >= 3:
+        Du = np.zeros((nu - 2, nu))
+        for i in range(nu - 2):
+            Du[i, i] = 1.0
+            Du[i, i + 1] = -2.0
+            Du[i, i + 2] = 1.0
+        # Block-diagonal for [upper shape | lower shape]
+        D = np.block([
+            [Du,                 np.zeros_like(Du)],
+            [np.zeros_like(Du),  Du],
+        ])
+        AtA += lam * (D.T @ D)
     if pen > 0.0:
         L = np.zeros((1, 2 * nu))
         L[0, 0] = 1.0
@@ -336,6 +482,8 @@ def fit_airfoil_cst(
             Atb_w = (A.T @ W) @ (W @ bvec)
             if pen > 0.0:
                 AtA_w += pen * (L.T @ L)
+            if lam > 0.0 and nu >= 3:
+                AtA_w += lam * (D.T @ D)
             if E:
                 K = np.block([[AtA_w, E.T], [E, np.zeros((E.shape[0], E.shape[0]))]])
                 rhsK = np.concatenate([Atb_w, d_eq])
@@ -348,9 +496,6 @@ def fit_airfoil_cst(
     Pl = xshape[nu:2 * nu]
     uc = np.concatenate([Pu, [dte_u]])
     lc = np.concatenate([Pl, [dte_l]])
-
-    umerr = fitter.metrics(ux, uy, uc)
-    lmerr = fitter.metrics(lx, ly, lc)
 
     if logger_func:
         logger_func(

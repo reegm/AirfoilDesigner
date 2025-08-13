@@ -94,13 +94,18 @@ CST_DEFAULT_DEGREE = 7
 CST_N1: float = 0.5
 CST_N2: float = 1.0
 ## Mild smoothing for CST shape coefficients (Δ² penalty) — disabled by default
-CST_DEFAULT_LAMBDA_REG: float = 0.0
+# Mild smoothing to damp curvature oscillations in CST fits
+CST_DEFAULT_LAMBDA_REG: float = 1e-4
 
 # Advanced CST fitting toggles/defaults
 # Penalty weight for enforcing leading-edge radius continuity: lower c0 = -upper c0
 CST_LE_RADIUS_PENALTY: float = 0  # 0 disables; try 1e3 to enable softly
 # Default number of orthogonal-distance reweighting iterations (0 disables)
-CST_ORTHOGONAL_REWEIGHT_ITERS: int = 3
+CST_ORTHOGONAL_REWEIGHT_ITERS: int = 8
+# Optional small grid search around (n1, n2) to improve fit quality
+CST_OPTIMIZE_N1N2: bool = True
+CST_N1_CANDIDATES: list[float] = [0.4, 0.45, 0.5, 0.55, 0.6]
+CST_N2_CANDIDATES: list[float] = [1.0]
 
 # Sampling for CST curve rendering/export
 # Methods: "uniform", "cosine" (cluster near both ends), "sqrt-le" (cluster near LE)
