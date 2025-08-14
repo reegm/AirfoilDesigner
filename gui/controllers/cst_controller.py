@@ -71,8 +71,17 @@ class CSTController(QObject):
             # Log metrics
             try:
                 metrics = self.cst_processor.get_fitting_metrics()
+                fitter = self.cst_processor.cst_fitter
+                try:
+                    n1 = float(getattr(fitter, 'n1', float('nan')))
+                    n2 = float(getattr(fitter, 'n2', float('nan')))
+                    deg = int(getattr(fitter, 'degree', -1))
+                except Exception:
+                    n1 = float('nan')
+                    n2 = float('nan')
+                    deg = -1
                 self.window.status_log.append(
-                    f"CST Fit Complete - Upper RMSE: {metrics['upper']['rmse']:.3e}, "
+                    f"CST Fit Complete (deg={deg}, n1={n1:.3f}, n2={n2:.3f}) - Upper RMSE: {metrics['upper']['rmse']:.3e}, "
                     f"Lower RMSE: {metrics['lower']['rmse']:.3e}"
                 )
                 self.window.status_log.append(

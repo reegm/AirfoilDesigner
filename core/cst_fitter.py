@@ -143,8 +143,16 @@ class CSTFitter:
         y_pred = self.cst_function(x, coeffs)
         res = y - y_pred
         mse = float(np.mean(res ** 2))
-        xs = np.linspace(0, 1, 20000)
-        tree = cKDTree(np.column_stack([xs, self.cst_function(xs, coeffs)]))
+        # Use configured sampling to better resolve endpoints (esp. LE)
+        try:
+            n_pts = int(getattr(config, "CST_SAMPLING_POINTS", 20000))
+            method = getattr(config, "CST_SAMPLING_METHOD", "cosine")
+            xs, ys = self.sample(coeffs, n=n_pts, method=method)
+            curve_xy = np.column_stack([xs, ys])
+        except Exception:
+            xs = np.linspace(0, 1, 20000)
+            curve_xy = np.column_stack([xs, self.cst_function(xs, coeffs)])
+        tree = cKDTree(curve_xy)
         ortho, _ = tree.query(np.column_stack([x, y]))
         return {
             "rmse": math.sqrt(mse),
@@ -234,9 +242,10 @@ def fit_airfoil_cst(
     override_te_lower: Optional[float] = None,
     logger_func: Optional[Callable[[str], None]] = None,
 ) -> dict:
-    """Coupled CST fit with fixed TE points, LE continuity penalty, and orthogonal reweighting.
+    """Uncoupled CST fit with fixed TE points and per-surface orthogonal reweighting.
 
-    Solver options and class exponents are taken from core.config.
+    Solver options and class exponents are taken from core.config. Leading-edge
+    continuity penalties and upper/lower coupling are intentionally disabled.
     """
 
     # Extract arrays
@@ -249,114 +258,100 @@ def fit_airfoil_cst(
     dte_u = measured_u if (override_te_upper is None) else float(override_te_upper)
     dte_l = measured_l if (override_te_lower is None) else float(override_te_lower)
 
-    # Fitter reads exponents from config
+    # Fitter reads exponents from config; solve U/L independently (uncoupled)
     def _solve_for_exponents(n1: float, n2: float) -> tuple[np.ndarray, np.ndarray, dict, dict, CSTFitter]:
         fitter = CSTFitter(n1=n1, n2=n2, degree=degree)
         nu = fitter.num_coefficients
-        C_u = fitter.class_function(ux)
-        B_u = fitter.bernstein_polynomials(ux)
-        A_u = C_u[:, None] * B_u
-        b_u = uy - (ux * dte_u)
-        C_l = fitter.class_function(lx)
-        B_l = fitter.bernstein_polynomials(lx)
-        A_l = C_l[:, None] * B_l
-        b_l = ly - (lx * dte_l)
-        A_top = np.hstack([A_u, np.zeros((A_u.shape[0], nu))])
-        A_bot = np.hstack([np.zeros((A_l.shape[0], nu)), A_l])
-        A = np.vstack([A_top, A_bot])
-        bvec = np.concatenate([b_u, b_l])
-        pen = float(getattr(config, "CST_LE_RADIUS_PENALTY", 0.0) or 0.0)
-        AtA = A.T @ A + 1e-12 * np.eye(A.shape[1])
-        Atb = A.T @ bvec
+
+        # Common settings
         lam = float(getattr(config, "CST_DEFAULT_LAMBDA_REG", 0.0) or 0.0)
-        if lam > 0.0 and nu >= 3:
-            Du = np.zeros((nu - 2, nu))
-            for i in range(nu - 2):
-                Du[i, i] = 1.0
-                Du[i, i + 1] = -2.0
-                Du[i, i + 2] = 1.0
-            D = np.block(
-                [
-                    [Du, np.zeros_like(Du)],
-                    [np.zeros_like(Du), Du],
-                ]
-            )
-            AtA += lam * (D.T @ D)
-        if pen > 0.0:
-            L = np.zeros((1, 2 * nu))
-            L[0, 0] = 1.0
-            L[0, nu + 0] = 1.0
-            AtA += pen * (L.T @ L)
-        # TE slope constraints optional
-        E = []
-        d_eq = []
         eps = 1e-6
         t_eq = 1.0 - eps
-        if te_slope_upper is not None:
-            Ceq = (t_eq ** fitter.n1) * ((1.0 - t_eq) ** fitter.n2)
-            dCeq = (
-                fitter.n1 * (t_eq ** (fitter.n1 - 1)) * ((1.0 - t_eq) ** fitter.n2)
-                - fitter.n2 * (t_eq ** fitter.n1) * ((1.0 - t_eq) ** (fitter.n2 - 1))
-            )
-            Bu = fitter.bernstein_polynomials(np.array([t_eq]))[0]
-            dB = fitter.bernstein_polynomials_derivative(np.array([t_eq]))[0]
-            v = dCeq * Bu + Ceq * dB
-            row = np.zeros(2 * nu)
-            row[0:nu] = v
-            E.append(row)
-            d_eq.append(te_slope_upper - dte_u)
-        if te_slope_lower is not None:
-            Ceq = (t_eq ** fitter.n1) * ((1.0 - t_eq) ** fitter.n2)
-            dCeq = (
-                fitter.n1 * (t_eq ** (fitter.n1 - 1)) * ((1.0 - t_eq) ** fitter.n2)
-                - fitter.n2 * (t_eq ** fitter.n1) * ((1.0 - t_eq) ** (fitter.n2 - 1))
-            )
-            Bl = fitter.bernstein_polynomials(np.array([t_eq]))[0]
-            dB = fitter.bernstein_polynomials_derivative(np.array([t_eq]))[0]
-            v = dCeq * Bl + Ceq * dB
-            row = np.zeros(2 * nu)
-            row[nu:2 * nu] = v
-            E.append(row)
-            d_eq.append(te_slope_lower - dte_l)
-        if E:
-            E = np.vstack(E)
-            d_eq = np.asarray(d_eq, float)
-            K = np.block([[AtA, E.T], [E, np.zeros((E.shape[0], E.shape[0]))]])
-            rhsK = np.concatenate([Atb, d_eq])
-            sol = np.linalg.lstsq(K, rhsK, rcond=None)[0]
-            xshape = sol[: 2 * nu]
-        else:
-            xshape = np.linalg.lstsq(AtA, Atb, rcond=None)[0]
-        # Orthogonal reweighting
-        orth_iters = int(getattr(config, "CST_ORTHOGONAL_REWEIGHT_ITERS", 0) or 0)
-        if orth_iters > 0:
-            for _ in range(orth_iters):
-                Pu = xshape[0:nu]
-                Pl = xshape[nu:2 * nu]
-                uc = np.concatenate([Pu, [dte_u]])
-                lc = np.concatenate([Pl, [dte_l]])
-                su = fitter.cst_derivative(ux, uc)
-                sl = fitter.cst_derivative(lx, lc)
-                w_u = 1.0 / np.sqrt(1.0 + su * su)
-                w_l = 1.0 / np.sqrt(1.0 + sl * sl)
-                W = np.diag(np.concatenate([w_u, w_l]))
-                AtA_w = (A.T @ W) @ (W @ A) + 1e-12 * np.eye(A.shape[1])
-                Atb_w = (A.T @ W) @ (W @ bvec)
-                if pen > 0.0:
-                    AtA_w += pen * (L.T @ L)
-                if lam > 0.0 and nu >= 3:
-                    AtA_w += lam * (D.T @ D)
-                if E:
-                    K = np.block([[AtA_w, E.T], [E, np.zeros((E.shape[0], E.shape[0]))]])
-                    rhsK = np.concatenate([Atb_w, d_eq])
-                    sol = np.linalg.lstsq(K, rhsK, rcond=None)[0]
-                    xshape = sol[: 2 * nu]
-                else:
-                    xshape = np.linalg.lstsq(AtA_w, Atb_w, rcond=None)[0]
-        Pu = xshape[0:nu]
-        Pl = xshape[nu:2 * nu]
-        uc = np.concatenate([Pu, [dte_u]])
-        lc = np.concatenate([Pl, [dte_l]])
+
+        def solve_surface(x: np.ndarray, y: np.ndarray, dte: float, te_slope: Optional[float]) -> np.ndarray:
+            C = fitter.class_function(x)
+            B = fitter.bernstein_polynomials(x)
+            A = C[:, None] * B
+            b = y - (x * dte)
+
+            # Data row weights: spacing-based + optional LE boost
+            try:
+                dx = np.diff(x)
+                # Use forward difference for all but last; replicate last step for last row
+                step = np.concatenate([dx[:1], dx])
+                w_spacing = np.sqrt(np.maximum(step, 1e-12))
+            except Exception:
+                w_spacing = np.ones_like(x)
+            le_alpha = float(getattr(config, "CST_LE_EXTRA_WEIGHT_MULTIPLIER", 1.0) or 1.0)
+            le_decay = float(getattr(config, "CST_LE_EXTRA_WEIGHT_DECAY", 0.02) or 0.02)
+            if le_alpha > 1.0:
+                w_le = 1.0 + (le_alpha - 1.0) * np.exp(-np.clip(x, 0.0, 1.0) / max(le_decay, 1e-6))
+            else:
+                w_le = np.ones_like(x)
+            w_data = np.clip(w_spacing * w_le, 1e-6, 1e6)
+
+            # Apply data weights
+            A0 = (w_data[:, None] * A)
+            b0 = (w_data * b)
+
+            AtA = A0.T @ A0 + 1e-12 * np.eye(nu)
+            Atb = A0.T @ b0
+
+            # Tikhonov on second differences for stability
+            if lam > 0.0 and nu >= 3:
+                D = np.zeros((nu - 2, nu))
+                for i in range(nu - 2):
+                    D[i, i] = 1.0
+                    D[i, i + 1] = -2.0
+                    D[i, i + 2] = 1.0
+                AtA += lam * (D.T @ D)
+
+            # Optional TE slope equality at x = 1 - eps
+            if te_slope is not None:
+                Ceq = (t_eq ** fitter.n1) * ((1.0 - t_eq) ** fitter.n2)
+                dCeq = (
+                    fitter.n1 * (t_eq ** (fitter.n1 - 1)) * ((1.0 - t_eq) ** fitter.n2)
+                    - fitter.n2 * (t_eq ** fitter.n1) * ((1.0 - t_eq) ** (fitter.n2 - 1))
+                )
+                B_eq = fitter.bernstein_polynomials(np.array([t_eq]))[0]
+                dB_eq = fitter.bernstein_polynomials_derivative(np.array([t_eq]))[0]
+                v = dCeq * B_eq + Ceq * dB_eq
+                K = np.block([[AtA, v[:, None]], [v[None, :], np.zeros((1, 1))]])
+                rhs = np.concatenate([Atb, np.array([te_slope - dte], dtype=float)])
+                sol = np.linalg.lstsq(K, rhs, rcond=None)[0]
+                coeff_shape = sol[:nu]
+            else:
+                coeff_shape = np.linalg.lstsq(AtA, Atb, rcond=None)[0]
+
+            # Orthogonal reweighting per surface
+            orth_iters = int(getattr(config, "CST_ORTHOGONAL_REWEIGHT_ITERS", 0) or 0)
+            if orth_iters > 0:
+                for _ in range(orth_iters):
+                    coeff_full = np.concatenate([coeff_shape, [dte]])
+                    slope = fitter.cst_derivative(x, coeff_full)
+                    w_ortho = 1.0 / np.sqrt(1.0 + slope * slope)
+                    w_combined = np.clip(w_data * w_ortho, 1e-6, 1e6)
+                    A_w = (w_combined[:, None] * A)
+                    b_w = (w_combined * b)
+                    AtA_w = A_w.T @ A_w + 1e-12 * np.eye(nu)
+                    Atb_w = A_w.T @ b_w
+                    if lam > 0.0 and nu >= 3:
+                        AtA_w += lam * (D.T @ D)
+                    if te_slope is not None:
+                        # Rebuild v under same n1,n2 (unchanged)
+                        K = np.block([[AtA_w, v[:, None]], [v[None, :], np.zeros((1, 1))]])
+                        rhs = np.concatenate([Atb_w, np.array([te_slope - dte], dtype=float)])
+                        sol = np.linalg.lstsq(K, rhs, rcond=None)[0]
+                        coeff_shape = sol[:nu]
+                    else:
+                        coeff_shape = np.linalg.lstsq(AtA_w, Atb_w, rcond=None)[0]
+
+            # Append TE thickness back
+            return np.concatenate([coeff_shape, [dte]])
+
+        uc = solve_surface(ux, uy, dte_u, te_slope_upper)
+        lc = solve_surface(lx, ly, dte_l, te_slope_lower)
+
         umerr = fitter.metrics(ux, uy, uc)
         lmerr = fitter.metrics(lx, ly, lc)
         return uc, lc, umerr, lmerr, fitter
@@ -378,125 +373,6 @@ def fit_airfoil_cst(
         uc, lc, umerr, lmerr, fitter = best_payload if best_payload is not None else _solve_for_exponents(config.CST_N1, config.CST_N2)
     else:
         uc, lc, umerr, lmerr, fitter = _solve_for_exponents(config.CST_N1, config.CST_N2)
-    nu = fitter.num_coefficients
-
-    # Build design with TE fixed via RHS shift
-    C_u = fitter.class_function(ux)
-    B_u = fitter.bernstein_polynomials(ux)
-    A_u = C_u[:, None] * B_u
-    b_u = uy - (ux * dte_u)
-
-    C_l = fitter.class_function(lx)
-    B_l = fitter.bernstein_polynomials(lx)
-    A_l = C_l[:, None] * B_l
-    b_l = ly - (lx * dte_l)
-
-    # Stack coupled system with independent row counts
-    A_top = np.hstack([A_u, np.zeros((A_u.shape[0], nu))])
-    A_bot = np.hstack([np.zeros((A_l.shape[0], nu)), A_l])
-    A = np.vstack([A_top, A_bot])
-    bvec = np.concatenate([b_u, b_l])
-
-    # LE radius continuity penalty (always applied, weight from config)
-    pen = float(getattr(config, "CST_LE_RADIUS_PENALTY", 0.0) or 0.0)
-    AtA = A.T @ A + 1e-12 * np.eye(A.shape[1])
-    Atb = A.T @ bvec
-    # Mild second-difference Tikhonov regularization on shape coefficients to
-    # suppress high-frequency oscillations in the CST polynomial shape terms.
-    lam = float(getattr(config, "CST_DEFAULT_LAMBDA_REG", 0.0) or 0.0)
-    if lam > 0.0 and nu >= 3:
-        Du = np.zeros((nu - 2, nu))
-        for i in range(nu - 2):
-            Du[i, i] = 1.0
-            Du[i, i + 1] = -2.0
-            Du[i, i + 2] = 1.0
-        # Block-diagonal for [upper shape | lower shape]
-        D = np.block([
-            [Du,                 np.zeros_like(Du)],
-            [np.zeros_like(Du),  Du],
-        ])
-        AtA += lam * (D.T @ D)
-    if pen > 0.0:
-        L = np.zeros((1, 2 * nu))
-        L[0, 0] = 1.0
-        L[0, nu + 0] = 1.0
-        AtA += pen * (L.T @ L)
-
-    # TE slope equality constraints at x = 1 - eps using provided slopes
-    E = []
-    d_eq = []
-    eps = 1e-6
-    t_eq = 1.0 - eps
-    if te_slope_upper is not None:
-        Ceq = (t_eq ** fitter.n1) * ((1.0 - t_eq) ** fitter.n2)
-        dCeq = (
-            fitter.n1 * (t_eq ** (fitter.n1 - 1)) * ((1.0 - t_eq) ** fitter.n2)
-            - fitter.n2 * (t_eq ** fitter.n1) * ((1.0 - t_eq) ** (fitter.n2 - 1))
-        )
-        Bu = fitter.bernstein_polynomials(np.array([t_eq]))[0]
-        dB = fitter.bernstein_polynomials_derivative(np.array([t_eq]))[0]
-        v = dCeq * Bu + Ceq * dB
-        row = np.zeros(2 * nu)
-        row[0:nu] = v
-        E.append(row)
-        d_eq.append(te_slope_upper - dte_u)
-    if te_slope_lower is not None:
-        Ceq = (t_eq ** fitter.n1) * ((1.0 - t_eq) ** fitter.n2)
-        dCeq = (
-            fitter.n1 * (t_eq ** (fitter.n1 - 1)) * ((1.0 - t_eq) ** fitter.n2)
-            - fitter.n2 * (t_eq ** fitter.n1) * ((1.0 - t_eq) ** (fitter.n2 - 1))
-        )
-        Bl = fitter.bernstein_polynomials(np.array([t_eq]))[0]
-        dB = fitter.bernstein_polynomials_derivative(np.array([t_eq]))[0]
-        v = dCeq * Bl + Ceq * dB
-        row = np.zeros(2 * nu)
-        row[nu:2 * nu] = v
-        E.append(row)
-        d_eq.append(te_slope_lower - dte_l)
-
-    if E:
-        E = np.vstack(E)
-        d_eq = np.asarray(d_eq, float)
-        # KKT solve
-        K = np.block([[AtA, E.T], [E, np.zeros((E.shape[0], E.shape[0]))]])
-        rhsK = np.concatenate([Atb, d_eq])
-        sol = np.linalg.lstsq(K, rhsK, rcond=None)[0]
-        xshape = sol[: 2 * nu]
-    else:
-        xshape = np.linalg.lstsq(AtA, Atb, rcond=None)[0]
-
-    # Orthogonal reweighting (iterations from config)
-    orth_iters = int(getattr(config, "CST_ORTHOGONAL_REWEIGHT_ITERS", 0) or 0)
-    if orth_iters > 0:
-        for _ in range(orth_iters):
-            Pu = xshape[0:nu]
-            Pl = xshape[nu:2 * nu]
-            uc = np.concatenate([Pu, [dte_u]])
-            lc = np.concatenate([Pl, [dte_l]])
-            su = fitter.cst_derivative(ux, uc)
-            sl = fitter.cst_derivative(lx, lc)
-            w_u = 1.0 / np.sqrt(1.0 + su * su)
-            w_l = 1.0 / np.sqrt(1.0 + sl * sl)
-            W = np.diag(np.concatenate([w_u, w_l]))
-            AtA_w = (A.T @ W) @ (W @ A) + 1e-12 * np.eye(A.shape[1])
-            Atb_w = (A.T @ W) @ (W @ bvec)
-            if pen > 0.0:
-                AtA_w += pen * (L.T @ L)
-            if lam > 0.0 and nu >= 3:
-                AtA_w += lam * (D.T @ D)
-            if E:
-                K = np.block([[AtA_w, E.T], [E, np.zeros((E.shape[0], E.shape[0]))]])
-                rhsK = np.concatenate([Atb_w, d_eq])
-                sol = np.linalg.lstsq(K, rhsK, rcond=None)[0]
-                xshape = sol[: 2 * nu]
-            else:
-                xshape = np.linalg.lstsq(AtA_w, Atb_w, rcond=None)[0]
-
-    Pu = xshape[0:nu]
-    Pl = xshape[nu:2 * nu]
-    uc = np.concatenate([Pu, [dte_u]])
-    lc = np.concatenate([Pl, [dte_l]])
-
     if logger_func:
         logger_func(
             f"Selected degree={fitter.degree}, n1={fitter.n1:.3f}, n2={fitter.n2:.3f}"
