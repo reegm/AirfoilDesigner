@@ -7,7 +7,10 @@ This module provides CST fitting as an intermediary step before Bezier optimizat
 import numpy as np
 import math
 from typing import Optional, Dict, Any, Tuple
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QThread, QTimer
+import multiprocessing as mp
+from multiprocessing import Queue
+import time
 from scipy.spatial import cKDTree
 
 from core import config
@@ -58,6 +61,12 @@ class CSTProcessor(QObject):
         self.original_upper_data = None
         self.original_lower_data = None
         
+        # Worker process management
+        self._worker_process = None
+        self._worker_queue = None
+        self._worker_timer = None
+        self._fitting_in_progress = False
+        
     def set_parameters(self, degree: int = 8, n1: float = 0.5, n2: float = 1.0, blunt_TE = False):
         """
         Set CST fitting parameters.
@@ -75,40 +84,39 @@ class CSTProcessor(QObject):
         
     def fit_airfoil(self, upper_data: np.ndarray, lower_data: np.ndarray, blunt_TE: bool) -> bool:
         """
-        Fit CST functions to airfoil data.
+        Fit CST functions to airfoil data using worker process.
         
         Args:
             upper_data: Upper surface coordinates (N, 2)
             lower_data: Lower surface coordinates (N, 2)
+            blunt_TE: Whether trailing edge is blunt
             
         Returns:
             True if fitting was successful, False otherwise
         """
+        if self._fitting_in_progress:
+            self.log_message.emit("CST fitting already in progress...")
+            return False
+            
         try:
             self.original_upper_data = upper_data.copy()
             self.original_lower_data = lower_data.copy()
             self.blunt_TE = blunt_TE
             
-            # Perform CST fitting
-            # result = fit_airfoil_cst(
-            #     upper_data=upper_data,
-            #     lower_data=lower_data,
-            #     degree=self.degree,
-            #     n1=self.n1,
-            #     n2=self.n2,
-            #     logger_func=self.log_message.emit
-            # )
-
-            # Always refit when degree changes; do not promote without refit
+            # Clear previous results
+            self.cst_fitter = None
+            self.upper_coefficients = None
+            self.lower_coefficients = None
+            self.upper_metrics = None
+            self.lower_metrics = None
+            self.cst_upper_data = None
+            self.cst_lower_data = None
+            
             # Compute TE slopes from stored unit tangent vectors if available
             te_slope_upper = None
             te_slope_lower = None
             try:
-                # Tangent vectors are unit; dy/dx = tan_y / tan_x. Guard divide-by-zero.
                 ut = getattr(self.parent(), 'processor', None)
-                # Fallback: self has no parent processor; we cannot derive slopes here.
-                if ut is None:
-                    ut = None
                 if ut is not None:
                     uvec = getattr(ut, 'upper_te_tangent_vector', None)
                     lvec = getattr(ut, 'lower_te_tangent_vector', None)
@@ -120,38 +128,190 @@ class CSTProcessor(QObject):
                 te_slope_upper = None
                 te_slope_lower = None
 
-            result = fit_airfoil_cst(
+            # Start worker process
+            self._start_cst_fitting_worker(
                 upper_data=upper_data,
                 lower_data=lower_data,
                 degree=self.degree,
                 te_slope_upper=te_slope_upper,
-                te_slope_lower=te_slope_lower,
-                logger_func=self.log_message.emit,
-            )
-
-            # Store results
-            self.cst_fitter = result['fitter']
-            self.upper_coefficients = result['upper_coefficients']
-            self.lower_coefficients = result['lower_coefficients']
-            self.upper_metrics = result['upper_metrics']
-            self.lower_metrics = result['lower_metrics']
-
-            # Generate CST data points
-            # Use configurable dense sampling with LE clustering to improve curvature smoothness near x≈0
-            num_pts = int(getattr(config, "CST_SAMPLING_POINTS", 4000))
-            self.cst_upper_data, self.cst_lower_data = generate_cst_airfoil_data(
-                upper_coefficients=self.upper_coefficients,
-                lower_coefficients=self.lower_coefficients,
-                fitter=self.cst_fitter,
-                num_points=num_pts,
-                sampling_method=getattr(config, "CST_SAMPLING_METHOD", "cosine"),
+                te_slope_lower=te_slope_lower
             )
             
-            self.log_message.emit("CST fitting completed successfully.")
+            self.log_message.emit("CST fitting started in background...")
             return True
             
         except Exception as e:
-            self.log_message.emit(f"CST fitting failed: {e}")
+            self.log_message.emit(f"Failed to start CST fitting: {e}")
+            self._fitting_in_progress = False
+            return False
+    
+    def _start_cst_fitting_worker(self, upper_data, lower_data, degree, te_slope_upper=None, te_slope_lower=None, 
+                                  override_te_upper=None, override_te_lower=None):
+        """Start the CST fitting worker process."""
+        from gui.controllers.optimization_worker import _cst_fitting_worker
+        
+        # Clean up any existing worker
+        self._cleanup_worker()
+        
+        # Create queue for communication
+        self._worker_queue = Queue()
+        
+        # Prepare arguments for worker
+        args = (
+            upper_data,
+            lower_data,
+            degree,
+            te_slope_upper,
+            te_slope_lower,
+            override_te_upper,
+            override_te_lower,
+            []  # logger_messages placeholder
+        )
+        
+        # Start worker process
+        self._worker_process = mp.Process(target=_cst_fitting_worker, args=(args, self._worker_queue))
+        self._worker_process.start()
+        self._fitting_in_progress = True
+        
+        # Set up timer to check for results
+        self._worker_timer = QTimer()
+        self._worker_timer.timeout.connect(self._check_worker_results)
+        self._worker_timer.start(100)  # Check every 100ms
+        
+        self.log_message.emit("CST fitting worker started...")
+    
+    def _check_worker_results(self):
+        """Check for results from the worker process."""
+        if self._worker_queue is None:
+            return
+            
+        try:
+            # Check if there are any messages in the queue
+            while True:
+                try:
+                    message = self._worker_queue.get_nowait()
+                    
+                    if message["type"] == "log":
+                        self.log_message.emit(message["message"])
+                    elif message["type"] == "result":
+                        self._handle_worker_result(message)
+                except:
+                    # No more messages in queue
+                    break
+                    
+        except Exception as e:
+            if self._worker_queue is not None:  # Only log if queue should exist
+                self.log_message.emit(f"Error checking worker results: {e}")
+    
+    def _handle_worker_result(self, message):
+        """Handle the final result from the worker process."""
+        try:
+            if message["success"]:
+                result = message["result"]
+                
+                # Store results
+                self.cst_fitter = result['fitter']
+                self.upper_coefficients = result['upper_coefficients']
+                self.lower_coefficients = result['lower_coefficients']
+                self.upper_metrics = result['upper_metrics']
+                self.lower_metrics = result['lower_metrics']
+
+                # Generate CST data points
+                num_pts = int(getattr(config, "CST_SAMPLING_POINTS", 4000))
+                self.cst_upper_data, self.cst_lower_data = generate_cst_airfoil_data(
+                    upper_coefficients=self.upper_coefficients,
+                    lower_coefficients=self.lower_coefficients,
+                    fitter=self.cst_fitter,
+                    num_points=num_pts,
+                    sampling_method=getattr(config, "CST_SAMPLING_METHOD", "cosine"),
+                )
+                
+                self.log_message.emit("CST fitting completed successfully.")
+                
+                # Request plot update to show results
+                self.request_plot_update()
+                
+            else:
+                self.log_message.emit(f"CST fitting failed: {message['error']}")
+                
+        except Exception as e:
+            self.log_message.emit(f"Error handling worker result: {e}")
+        finally:
+            self._cleanup_worker()
+    
+    def _cleanup_worker(self):
+        """Clean up worker process and related resources."""
+        if self._worker_timer:
+            self._worker_timer.stop()
+            self._worker_timer = None
+            
+        if self._worker_process and self._worker_process.is_alive():
+            self._worker_process.terminate()
+            self._worker_process.join(timeout=1.0)
+            if self._worker_process.is_alive():
+                self._worker_process.kill()
+            self._worker_process = None
+            
+        self._worker_queue = None
+        self._fitting_in_progress = False
+    
+    def thicken_cst_with_worker(self, te_mm: float, chord_mm: float, degree: int):
+        """Thicken CST using worker process with TE override."""
+        if self._fitting_in_progress:
+            self.log_message.emit("CST fitting already in progress...")
+            return False
+            
+        try:
+            te_chord = te_mm / chord_mm
+            
+            # Compute per-surface TE targets from original data sign at TE
+            udata = self.original_upper_data
+            ldata = self.original_lower_data
+            if udata is None or ldata is None:
+                raise ValueError("No original data available")
+                
+            ux, uy = udata[:, 0], udata[:, 1]
+            lx, ly = ldata[:, 0], ldata[:, 1]
+            u_te_idx = int(np.argmax(ux))
+            l_te_idx = int(np.argmax(lx))
+            sign_u = 1.0 if uy[u_te_idx] >= 0.0 else -1.0
+            sign_l = -1.0 if ly[l_te_idx] <= 0.0 else 1.0
+            te_u = sign_u * (0.5 * te_chord)
+            te_l = sign_l * (0.5 * te_chord)
+
+            # Get TE slopes
+            te_slope_upper = None
+            te_slope_lower = None
+            try:
+                ut = getattr(self.parent(), 'processor', None)
+                if ut is not None:
+                    uvec = getattr(ut, 'upper_te_tangent_vector', None)
+                    lvec = getattr(ut, 'lower_te_tangent_vector', None)
+                    if uvec is not None and abs(float(uvec[0])) > 1e-12:
+                        te_slope_upper = float(uvec[1]) / float(uvec[0])
+                    if lvec is not None and abs(float(lvec[0])) > 1e-12:
+                        te_slope_lower = float(lvec[1]) / float(lvec[0])
+            except Exception:
+                te_slope_upper = None
+                te_slope_lower = None
+
+            # Start worker with overrides
+            self._start_cst_fitting_worker(
+                upper_data=udata,
+                lower_data=ldata,
+                degree=degree,
+                te_slope_upper=te_slope_upper,
+                te_slope_lower=te_slope_lower,
+                override_te_upper=te_u,
+                override_te_lower=te_l
+            )
+            
+            self.log_message.emit(f"CST thickening started: TE={te_mm:.3f} mm (±{te_mm/2:.3f} per surface)")
+            return True
+            
+        except Exception as e:
+            self.log_message.emit(f"Failed to start CST thickening: {e}")
+            self._fitting_in_progress = False
             return False
     
     def get_cst_data(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -496,17 +656,7 @@ class CSTProcessor(QObject):
                 # Keep plotting robust; markers are optional
                 pass
         
-        # Add metrics to plot data
-        if self.upper_metrics and self.lower_metrics:
-            plot_data['cst_metrics'] = {
-                'upper_rmse': self.upper_metrics['rmse'],
-                'upper_max_error': self.upper_metrics['max_error'],
-                'upper_orthogonal_max_error': self.upper_metrics['orthogonal_max_error'],
-                'lower_rmse': self.lower_metrics['rmse'],
-                'lower_max_error': self.lower_metrics['max_error'],
-                'lower_orthogonal_max_error': self.lower_metrics['orthogonal_max_error']
-            }
-        
+      
         self.plot_update_requested.emit(plot_data)
 
     def _build_cst_curvature_comb(self, upper_curve: np.ndarray, lower_curve: np.ndarray, *, scale_factor: float = 0.05, density: int = 40):
@@ -518,6 +668,7 @@ class CSTProcessor(QObject):
         def comb_from_polyline(curve_xy: np.ndarray):
             if curve_xy is None or len(curve_xy) < 3:
                 return []
+            
             xy = np.asarray(curve_xy, float)
             # Central differences for first and second derivatives in arc-length parameterization approximation
             # Use chordwise x as parameter; stable enough for visualization.
@@ -552,9 +703,6 @@ class CSTProcessor(QObject):
                 hairs.append(np.array([xy[j], ends[j]]))
             return hairs
 
-        # Both surfaces use signed curvature to point inward for convex regions
-        return [comb_from_polyline(upper_curve), comb_from_polyline(lower_curve)]
-
     def request_cst_comb_update(self, scale: float, density: int) -> None:
         """Update CST comb parameters and re-emit plot with updated comb."""
         try:
@@ -567,6 +715,9 @@ class CSTProcessor(QObject):
     
     def clear_data(self):
         """Clear all stored data."""
+        # Clean up worker first
+        self._cleanup_worker()
+        
         self.cst_fitter = None
         self.upper_coefficients = None
         self.lower_coefficients = None
@@ -577,8 +728,19 @@ class CSTProcessor(QObject):
         self.original_upper_data = None
         self.original_lower_data = None
     
+    def __del__(self):
+        """Cleanup when object is destroyed."""
+        try:
+            self._cleanup_worker()
+        except Exception:
+            pass
+    
     def is_fitted(self) -> bool:
         """Check if CST fitting has been performed."""
         return (self.cst_upper_data is not None and 
                 self.cst_lower_data is not None and
-                self.cst_fitter is not None) 
+                self.cst_fitter is not None)
+    
+    def is_fitting_in_progress(self) -> bool:
+        """Check if CST fitting is currently in progress."""
+        return self._fitting_in_progress 

@@ -64,7 +64,6 @@ class AirfoilPlotWidget(pg.PlotWidget):
         original_lower=None,
         cst_upper=None,
         cst_lower=None,
-        cst_metrics=None,
         comb_cst=None,
         # CST worst-error display
         worst_cst_upper_max_error=None,
@@ -142,24 +141,6 @@ class AirfoilPlotWidget(pg.PlotWidget):
                     name="CST Fit - Lower",
                 )
             ]
-            
-            # Add CST metrics to legend if available
-            if cst_metrics:
-                # Create a text item showing CST error metrics
-                metrics_text = (
-                    f"CST Errors:\n"
-                    f"Upper RMSE: {cst_metrics.get('upper_rmse', 0):.3e}\n"
-                    f"Upper Max Orth: {cst_metrics.get('upper_orthogonal_max_error', 0):.3e}\n"
-                    f"Lower RMSE: {cst_metrics.get('lower_rmse', 0):.3e}\n"
-                    f"Lower Max Orth: {cst_metrics.get('lower_orthogonal_max_error', 0):.3e}"
-                )
-                text_item = pg.TextItem(
-                    text=metrics_text,
-                    color=(255, 140, 0),  # Orange color matching CST data
-                    anchor=(1, 1)  # Anchor to top-left
-                )
-                self.addItem(text_item)
-                self.plot_items["CST Error Text"] = text_item
 
         # --------------------------------------------------------------
         # 2) Single-Bezier curves (thickened has priority)
@@ -481,7 +462,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 symbol="o",
                 symbolSize=14,
                 symbolBrush=None,
-                symbolPen=pg.mkPen((255, 165, 0), width=3),  # orange
+                symbolPen=pg.mkPen((255, 0, 0), width=3),  # orange
                 name="CST Max. Error Markers",
             )
             self.plot_items["CST Max. Error Markers"] = marker_item_cst

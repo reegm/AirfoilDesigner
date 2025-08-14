@@ -83,7 +83,7 @@ class CSTFitter:
         dydx = dC * poly + C * dpoly
         if coeffs.size == self.num_coefficients + 1:
             dydx += coeffs[-1]
-        return dydx
+        return dydx    
 
     # ------------------- analytical least‑squares --------------------------
     def lsq(
@@ -128,9 +128,26 @@ class CSTFitter:
                 D = np.hstack([D, np.zeros((D.shape[0], 1))])
             AtA = A.T @ A + (lam * (D.T @ D)) + (eps * np.eye(A.shape[1]))
             Atb = A.T @ b
-            coeffs = np.linalg.lstsq(AtA, Atb, rcond=None)[0]
+            
+            # Check for NaN/Inf before solving
+            if not (np.isfinite(AtA).all() and np.isfinite(Atb).all()):
+                raise ValueError("Matrix contains NaN or Inf values")
+            
+            try:
+                coeffs = np.linalg.lstsq(AtA, Atb, rcond=None)[0]
+            except (np.linalg.LinAlgError, ValueError):
+                # Fallback to pseudo-inverse if lstsq fails
+                coeffs = np.linalg.pinv(AtA) @ Atb
         else:
-            coeffs, *_ = np.linalg.lstsq(A, b, rcond=None)
+            # Check for NaN/Inf before solving
+            if not (np.isfinite(A).all() and np.isfinite(b).all()):
+                raise ValueError("Matrix contains NaN or Inf values")
+            
+            try:
+                coeffs, *_ = np.linalg.lstsq(A, b, rcond=None)
+            except (np.linalg.LinAlgError, ValueError):
+                # Fallback to pseudo-inverse if lstsq fails
+                coeffs = np.linalg.pinv(A) @ b
 
         # Compute metrics in physical space using the forward model
         metrics = self.metrics(x, y, coeffs)
@@ -318,10 +335,18 @@ def fit_airfoil_cst(
                 v = dCeq * B_eq + Ceq * dB_eq
                 K = np.block([[AtA, v[:, None]], [v[None, :], np.zeros((1, 1))]])
                 rhs = np.concatenate([Atb, np.array([te_slope - dte], dtype=float)])
-                sol = np.linalg.lstsq(K, rhs, rcond=None)[0]
+                try:
+                    sol = np.linalg.lstsq(K, rhs, rcond=None)[0]
+                except (np.linalg.LinAlgError, ValueError):
+                    # Fallback to pseudo-inverse if lstsq fails
+                    sol = np.linalg.pinv(K) @ rhs
                 coeff_shape = sol[:nu]
             else:
-                coeff_shape = np.linalg.lstsq(AtA, Atb, rcond=None)[0]
+                try:
+                    coeff_shape = np.linalg.lstsq(AtA, Atb, rcond=None)[0]
+                except (np.linalg.LinAlgError, ValueError):
+                    # Fallback to pseudo-inverse if lstsq fails
+                    coeff_shape = np.linalg.pinv(AtA) @ Atb
 
             # Orthogonal reweighting per surface
             orth_iters = int(getattr(config, "CST_ORTHOGONAL_REWEIGHT_ITERS", 0) or 0)
@@ -341,10 +366,18 @@ def fit_airfoil_cst(
                         # Rebuild v under same n1,n2 (unchanged)
                         K = np.block([[AtA_w, v[:, None]], [v[None, :], np.zeros((1, 1))]])
                         rhs = np.concatenate([Atb_w, np.array([te_slope - dte], dtype=float)])
-                        sol = np.linalg.lstsq(K, rhs, rcond=None)[0]
+                        try:
+                            sol = np.linalg.lstsq(K, rhs, rcond=None)[0]
+                        except (np.linalg.LinAlgError, ValueError):
+                            # Fallback to pseudo-inverse if lstsq fails
+                            sol = np.linalg.pinv(K) @ rhs
                         coeff_shape = sol[:nu]
                     else:
-                        coeff_shape = np.linalg.lstsq(AtA_w, Atb_w, rcond=None)[0]
+                        try:
+                            coeff_shape = np.linalg.lstsq(AtA_w, Atb_w, rcond=None)[0]
+                        except (np.linalg.LinAlgError, ValueError):
+                            # Fallback to pseudo-inverse if lstsq fails
+                            coeff_shape = np.linalg.pinv(AtA_w) @ Atb_w
 
             # Append TE thickness back
             return np.concatenate([coeff_shape, [dte]])
@@ -360,15 +393,31 @@ def fit_airfoil_cst(
     if getattr(config, "CST_OPTIMIZE_N1N2", False):
         best = None
         best_payload = None
-        for n1 in getattr(config, "CST_N1_CANDIDATES", [config.CST_N1]):
-            for n2 in getattr(config, "CST_N2_CANDIDATES", [config.CST_N2]):
+        
+        # Generate N1 candidates from range and step
+        n1_min = getattr(config, "CST_N1_MIN", config.CST_N1)
+        n1_max = getattr(config, "CST_N1_MAX", config.CST_N1)
+        n1_step = getattr(config, "CST_N1_STEP", 0.01)
+        n1_candidates = np.arange(n1_min, n1_max + n1_step/2, n1_step)
+        
+        # Generate N2 candidates from range and step
+        n2_min = getattr(config, "CST_N2_MIN", config.CST_N2)
+        n2_max = getattr(config, "CST_N2_MAX", config.CST_N2)
+        n2_step = getattr(config, "CST_N2_STEP", 0.01)
+        n2_candidates = np.arange(n2_min, n2_max + n2_step/2, n2_step)
+        
+        for n1 in n1_candidates:
+            for n2 in n2_candidates:
                 try:
                     uc, lc, um, lm, ft = _solve_for_exponents(float(n1), float(n2))
                     score = um["orthogonal_rmse"] + lm["orthogonal_rmse"]
                     if (best is None) or (score < best):
                         best = score
                         best_payload = (uc, lc, um, lm, ft)
-                except Exception:
+                except Exception as e:
+                    # Log specific problematic (n1, n2) combinations if logger available
+                    if logger_func:
+                        logger_func(f"CST fitting failed for n1={n1:.3f}, n2={n2:.3f}: {str(e)}")
                     continue
         uc, lc, umerr, lmerr, fitter = best_payload if best_payload is not None else _solve_for_exponents(config.CST_N1, config.CST_N2)
     else:

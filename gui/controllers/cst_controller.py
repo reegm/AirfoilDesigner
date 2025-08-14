@@ -24,6 +24,7 @@ class CSTController(QObject):
         # Connect CST processor signals
         self.cst_processor.log_message.connect(self.window.status_log.append)
         self.cst_processor.plot_update_requested.connect(self._update_plot_from_cst)
+        self.cst_processor.plot_update_requested.connect(self._on_cst_fitting_complete)
         
         # Connect GUI signals
         self._connect_signals()
@@ -50,48 +51,58 @@ class CSTController(QObject):
         )
         
         # Perform CST fitting
+        # Start the fitting process (async with worker)
         success = self.cst_processor.fit_airfoil(
             upper_data=self.main_controller.processor.upper_data,
             lower_data=self.main_controller.processor.lower_data,
             blunt_TE=self.main_controller.processor.blunt_TE()
         )
         
-        if success:
-            # Update GUI state
-            self.window.cst_panel.set_cst_fitted(True)
-            
-            # Update plot
-            self._update_display()
-            # Ensure UI elements reflect that CST results (and comb) are available
-            try:
-                self.main_controller.ui_state_controller.update_button_states()
-            except Exception:
-                pass
-            
-            # Log metrics
-            try:
-                metrics = self.cst_processor.get_fitting_metrics()
-                fitter = self.cst_processor.cst_fitter
-                try:
-                    n1 = float(getattr(fitter, 'n1', float('nan')))
-                    n2 = float(getattr(fitter, 'n2', float('nan')))
-                    deg = int(getattr(fitter, 'degree', -1))
-                except Exception:
-                    n1 = float('nan')
-                    n2 = float('nan')
-                    deg = -1
-                self.window.status_log.append(
-                    f"CST Fit Complete (deg={deg}, n1={n1:.3f}, n2={n2:.3f}) - Upper RMSE: {metrics['upper']['rmse']:.3e}, "
-                    f"Lower RMSE: {metrics['lower']['rmse']:.3e}"
-                )
-                self.window.status_log.append(
-                    f"CST Orthogonal Errors - Upper Max: {metrics['upper']['orthogonal_max_error']:.3e}, "
-                    f"Lower Max: {metrics['lower']['orthogonal_max_error']:.3e}"
-                )
-            except Exception as e:
-                self.window.status_log.append(f"Error getting CST metrics: {e}")
-        else:
+        if not success:
             self.window.cst_panel.set_cst_fitted(False)
+            self.window.status_log.append("Failed to start CST fitting.")
+        # Note: The completion is now handled asynchronously in _on_cst_fitting_complete
+    
+    def _on_cst_fitting_complete(self, plot_data: dict):
+        """Handle CST fitting completion."""
+        try:
+            # Check if we actually have CST data (fitting completed successfully)
+            if self.cst_processor.is_fitted():
+                # Update GUI state
+                self.window.cst_panel.set_cst_fitted(True)
+                
+                # Ensure UI elements reflect that CST results are available
+                try:
+                    self.main_controller.ui_state_controller.update_button_states()
+                except Exception:
+                    pass
+                
+                # Log metrics
+                try:
+                    metrics = self.cst_processor.get_fitting_metrics()
+                    fitter = self.cst_processor.cst_fitter
+                    try:
+                        n1 = float(getattr(fitter, 'n1', float('nan')))
+                        n2 = float(getattr(fitter, 'n2', float('nan')))
+                        deg = int(getattr(fitter, 'degree', -1))
+                    except Exception:
+                        n1 = float('nan')
+                        n2 = float('nan')
+                        deg = -1
+                    self.window.status_log.append(
+                        f"CST Fit Complete (deg={deg}, n1={n1:.3f}, n2={n2:.3f}) - Upper RMSE: {metrics['upper']['rmse']:.3e}, "
+                        f"Lower RMSE: {metrics['lower']['rmse']:.3e}"
+                    )
+                    self.window.status_log.append(
+                        f"CST Orthogonal Errors - Upper Max: {metrics['upper']['orthogonal_max_error']:.3e}, "
+                        f"Lower Max: {metrics['lower']['orthogonal_max_error']:.3e}"
+                    )
+                except Exception as e:
+                    self.window.status_log.append(f"Error getting CST metrics: {e}")
+            else:
+                self.window.cst_panel.set_cst_fitted(False)
+        except Exception as e:
+            self.window.status_log.append(f"Error in CST fitting completion handler: {e}")
 
     def thicken_cst(self) -> None:
         """If a sharp TE CST exists, refit with a specified TE thickness (mm)."""
@@ -128,48 +139,15 @@ class CSTController(QObject):
         params = self.window.cst_panel.get_parameters()
         self.cst_processor.set_parameters(degree=params['degree'])
 
-        # Re-run fitter with override TE per surface
-        try:
-            # Compute per-surface TE targets from original data sign at TE
-            udata = self.main_controller.processor.upper_data
-            ldata = self.main_controller.processor.lower_data
-            ux, uy = udata[:, 0], udata[:, 1]
-            lx, ly = ldata[:, 0], ldata[:, 1]
-            u_te_idx = int(np.argmax(ux)); l_te_idx = int(np.argmax(lx))
-            sign_u = 1.0 if uy[u_te_idx] >= 0.0 else -1.0
-            sign_l = -1.0 if ly[l_te_idx] <= 0.0 else 1.0
-            te_u = sign_u * (0.5 * te_chord)
-            te_l = sign_l * (0.5 * te_chord)
-
-            # Call underlying fit with overrides
-            from core.cst_fitter import fit_airfoil_cst
-            result = fit_airfoil_cst(
-                upper_data=udata,
-                lower_data=ldata,
-                degree=params['degree'],
-                override_te_upper=te_u,
-                override_te_lower=te_l,
-                logger_func=self.cst_processor.log_message.emit,
-            )
-            self.cst_processor.cst_fitter = result['fitter']
-            self.cst_processor.upper_coefficients = result['upper_coefficients']
-            self.cst_processor.lower_coefficients = result['lower_coefficients']
-            self.cst_processor.upper_metrics = result['upper_metrics']
-            self.cst_processor.lower_metrics = result['lower_metrics']
-            # Resample
-            num_pts = int(getattr(self.cst_processor.__class__, "CST_SAMPLES_FOR_PLOT", 4000) if hasattr(self.cst_processor.__class__, "CST_SAMPLES_FOR_PLOT") else 4000)
-            from core.cst_fitter import generate_cst_airfoil_data
-            self.cst_processor.cst_upper_data, self.cst_processor.cst_lower_data = generate_cst_airfoil_data(
-                upper_coefficients=self.cst_processor.upper_coefficients,
-                lower_coefficients=self.cst_processor.lower_coefficients,
-                fitter=self.cst_processor.cst_fitter,
-                num_points=num_pts,
-                sampling_method=None,
-            )
-            self.window.status_log.append(f"CST thickening applied: TE={te_mm:.3f} mm (±{te_mm/2:.3f} per surface)")
-            self.cst_processor.request_plot_update()
-        except Exception as e:
-            self.window.status_log.append(f"Error during CST thickening: {e}")
+        # Use worker process for thickening
+        success = self.cst_processor.thicken_cst_with_worker(
+            te_mm=te_mm,
+            chord_mm=chord_mm,
+            degree=params['degree']
+        )
+        
+        if not success:
+            self.window.status_log.append("Failed to start CST thickening.")
     
     def clear_cst(self) -> None:
         """Clear CST fitting results."""

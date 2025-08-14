@@ -101,11 +101,17 @@ CST_DEFAULT_LAMBDA_REG: float = 1e-8
 # Penalty weight for enforcing leading-edge radius continuity: lower c0 = -upper c0
 CST_LE_RADIUS_PENALTY: float = 0  # 0 disables; try 1e3 to enable softly
 # Default number of orthogonal-distance reweighting iterations (0 disables)
-CST_ORTHOGONAL_REWEIGHT_ITERS: int = 10
+CST_ORTHOGONAL_REWEIGHT_ITERS: int = 2
 # Optional small grid search around (n1, n2) to improve fit quality
 CST_OPTIMIZE_N1N2: bool = True
-CST_N1_CANDIDATES: list[float] = [0.45, 0.46, 0.47, 0.48, 0.49, 0.5, 0.51, 0.52, 0.53, 0.54, 0.55]
-CST_N2_CANDIDATES: list[float] = [0.98, 0.99, 1.0, 1.01, 1.02]
+# N1 range and step size
+CST_N1_MIN: float = 0.30
+CST_N1_MAX: float = 0.6
+CST_N1_STEP: float = 0.01
+# N2 range and step size  
+CST_N2_MIN: float = 0.9
+CST_N2_MAX: float = 1.1
+CST_N2_STEP: float = 0.01
 
 # Sampling for CST curve rendering/export
 # Methods: "uniform", "cosine" (cluster near both ends), "sqrt-le" (cluster near LE)

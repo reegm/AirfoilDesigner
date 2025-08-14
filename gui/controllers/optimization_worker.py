@@ -406,4 +406,54 @@ def _generation_worker(args, queue):
         else:
             queue.put({"success": False, "error": f"Unknown strategy/g2_flag combination: {gui_strategy}, g2={g2_flag}"})
     except Exception as e:
-        queue.put({"success": False, "error": f"Exception in worker: {e}\n{traceback.format_exc()}"}) 
+        queue.put({"success": False, "error": f"Exception in worker: {e}\n{traceback.format_exc()}"})
+
+
+def _cst_fitting_worker(args, queue):
+    """
+    CST fitting worker that runs in a separate process to avoid blocking the GUI.
+    """
+    import traceback
+    from core.cst_fitter import fit_airfoil_cst
+    
+    (
+        upper_data,
+        lower_data,
+        degree,
+        te_slope_upper,
+        te_slope_lower,
+        override_te_upper,
+        override_te_lower,
+        logger_messages
+    ) = args
+    
+    def worker_logger(message):
+        """Logger that sends messages through the queue"""
+        queue.put({"type": "log", "message": message})
+    
+    try:
+        # Perform CST fitting
+        result = fit_airfoil_cst(
+            upper_data=upper_data,
+            lower_data=lower_data,
+            degree=degree,
+            te_slope_upper=te_slope_upper,
+            te_slope_lower=te_slope_lower,
+            override_te_upper=override_te_upper,
+            override_te_lower=override_te_lower,
+            logger_func=worker_logger
+        )
+        
+        # Send successful result
+        queue.put({
+            "type": "result",
+            "success": True,
+            "result": result
+        })
+        
+    except Exception as e:
+        queue.put({
+            "type": "result", 
+            "success": False, 
+            "error": f"CST fitting failed: {e}\n{traceback.format_exc()}"
+        }) 
