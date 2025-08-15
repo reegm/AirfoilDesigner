@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+import numpy as np
 
 from PySide6.QtWidgets import QFileDialog
 
@@ -143,7 +144,10 @@ class FileController:
         return "airfoil.dxf" 
 
     def export_dat_file(self) -> None:
-        """Export the current Bezier model(s) as a high-resolution .dat file using curvature-based sampling."""
+        """Export the current model as a high-resolution .dat file.
+        If a B-spline fit is available, export the sampled B-spline curves.
+        Otherwise, fall back to exporting the Bezier model using curvature-based sampling.
+        """
         # Get the number of points per surface from the UI
         try:
             points_per_surface = self.window.file_panel.points_per_surface_input.value()
@@ -157,6 +161,51 @@ class FileController:
         airfoil_name = getattr(self.processor, "airfoil_name", "airfoil")
         if not airfoil_name:
             airfoil_name = "airfoil"
+
+        # ------------------------------------------------------------------
+        # Prefer B-spline export if available
+        # ------------------------------------------------------------------
+        bspline_proc = getattr(self.window, "bspline_processor", None)
+        try:
+            bspline_fitted = bool(getattr(bspline_proc, "fitted", False))
+        except Exception:
+            bspline_fitted = False
+
+        if bspline_proc is not None and bspline_fitted and \
+           getattr(bspline_proc, "upper_curve", None) is not None and \
+           getattr(bspline_proc, "lower_curve", None) is not None:
+            try:
+                t_values = np.linspace(0.0, 1.0, points_per_surface)
+                if len(t_values) > 0:
+                    t_values[-1] = min(t_values[-1], 1.0 - 1e-12)
+                upper_points = bspline_proc.upper_curve(t_values)
+                lower_points = bspline_proc.lower_curve(t_values)
+
+                # Default filename
+                default_filename = self._get_default_dat_filename(f"{airfoil_name}_bspline")
+
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self.window,
+                    "Save B-spline High-Resolution .dat File",
+                    default_filename,
+                    "DAT Files (*.dat);;All Files (*)",
+                )
+                if not file_path:
+                    self.processor.log_message.emit(".dat export cancelled by user.")
+                    return
+
+                export_airfoil_to_selig_format(upper_points, lower_points, airfoil_name, file_path)
+                self.processor.log_message.emit(
+                    f"B-spline .dat export successful to '{os.path.basename(file_path)}'."
+                )
+                self.processor.log_message.emit(
+                    f"Exported {len(upper_points)} points per surface in Selig format."
+                )
+                return
+            except Exception as exc:
+                self.processor.log_message.emit(
+                    f"Error during B-spline .dat export, falling back to Bezier: {exc}"
+                )
 
         # Get the current Bezier polygons
         upper_poly = None

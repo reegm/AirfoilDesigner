@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QWidget,
     QComboBox,
+    QSpinBox,
 )
 
 from core import config
@@ -80,9 +81,17 @@ class OptimizerSettingsWidget(QGroupBox):
         # Enforce G2 at leading edge
         self.g2_checkbox = QCheckBox("Enforce G2 at leading edge")
 
+        # B-spline settings
+        self.bspline_cp_label = QLabel("B-spline control points:")
+        self.bspline_cp_spin = QSpinBox()
+        self.bspline_cp_spin.setMinimum(6)
+        self.bspline_cp_spin.setMaximum(50)
+        self.bspline_cp_spin.setValue(10)
+
         # Action buttons
         self.build_single_bezier_button = QPushButton("Generate Airfoil")
         self.staged_opt_button = QPushButton("Staged Optimization")
+        self.fit_bspline_button = QPushButton("Fit B-spline")
         self.recalculate_button = QPushButton("Recalculate")
         self.recalculate_button.setEnabled(False)  # Initially disabled
 
@@ -124,6 +133,14 @@ class OptimizerSettingsWidget(QGroupBox):
         objective_row.addWidget(self.objective_combo)
         objective_row.addStretch(1)
         layout.addLayout(objective_row)
+
+        # B-spline row
+        bs_row = QHBoxLayout()
+        bs_row.addWidget(self.bspline_cp_label)
+        bs_row.addWidget(self.bspline_cp_spin)
+        bs_row.addWidget(self.fit_bspline_button)
+        bs_row.addStretch(1)
+        layout.addLayout(bs_row)
 
         # G2 checkbox
         g2_row = QHBoxLayout()

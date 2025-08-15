@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.spatial import cKDTree
+from scipy.interpolate import BSpline
 from core import config
 from utils.bezier_utils import general_bezier_curve
 from utils.bezier_optimization_utils import calculate_all_orthogonal_distances_optimized
@@ -100,3 +101,57 @@ def calculate_single_bezier_fitting_error(
 
     else:
         return calculate_single_bezier_fitting_error(original_data, bezier_poly, return_max_error=return_max_error)
+
+
+def calculate_bspline_fitting_error(
+        bspline_curve: BSpline,
+        original_data: np.ndarray,
+        *,
+        error_function: str = "euclidean",
+        return_max_error: bool = False,
+        return_all: bool = False,
+    ):
+    """
+    Calculate fitting error for a B-spline curve against original data.
+
+    Mirrors the return conventions used by the Bezier error calculator.
+    """
+    if error_function == "euclidean":
+        num_points_curve = config.NUM_POINTS_CURVE_ERROR
+        t_samples = np.linspace(0.0, 1.0, num_points_curve)
+        if len(t_samples) > 0:
+            t_samples[-1] = min(t_samples[-1], 1.0 - 1e-12)
+        sampled_curve_points = bspline_curve(t_samples)
+        sampled_curve_points = sampled_curve_points[np.argsort(sampled_curve_points[:, 0])]
+        tree = cKDTree(sampled_curve_points)
+        min_dists, min_idxs = tree.query(original_data, k=1)
+        sum_sq = float(np.sum(min_dists ** 2))
+        if return_all:
+            rms = float(np.sqrt(np.mean(min_dists ** 2)))
+            return min_dists, rms, (sum_sq, int(np.argmax(min_dists)))
+        if return_max_error:
+            max_error = float(np.max(min_dists))
+            max_error_idx = int(np.argmax(min_dists))
+            return sum_sq, max_error, max_error_idx
+        return sum_sq
+    elif error_function == "orthogonal":
+        # Approximate orthogonal by dense sampling
+        num_points_curve = config.NUM_POINTS_CURVE_ERROR_ULTRA
+        t_samples = np.linspace(0.0, 1.0, num_points_curve)
+        if len(t_samples) > 0:
+            t_samples[-1] = min(t_samples[-1], 1.0 - 1e-12)
+        sampled_curve_points = bspline_curve(t_samples)
+        sampled_curve_points = sampled_curve_points[np.argsort(sampled_curve_points[:, 0])]
+        tree = cKDTree(sampled_curve_points)
+        min_dists, _ = tree.query(original_data, k=1)
+        sum_sq = float(np.sum(min_dists ** 2))
+        if return_all:
+            rms = float(np.sqrt(np.mean(min_dists ** 2)))
+            return min_dists, rms, (sum_sq, int(np.argmax(min_dists)))
+        if return_max_error:
+            max_error = float(np.max(min_dists))
+            max_error_idx = int(np.argmax(min_dists))
+            return sum_sq, max_error, max_error_idx
+        return sum_sq
+    else:
+        raise ValueError(f"Unknown error_function: {error_function}")

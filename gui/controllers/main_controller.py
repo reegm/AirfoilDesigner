@@ -15,6 +15,13 @@ from gui.main_window import MainWindow
 from .file_controller import FileController
 from .optimization_controller import OptimizationController
 from .ui_state_controller import UIStateController
+from .optimization_controller import OptimizationController
+from .ui_state_controller import UIStateController
+from . import file_controller
+from . import optimization_controller
+from . import ui_state_controller
+from core.bspline_processor import BSplineProcessor
+from .bspline_controller import BSplineController
 
 
 class MainController(QObject):
@@ -30,6 +37,7 @@ class MainController(QObject):
         self.ui_state_controller = UIStateController(self.processor, self.window)
         self.file_controller = FileController(self.processor, self.window, self.ui_state_controller)
         self.optimization_controller = OptimizationController(self.processor, self.window, self.ui_state_controller)
+        self.bspline_controller = BSplineController(self.processor, self.window)
 
         # ------------------------------------------------------------------
         # Wire up processor signals
@@ -63,6 +71,7 @@ class MainController(QObject):
         opt.build_single_bezier_button.clicked.connect(self.optimization_controller.generate_or_abort)
         opt.staged_opt_button.clicked.connect(self.optimization_controller.run_staged_or_abort)
         opt.recalculate_button.clicked.connect(self.optimization_controller.recalculate_te_vectors)
+        opt.fit_bspline_button.clicked.connect(self.bspline_controller.fit_bspline)
 
         # Airfoil settings
         airfoil = self.window.airfoil_settings_panel

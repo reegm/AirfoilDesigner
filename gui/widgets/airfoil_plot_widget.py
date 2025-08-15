@@ -65,6 +65,14 @@ class AirfoilPlotWidget(pg.PlotWidget):
         comb_single_bezier=None,
         chord_length_mm=None,
         geometry_metrics=None,
+        bspline_upper_curve=None,
+        bspline_lower_curve=None,
+        bspline_upper_control_points=None,
+        bspline_lower_control_points=None,
+        bspline_upper_max_error=None,
+        bspline_lower_max_error=None,
+        bspline_upper_max_error_idx=None,
+        bspline_lower_max_error_idx=None,
     ):
         """Render everything supplied in *kwargs* on the canvas."""
         # Clear all items to ensure no remnants
@@ -240,7 +248,81 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 self.plot_items["Control Polygons (Single Bezier)"].append(item)
 
         # --------------------------------------------------------------
-        # 3) Curvature comb
+        # 3) B-spline curves and control points
+        # --------------------------------------------------------------
+        COLOR_BSPLINE_CURVE = pg.mkPen("magenta", width=2.5)
+        COLOR_BSPLINE_CONTROL_POINTS = pg.mkPen((255, 20, 147), width=1.5, style=Qt.PenStyle.DashLine)
+        COLOR_BSPLINE_CONTROL_SYMBOL = pg.mkBrush((255, 20, 147, 200))
+        COLOR_BSPLINE_CONTROL_SYMBOL_PEN = pg.mkPen((255, 20, 147), width=1.5)
+
+        if bspline_upper_curve is not None or bspline_lower_curve is not None:
+            self.plot_items["B-spline Curves"] = []
+            self.plot_items["B-spline Control Points"] = []
+
+            # Plot upper B-spline curve
+            if bspline_upper_curve is not None:
+                # Sample the B-spline curve
+                t_vals = np.linspace(0, 1, PLOT_POINTS_PER_SURFACE)
+                bspline_upper_points = bspline_upper_curve(t_vals)
+                
+                self.plot_items["B-spline Curves"].append(
+                    self.plot(
+                        bspline_upper_points[:, 0],
+                        bspline_upper_points[:, 1],
+                        pen=COLOR_BSPLINE_CURVE,
+                        antialias=True,
+                        name="B-spline Upper",
+                    )
+                )
+
+            # Plot lower B-spline curve
+            if bspline_lower_curve is not None:
+                # Sample the B-spline curve
+                t_vals = np.linspace(0, 1, PLOT_POINTS_PER_SURFACE)
+                bspline_lower_points = bspline_lower_curve(t_vals)
+                
+                self.plot_items["B-spline Curves"].append(
+                    self.plot(
+                        bspline_lower_points[:, 0],
+                        bspline_lower_points[:, 1],
+                        pen=COLOR_BSPLINE_CURVE,
+                        antialias=True,
+                        name="B-spline Lower",
+                    )
+                )
+
+            # Plot upper control points
+            if bspline_upper_control_points is not None:
+                self.plot_items["B-spline Control Points"].append(
+                    self.plot(
+                        bspline_upper_control_points[:, 0],
+                        bspline_upper_control_points[:, 1],
+                        pen=COLOR_BSPLINE_CONTROL_POINTS,
+                        symbol="s",
+                        symbolSize=6,
+                        symbolBrush=COLOR_BSPLINE_CONTROL_SYMBOL,
+                        symbolPen=COLOR_BSPLINE_CONTROL_SYMBOL_PEN,
+                        name="B-spline Control Points Upper",
+                    )
+                )
+
+            # Plot lower control points
+            if bspline_lower_control_points is not None:
+                self.plot_items["B-spline Control Points"].append(
+                    self.plot(
+                        bspline_lower_control_points[:, 0],
+                        bspline_lower_control_points[:, 1],
+                        pen=COLOR_BSPLINE_CONTROL_POINTS,
+                        symbol="s",
+                        symbolSize=6,
+                        symbolBrush=COLOR_BSPLINE_CONTROL_SYMBOL,
+                        symbolPen=COLOR_BSPLINE_CONTROL_SYMBOL_PEN,
+                        name="B-spline Control Points Lower",
+                    )
+                )
+
+        # --------------------------------------------------------------
+        # 4) Curvature comb
         # --------------------------------------------------------------
         if comb_single_bezier is not None and any(comb_single_bezier):
             all_comb_hairs: list[np.ndarray] = []
@@ -286,7 +368,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
                     tips_item.setVisible(main_comb_item.isVisible())
 
         # --------------------------------------------------------------
-        # 4) Trailing-edge tangent vectors (only once)
+        # 5) Trailing-edge tangent vectors (only once)
         # --------------------------------------------------------------
         tangent_length = 0.05
         if upper_te_tangent_vector is not None and lower_te_tangent_vector is not None:
@@ -313,14 +395,24 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 )
 
         # --------------------------------------------------------------
-        # 5) Error text & markers
+        # 6) Error text & markers
         # --------------------------------------------------------------
+        # Bezier error tracking
         max_single_upper = worst_single_bezier_upper_max_error
         max_single_lower = worst_single_bezier_lower_max_error
         max_single_upper_idx = worst_single_bezier_upper_max_error_idx
         max_single_lower_idx = worst_single_bezier_lower_max_error_idx
         
+        # B-spline error tracking
+        max_bspline_upper = bspline_upper_max_error
+        max_bspline_lower = bspline_lower_max_error
+        max_bspline_upper_idx = bspline_upper_max_error_idx
+        max_bspline_lower_idx = bspline_lower_max_error_idx
+        
         # Show error labels for individual surfaces or both surfaces
+        error_texts = []
+        
+        # Bezier error text
         if chord_length_mm is not None and (max_single_upper is not None or max_single_lower is not None):
             error_html = '<div style="text-align: right; color: #00BFFF; font-size: 10pt;">'
             
@@ -328,47 +420,110 @@ class AirfoilPlotWidget(pg.PlotWidget):
                 # Both surfaces available
                 max_upper_mm = max_single_upper * chord_length_mm
                 max_lower_mm = max_single_lower * chord_length_mm
-                error_html += f"Max Error (Upper/Lower): {max_single_upper:.2e} ({max_upper_mm:.3f} mm) / {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
+                error_html += f"Bezier Max Error (Upper/Lower): {max_single_upper:.2e} ({max_upper_mm:.3f} mm) / {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
             elif max_single_upper is not None:
                 # Only upper surface available
                 max_upper_mm = max_single_upper * chord_length_mm
-                error_html += f"Max Error (Upper): {max_single_upper:.2e} ({max_upper_mm:.3f} mm)"
+                error_html += f"Bezier Max Error (Upper): {max_single_upper:.2e} ({max_upper_mm:.3f} mm)"
             elif max_single_lower is not None:
                 # Only lower surface available
                 max_lower_mm = max_single_lower * chord_length_mm
-                error_html += f"Max Error (Lower): {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
+                error_html += f"Bezier Max Error (Lower): {max_single_lower:.2e} ({max_lower_mm:.3f} mm)"
             
             error_html += "</div>"
             text_item = pg.TextItem(html=error_html, anchor=(1, 1))
             self.addItem(text_item)
             self.plot_items["Single Bezier Error Text"] = text_item
+            error_texts.append(text_item)
+        
+        # B-spline error text
+        if chord_length_mm is not None and (max_bspline_upper is not None or max_bspline_lower is not None):
+            error_html = '<div style="text-align: right; color: #FF6B6B; font-size: 10pt;">'
+            
+            if max_bspline_upper is not None and max_bspline_lower is not None:
+                # Both surfaces available
+                max_upper_mm = max_bspline_upper * chord_length_mm
+                max_lower_mm = max_bspline_lower * chord_length_mm
+                error_html += f"B-spline Max Error (Upper/Lower): {max_bspline_upper:.2e} ({max_upper_mm:.3f} mm) / {max_bspline_lower:.2e} ({max_lower_mm:.3f} mm)"
+            elif max_bspline_upper is not None:
+                # Only upper surface available
+                max_upper_mm = max_bspline_upper * chord_length_mm
+                error_html += f"B-spline Max Error (Upper): {max_bspline_upper:.2e} ({max_upper_mm:.3f} mm)"
+            elif max_bspline_lower is not None:
+                # Only lower surface available
+                max_lower_mm = max_bspline_lower * chord_length_mm
+                error_html += f"B-spline Max Error (Lower): {max_bspline_lower:.2e} ({max_lower_mm:.3f} mm)"
+            
+            error_html += "</div>"
+            text_item = pg.TextItem(html=error_html, anchor=(1, 1))
+            self.addItem(text_item)
+            self.plot_items["B-spline Error Text"] = text_item
+            error_texts.append(text_item)
 
         # Worst-error markers
         x_err: list[float] = []
         y_err: list[float] = []
+        marker_colors: list[tuple] = []
+        
+        # Bezier error markers (red)
         if max_single_upper_idx is not None and 0 <= max_single_upper_idx < len(upper_data):
             pt = upper_data[max_single_upper_idx]
             x_err.append(pt[0])
             y_err.append(pt[1])
+            marker_colors.append((255, 0, 0))  # Red for Bezier
         if max_single_lower_idx is not None and 0 <= max_single_lower_idx < len(lower_data):
             pt = lower_data[max_single_lower_idx]
             x_err.append(pt[0])
             y_err.append(pt[1])
+            marker_colors.append((255, 0, 0))  # Red for Bezier
+        
+        # B-spline error markers (orange)
+        if max_bspline_upper_idx is not None and 0 <= max_bspline_upper_idx < len(upper_data):
+            pt = upper_data[max_bspline_upper_idx]
+            x_err.append(pt[0])
+            y_err.append(pt[1])
+            marker_colors.append((255, 165, 0))  # Orange for B-spline
+        if max_bspline_lower_idx is not None and 0 <= max_bspline_lower_idx < len(lower_data):
+            pt = lower_data[max_bspline_lower_idx]
+            x_err.append(pt[0])
+            y_err.append(pt[1])
+            marker_colors.append((255, 165, 0))  # Orange for B-spline
+        
         if x_err:
-            marker_item = self.plot(
-                x_err,
-                y_err,
-                pen=None,
-                symbol="o",
-                symbolSize=16,
-                symbolBrush=None,
-                symbolPen=pg.mkPen((255, 0, 0), width=3),
-                name="Max. Error Markers",
-            )
-            self.plot_items["Max. Error Markers"] = marker_item
+            # Create separate marker items for different colors
+            red_x = [x for i, x in enumerate(x_err) if marker_colors[i] == (255, 0, 0)]
+            red_y = [y for i, y in enumerate(y_err) if marker_colors[i] == (255, 0, 0)]
+            orange_x = [x for i, x in enumerate(x_err) if marker_colors[i] == (255, 165, 0)]
+            orange_y = [y for i, y in enumerate(y_err) if marker_colors[i] == (255, 165, 0)]
+            
+            if red_x:
+                bezier_marker_item = self.plot(
+                    red_x,
+                    red_y,
+                    pen=None,
+                    symbol="o",
+                    symbolSize=16,
+                    symbolBrush=None,
+                    symbolPen=pg.mkPen((255, 0, 0), width=3),
+                    name="Bezier Max. Error Markers",
+                )
+                self.plot_items["Bezier Max. Error Markers"] = bezier_marker_item
+            
+            if orange_x:
+                bspline_marker_item = self.plot(
+                    orange_x,
+                    orange_y,
+                    pen=None,
+                    symbol="s",
+                    symbolSize=16,
+                    symbolBrush=None,
+                    symbolPen=pg.mkPen((255, 165, 0), width=3),
+                    name="B-spline Max. Error Markers",
+                )
+                self.plot_items["B-spline Max. Error Markers"] = bspline_marker_item
 
         # --------------------------------------------------------------
-        # 6) Geometry metrics panel (bottom-right)
+        # 7) Geometry metrics panel (bottom-right)
         # --------------------------------------------------------------
         # Build and add the text item if available
         if geometry_metrics:
@@ -394,7 +549,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
         self._update_error_text_positions()
 
         # --------------------------------------------------------------
-        # 7) Initial view range
+        # 8) Initial view range
         # --------------------------------------------------------------
         if not self._first_plot_done:
             all_x = np.concatenate([upper_data[:, 0], lower_data[:, 0]])
@@ -428,6 +583,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
 
         text_4_seg = self.plot_items.get("4-Seg Error Text")
         text_single = self.plot_items.get("Single Bezier Error Text")
+        text_bspline = self.plot_items.get("B-spline Error Text")
         text_geo = self.plot_items.get("Geometry Metrics Text")
 
         y_offset = (y_range[1] - y_range[0]) * 0.06
@@ -436,6 +592,9 @@ class AirfoilPlotWidget(pg.PlotWidget):
             current_y -= y_offset
         if text_single:
             text_single.setPos(top_right_x, current_y) 
+            current_y -= y_offset
+        if text_bspline:
+            text_bspline.setPos(top_right_x, current_y)
             current_y -= y_offset
         if text_geo:
             # Position slightly above the bottom to avoid being clipped
