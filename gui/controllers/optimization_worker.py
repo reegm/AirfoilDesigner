@@ -44,6 +44,9 @@ def _generation_worker(args, queue):
         build_bezier_free_x_msr,
         build_bezier_free_x_softmax,
         build_bezier_staged_uncoupled,
+        build_bezier_unified_peak_curvature_fixed_x_msr,
+        build_bezier_unified_peak_curvature_free_x_msr,
+        build_bezier_unified_peak_curvature_free_x_softmax,
     )
     from core.coupled_bezier_optimizer import (
         build_coupled_bezier_fixed_x_msr,
@@ -63,6 +66,7 @@ def _generation_worker(args, queue):
         gui_strategy,
         error_function,
         objective_type,
+        optimize_splitpoint,
         abort_flag
     ) = args
 
@@ -134,10 +138,50 @@ def _generation_worker(args, queue):
         # Dispatch based on strategy and g2_flag (coupled/uncoupled)
         if gui_strategy == 'fixed-x' and not g2_flag:
             # Uncoupled fixed-x (implemented)
-            worker_logger(f"Starting uncoupled fixed-x {objective_type} optimization...")
-            le_tangent_upper = np.array([0.0, 1.0])
-            le_tangent_lower = np.array([0.0, -1.0])
-            num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+            if optimize_splitpoint and objective_type == 'msr':
+                # Use enhanced split optimization
+                worker_logger(f"Starting unified peak curvature-based fixed-x {objective_type} optimization...")
+                num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+                
+                worker_logger("Processing both surfaces (unified peak curvature fixed-x MSR)...")
+                result = build_bezier_unified_peak_curvature_fixed_x_msr(
+                    upper_data,
+                    lower_data,
+                    num_control_points,
+                    upper_te_tangent_vector,  # Use upper TE vector as reference
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=combined_logger,
+                    abort_flag=abort_flag,
+                    search_region=0.1
+                )
+                (upper_poly, lower_poly), (reorganized_upper_data, reorganized_lower_data) = result
+                
+                # Error calculation (for reporting) - use reorganized data for unified peak curvature
+                if error_function == 'orthogonal':
+                    upper_error_result = calculate_single_bezier_fitting_error(upper_poly, reorganized_upper_data, error_function='orthogonal', return_max_error=True)
+                    lower_error_result = calculate_single_bezier_fitting_error(lower_poly, reorganized_lower_data, error_function='orthogonal', return_max_error=True)
+                else:
+                    upper_error_result = calculate_single_bezier_fitting_error(upper_poly, reorganized_upper_data, error_function='euclidean', return_max_error=True)
+                    lower_error_result = calculate_single_bezier_fitting_error(lower_poly, reorganized_lower_data, error_function='euclidean', return_max_error=True)
+                _, upper_max_error, upper_max_error_idx = upper_error_result
+                _, lower_max_error, lower_max_error_idx = lower_error_result
+                queue.put({
+                    "success": True,
+                    "upper_poly": upper_poly,
+                    "lower_poly": lower_poly,
+                    "upper_max_error": upper_max_error,
+                    "upper_max_error_idx": upper_max_error_idx,
+                    "lower_max_error": lower_max_error,
+                    "lower_max_error_idx": lower_max_error_idx,
+                })
+                return
+            else:
+                # Standard fixed-x optimization
+                worker_logger(f"Starting uncoupled fixed-x {objective_type} optimization...")
+                le_tangent_upper = np.array([0.0, 1.0])
+                le_tangent_lower = np.array([0.0, -1.0])
+                num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             
             # Create surface-specific loggers for uncoupled operations
             def upper_logger(*args):
@@ -229,6 +273,8 @@ def _generation_worker(args, queue):
                 "lower_max_error": lower_max_error,
                 "lower_max_error_idx": lower_max_error_idx,
             })
+
+
         elif gui_strategy == 'fixed-x' and g2_flag:
             # Coupled fixed-x (implemented)
             worker_logger(f"Starting coupled fixed-x {objective_type} optimization...")
@@ -278,10 +324,65 @@ def _generation_worker(args, queue):
             })
         elif gui_strategy == 'free-x' and not g2_flag:
             # Uncoupled free-x (implemented)
-            worker_logger(f"Starting uncoupled free-x {objective_type} optimization...")
-            le_tangent_upper = np.array([0.0, 1.0])
-            le_tangent_lower = np.array([0.0, -1.0])
-            num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+            if optimize_splitpoint and objective_type in ['msr', 'softmax']:
+                # Use enhanced split optimization
+                worker_logger(f"Starting unified peak curvature-based free-x {objective_type} optimization...")
+                num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
+                
+                if objective_type == 'msr':
+                    worker_logger("Processing both surfaces (unified peak curvature free-x MSR)...")
+                    result = build_bezier_unified_peak_curvature_free_x_msr(
+                        upper_data,
+                        lower_data,
+                        num_control_points,
+                        upper_te_tangent_vector,  # Use upper TE vector as reference
+                        regularization_weight=regularization_weight,
+                        error_function=error_function,
+                        logger_func=combined_logger,
+                        abort_flag=abort_flag,
+                        search_region=0.1
+                    )
+                elif objective_type == 'softmax':
+                    worker_logger("Processing both surfaces (unified peak curvature free-x softmax)...")
+                    result = build_bezier_unified_peak_curvature_free_x_softmax(
+                        upper_data,
+                        lower_data,
+                        num_control_points,
+                        upper_te_tangent_vector,  # Use upper TE vector as reference
+                        regularization_weight=regularization_weight,
+                        error_function=error_function,
+                        logger_func=combined_logger,
+                        abort_flag=abort_flag,
+                        search_region=0.1
+                    )
+                
+                (upper_poly, lower_poly), (reorganized_upper_data, reorganized_lower_data) = result
+                
+                # Error calculation (for reporting) - use reorganized data for unified peak curvature
+                if error_function == 'orthogonal':
+                    upper_error_result = calculate_single_bezier_fitting_error(upper_poly, reorganized_upper_data, error_function='orthogonal', return_max_error=True)
+                    lower_error_result = calculate_single_bezier_fitting_error(lower_poly, reorganized_lower_data, error_function='orthogonal', return_max_error=True)
+                else:
+                    upper_error_result = calculate_single_bezier_fitting_error(upper_poly, reorganized_upper_data, error_function='euclidean', return_max_error=True)
+                    lower_error_result = calculate_single_bezier_fitting_error(lower_poly, reorganized_lower_data, error_function='euclidean', return_max_error=True)
+                _, upper_max_error, upper_max_error_idx = upper_error_result
+                _, lower_max_error, lower_max_error_idx = lower_error_result
+                queue.put({
+                    "success": True,
+                    "upper_poly": upper_poly,
+                    "lower_poly": lower_poly,
+                    "upper_max_error": upper_max_error,
+                    "upper_max_error_idx": upper_max_error_idx,
+                    "lower_max_error": lower_max_error,
+                    "lower_max_error_idx": lower_max_error_idx,
+                })
+                return
+            else:
+                # Standard free-x optimization
+                worker_logger(f"Starting uncoupled free-x {objective_type} optimization...")
+                le_tangent_upper = np.array([0.0, 1.0])
+                le_tangent_lower = np.array([0.0, -1.0])
+                num_control_points = config.NUM_CONTROL_POINTS_SINGLE_BEZIER
             
             # Create surface-specific loggers for uncoupled operations
             def upper_logger(*args):

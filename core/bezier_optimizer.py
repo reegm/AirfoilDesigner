@@ -409,3 +409,847 @@ def build_bezier_fixed_x_softmax(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+def build_bezier_unified_peak_curvature_free_x_msr(
+    upper_data,
+    lower_data,
+    num_control_points_new,
+    te_tangent_vector,
+    regularization_weight=0.0,
+    error_function="euclidean",
+    logger_func=None,
+    abort_flag=None,
+    search_region=0.1,
+):
+    """
+    Unified peak curvature-based free-x MSR optimizer for both surfaces.
+    Uses a single split point determined by the surface with tighter curvature.
+    Reorganizes data so that points with x < split_x from the tighter surface
+    are moved to the other surface, creating non-monotonic x sequences.
+    Allows control points to move freely in both x and y directions.
+    """
+    from utils.bezier_utils import find_optimal_split_point_for_both_surfaces, reorganize_airfoil_data_for_split_point
+    from utils.control_point_utils import variable_x_control_points
+    from core.solver_helpers import minimize_with_debug_with_abort, smoothness_penalty
+    from core.error_functions import calculate_single_bezier_fitting_error
+    from core import config
+    
+    if logger_func:
+        logger_func("Finding optimal split point for both surfaces...")
+    
+    # Find the optimal split point for both surfaces
+    split_x, split_y, upper_tangent, lower_tangent, tighter_surface_is_upper = find_optimal_split_point_for_both_surfaces(
+        upper_data, lower_data, search_region
+    )
+    
+    if logger_func:
+        surface_name = "upper" if tighter_surface_is_upper else "lower"
+        logger_func(f"Using split point from {surface_name} surface: ({split_x:.4f}, {split_y:.4f})")
+        logger_func(f"Upper tangent: {upper_tangent}")
+        logger_func(f"Lower tangent: {lower_tangent}")
+    
+    # Reorganize the airfoil data based on the split point
+    if logger_func:
+        logger_func("Reorganizing airfoil data for unified split point...")
+    
+    new_upper_data, new_lower_data = reorganize_airfoil_data_for_split_point(
+        upper_data, lower_data, split_x, tighter_surface_is_upper
+    )
+    
+    if logger_func:
+        logger_func(f"Data reorganization complete. Upper: {len(new_upper_data)} points, Lower: {len(new_lower_data)} points")
+        logger_func("Starting unified peak curvature optimization...")
+    
+    # Get initial control points for both surfaces (use per-surface TE y)
+    te_y_upper = float(new_upper_data[-1, 1])
+    te_y_lower = float(new_lower_data[-1, 1])
+    
+    # Upper surface
+    upper_paper_x_coords = variable_x_control_points(new_upper_data, num_control_points_new)
+    if num_control_points_new != len(upper_paper_x_coords):
+        num_control_points_new = len(upper_paper_x_coords)
+    upper_initial_ctrl = np.zeros((num_control_points_new, 2))
+    upper_initial_ctrl[:, 0] = upper_paper_x_coords
+    upper_initial_ctrl[:, 1] = np.interp(upper_paper_x_coords, new_upper_data[:, 0], new_upper_data[:, 1])
+    
+    # Set split point as first control point for upper surface
+    upper_initial_ctrl[0] = [split_x, split_y]
+    upper_initial_ctrl[-1] = [1.0, te_y_upper]  # TE
+    
+    # Lower surface
+    lower_paper_x_coords = variable_x_control_points(new_lower_data, num_control_points_new)
+    lower_initial_ctrl = np.zeros((num_control_points_new, 2))
+    lower_initial_ctrl[:, 0] = lower_paper_x_coords
+    lower_initial_ctrl[:, 1] = np.interp(lower_paper_x_coords, new_lower_data[:, 0], new_lower_data[:, 1])
+    
+    # Set split point as first control point for lower surface
+    lower_initial_ctrl[0] = [split_x, split_y]
+    lower_initial_ctrl[-1] = [1.0, te_y_lower]  # TE
+    
+    # Define objective function for upper surface
+    def upper_objective_function(variables):
+        # variables: [x1, y1, x2, y2, ..., xn-1, yn-1] (excluding split point and TE)
+        n_vars = len(variables)
+        n_inner = n_vars // 2
+        
+        # Reconstruct control points
+        control_points = np.zeros((num_control_points_new, 2))
+        control_points[0] = [split_x, split_y]  # Split point
+        
+        # Set inner control points
+        for i in range(n_inner):
+            control_points[i + 1] = [variables[2*i], variables[2*i + 1]]
+        
+        control_points[-1] = [1.0, te_y_upper]  # TE
+        
+        # Apply tangent constraint to second control point (P1)
+        if n_inner > 0:
+            # Calculate the vector from split point to P1
+            p0_to_p1 = control_points[1] - control_points[0]
+            
+            # Project P1 onto the line defined by split point and upper tangent
+            # P1 should lie on: P0 + t * upper_tangent
+            tx, ty = upper_tangent
+            if abs(tx) > 1e-12 or abs(ty) > 1e-12:  # Avoid division by zero
+                # Calculate the parameter t that minimizes distance to current P1
+                # t = (P1 - P0) · tangent / |tangent|²
+                tangent_norm_sq = tx*tx + ty*ty
+                t = np.dot(p0_to_p1, upper_tangent) / tangent_norm_sq
+                
+                # Project P1 onto the tangent line
+                projected_p1 = np.array([split_x, split_y]) + t * np.array(upper_tangent)
+                control_points[1] = projected_p1
+        
+        # Calculate error
+        error = calculate_single_bezier_fitting_error(control_points, new_upper_data, error_function=error_function, return_max_error=False)
+        if isinstance(error, tuple):
+            error = error[0]
+        return error
+    
+    # Define objective function for lower surface
+    def lower_objective_function(variables):
+        # variables: [x1, y1, x2, y2, ..., xn-1, yn-1] (excluding split point and TE)
+        n_vars = len(variables)
+        n_inner = n_vars // 2
+        
+        # Reconstruct control points
+        control_points = np.zeros((num_control_points_new, 2))
+        control_points[0] = [split_x, split_y]  # Split point
+        
+        # Set inner control points
+        for i in range(n_inner):
+            control_points[i + 1] = [variables[2*i], variables[2*i + 1]]
+        
+        control_points[-1] = [1.0, te_y_upper]  # TE
+        
+        # Apply tangent constraint to second control point (P1)
+        if n_inner > 0:
+            # Calculate the vector from split point to P1
+            p0_to_p1 = control_points[1] - control_points[0]
+            
+            # Project P1 onto the line defined by split point and lower tangent
+            # P1 should lie on: P0 + t * lower_tangent
+            tx, ty = lower_tangent
+            if abs(tx) > 1e-12 or abs(ty) > 1e-12:  # Avoid division by zero
+                # Calculate the parameter t that minimizes distance to current P1
+                # t = (P1 - P0) · tangent / |tangent|²
+                tangent_norm_sq = tx*tx + ty*ty
+                t = np.dot(p0_to_p1, lower_tangent) / tangent_norm_sq
+                
+                # Project P1 onto the tangent line
+                projected_p1 = np.array([split_x, split_y]) + t * np.array(lower_tangent)
+                control_points[1] = projected_p1
+        
+        # Calculate error
+        error = calculate_single_bezier_fitting_error(control_points, new_lower_data, error_function=error_function, return_max_error=False)
+        if isinstance(error, tuple):
+            error = error[0]
+        return error
+    
+    # Prepare initial variables for optimization
+    # Extract inner control points (excluding split point and TE)
+    upper_inner_vars = []
+    for i in range(1, num_control_points_new - 1):
+        upper_inner_vars.extend([upper_initial_ctrl[i, 0], upper_initial_ctrl[i, 1]])
+    
+    lower_inner_vars = []
+    for i in range(1, num_control_points_new - 1):
+        lower_inner_vars.extend([lower_initial_ctrl[i, 0], lower_initial_ctrl[i, 1]])
+    
+    # Add build_ctrl functions for progress updates
+    def upper_build_ctrl(variables):
+        n_vars = len(variables)
+        n_inner = n_vars // 2
+        control_points = np.zeros((num_control_points_new, 2))
+        control_points[0] = [split_x, split_y]
+        for i in range(n_inner):
+            control_points[i + 1] = [variables[2*i], variables[2*i + 1]]
+        control_points[-1] = [1.0, te_y_upper]
+        
+        # Apply tangent constraint
+        if n_inner > 0:
+            p0_to_p1 = control_points[1] - control_points[0]
+            tx, ty = upper_tangent
+            if abs(tx) > 1e-12 or abs(ty) > 1e-12:
+                tangent_norm_sq = tx*tx + ty*ty
+                t = np.dot(p0_to_p1, upper_tangent) / tangent_norm_sq
+                projected_p1 = np.array([split_x, split_y]) + t * np.array(upper_tangent)
+                control_points[1] = projected_p1
+        return control_points
+    
+    def lower_build_ctrl(variables):
+        n_vars = len(variables)
+        n_inner = n_vars // 2
+        control_points = np.zeros((num_control_points_new, 2))
+        control_points[0] = [split_x, split_y]
+        for i in range(n_inner):
+            control_points[i + 1] = [variables[2*i], variables[2*i + 1]]
+        control_points[-1] = [1.0, te_y_lower]
+        
+        # Apply tangent constraint
+        if n_inner > 0:
+            p0_to_p1 = control_points[1] - control_points[0]
+            tx, ty = lower_tangent
+            if abs(tx) > 1e-12 or abs(ty) > 1e-12:
+                tangent_norm_sq = tx*tx + ty*ty
+                t = np.dot(p0_to_p1, lower_tangent) / tangent_norm_sq
+                projected_p1 = np.array([split_x, split_y]) + t * np.array(lower_tangent)
+                control_points[1] = projected_p1
+        return control_points
+    
+    upper_objective_function.__build_ctrl__ = upper_build_ctrl
+    lower_objective_function.__build_ctrl__ = lower_build_ctrl
+    
+    # Run optimization for upper surface
+    if logger_func:
+        logger_func("Optimizing upper surface...")
+    
+    upper_result, _ = minimize_with_debug_with_abort(
+        fun=upper_objective_function,
+        x0=upper_inner_vars,
+        method="SLSQP",
+        options=config.SLSQP_OPTIONS,
+        progress_callback=logger_func,
+        abort_flag=abort_flag
+    )
+    
+    if not upper_result.success:
+        if logger_func:
+            logger_func(f"Warning: Upper surface optimization did not converge: {upper_result.message}")
+    
+    # Run optimization for lower surface
+    if logger_func:
+        logger_func("Optimizing lower surface...")
+    
+    lower_result, _ = minimize_with_debug_with_abort(
+        fun=lower_objective_function,
+        x0=lower_inner_vars,
+        method="SLSQP",
+        options=config.SLSQP_OPTIONS,
+        progress_callback=logger_func,
+        abort_flag=abort_flag
+    )
+    
+    if not lower_result.success:
+        if logger_func:
+            logger_func(f"Warning: Lower surface optimization did not converge: {lower_result.message}")
+    
+    # Build final control points
+    upper_final_ctrl = upper_build_ctrl(upper_result.x)
+    lower_final_ctrl = lower_build_ctrl(lower_result.x)
+    
+    if logger_func:
+        logger_func("Unified peak curvature optimization completed.")
+    
+    # Return both control points and reorganized data for proper error calculation
+    return (upper_final_ctrl, lower_final_ctrl), (new_upper_data, new_lower_data)
+
+
+def build_bezier_unified_peak_curvature_fixed_x_msr(
+    upper_data,
+    lower_data,
+    num_control_points_new,
+    te_tangent_vector,
+    regularization_weight=0.0,
+    error_function="euclidean",
+    logger_func=None,
+    abort_flag=None,
+    search_region=0.1,
+):
+    """
+    Unified peak curvature-based fixed-x MSR optimizer for both surfaces.
+    Uses a single split point determined by the surface with tighter curvature.
+    Reorganizes data so that points with x < split_x from the tighter surface
+    are moved to the other surface, creating non-monotonic x sequences.
+    """
+    from utils.bezier_utils import find_optimal_split_point_for_both_surfaces, reorganize_airfoil_data_for_split_point
+    from core.solver_helpers import get_unified_peak_curvature_fixed_x_partition, build_control_points_with_peak_curvature_split, get_initial_guess_inner_y, minimize_with_debug_with_abort
+    from core.error_functions import calculate_single_bezier_fitting_error
+    
+    if logger_func:
+        logger_func("Finding optimal split point for both surfaces...")
+    
+    # Find the optimal split point for both surfaces
+    split_x, split_y, upper_tangent, lower_tangent, tighter_surface_is_upper = find_optimal_split_point_for_both_surfaces(
+        upper_data, lower_data, search_region
+    )
+    
+    if logger_func:
+        surface_name = "upper" if tighter_surface_is_upper else "lower"
+        logger_func(f"Using split point from {surface_name} surface: ({split_x:.4f}, {split_y:.4f})")
+        logger_func(f"Upper tangent: {upper_tangent}")
+        logger_func(f"Lower tangent: {lower_tangent}")
+    
+    # Reorganize the airfoil data
+    if logger_func:
+        logger_func("Reorganizing airfoil data for unified split point...")
+    
+    new_upper_data, new_lower_data = reorganize_airfoil_data_for_split_point(
+        upper_data, lower_data, split_x, tighter_surface_is_upper
+    )
+    
+    if logger_func:
+        logger_func(f"Data reorganization complete. Upper: {len(new_upper_data)} points, Lower: {len(new_lower_data)} points")
+    
+    # Get unified peak curvature-based partitioning
+    (upper_fixed_inner_x_coords, lower_fixed_inner_x_coords,
+     upper_free_indices, lower_free_indices,
+     upper_fixed_indices, lower_fixed_indices,
+     upper_fixed_y_values, lower_fixed_y_values, split_info) = get_unified_peak_curvature_fixed_x_partition(
+        new_upper_data, new_lower_data, num_control_points_new, te_tangent_vector, 
+        te_y=float(new_upper_data[-1, 1]), search_region=search_region
+    )
+    
+    # Get initial guesses for free y variables
+    upper_initial_y = get_initial_guess_inner_y(new_upper_data, upper_fixed_inner_x_coords)
+    lower_initial_y = get_initial_guess_inner_y(new_lower_data, lower_fixed_inner_x_coords)
+    
+    upper_initial_y = upper_initial_y[upper_free_indices]
+    lower_initial_y = lower_initial_y[lower_free_indices]
+    
+    # Combine all variables for optimization
+    all_variables = np.concatenate([upper_initial_y, lower_initial_y])
+    
+    # Define the objective function for both surfaces
+    def objective_function(variables):
+        # Split variables back to upper and lower
+        n_upper_free = len(upper_free_indices)
+        upper_vars = variables[:n_upper_free]
+        lower_vars = variables[n_upper_free:]
+        
+        # Build control points for both surfaces
+        upper_ctrl = build_control_points_with_peak_curvature_split(
+            upper_vars, upper_fixed_inner_x_coords, split_x, split_y, upper_tangent,
+            float(new_upper_data[-1, 1]), upper_free_indices, upper_fixed_indices, upper_fixed_y_values
+        )
+        lower_ctrl = build_control_points_with_peak_curvature_split(
+            lower_vars, lower_fixed_inner_x_coords, split_x, split_y, lower_tangent,
+            float(new_lower_data[-1, 1]), lower_free_indices, lower_fixed_indices, lower_fixed_y_values
+        )
+        
+        # Calculate combined error
+        upper_error = calculate_single_bezier_fitting_error(upper_ctrl, new_upper_data, error_function=error_function, return_max_error=False)
+        lower_error = calculate_single_bezier_fitting_error(lower_ctrl, new_lower_data, error_function=error_function, return_max_error=False)
+        
+        if isinstance(upper_error, tuple):
+            upper_error = upper_error[0]
+        if isinstance(lower_error, tuple):
+            lower_error = lower_error[0]
+        
+        total_error = upper_error + lower_error
+        return total_error
+    
+    # Add build_ctrl function for progress updates
+    def build_ctrl_for_progress(variables):
+        n_upper_free = len(upper_free_indices)
+        upper_vars = variables[:n_upper_free]
+        lower_vars = variables[n_upper_free:]
+        
+        upper_ctrl = build_control_points_with_peak_curvature_split(
+            upper_vars, upper_fixed_inner_x_coords, split_x, split_y, upper_tangent,
+            float(new_upper_data[-1, 1]), upper_free_indices, upper_fixed_indices, upper_fixed_y_values
+        )
+        lower_ctrl = build_control_points_with_peak_curvature_split(
+            lower_vars, lower_fixed_inner_x_coords, split_x, split_y, lower_tangent,
+            float(new_lower_data[-1, 1]), lower_free_indices, lower_fixed_indices, lower_fixed_y_values
+        )
+        
+        return upper_ctrl, lower_ctrl
+    
+    objective_function.__build_ctrl__ = build_ctrl_for_progress
+    
+    # Run optimization
+    if logger_func:
+        logger_func("Starting unified peak curvature optimization...")
+    
+    result, _ = minimize_with_debug_with_abort(
+        fun=objective_function,
+        x0=all_variables,
+        method="SLSQP",
+        options=config.SLSQP_OPTIONS,
+        progress_callback=logger_func,
+        abort_flag=abort_flag
+    )
+    
+    if not result.success:
+        if logger_func:
+            logger_func(f"Warning: Unified peak curvature optimization did not converge: {result.message}")
+    
+    # Build final control points
+    final_upper_ctrl, final_lower_ctrl = build_ctrl_for_progress(result.x)
+    
+    if logger_func:
+        logger_func("Unified peak curvature optimization completed.")
+    
+    # Return both control points and reorganized data for proper error calculation
+    return (final_upper_ctrl, final_lower_ctrl), (new_upper_data, new_lower_data)
+
+
+def build_bezier_unified_peak_curvature_free_x_softmax(
+    upper_data,
+    lower_data,
+    num_control_points_new,
+    te_tangent_vector,
+    regularization_weight=0.0,
+    error_function="euclidean",
+    logger_func=None,
+    abort_flag=None,
+    search_region=0.1,
+):
+    """
+    Unified peak curvature-based free-x softmax optimizer for both surfaces.
+    Uses a single split point determined by the surface with tighter curvature.
+    Reorganizes data so that points with x < split_x from the tighter surface
+    are moved to the other surface, creating non-monotonic x sequences.
+    Allows control points to move freely in both x and y directions.
+    """
+    from utils.bezier_utils import find_optimal_split_point_for_both_surfaces, reorganize_airfoil_data_for_split_point
+    from utils.control_point_utils import variable_x_control_points
+    from core.solver_helpers import minimize_with_debug_with_abort
+    from core.error_functions import calculate_single_bezier_fitting_error
+    from core import config
+    
+    if logger_func:
+        logger_func("Finding optimal split point for both surfaces...")
+    
+    # Find the optimal split point for both surfaces
+    split_x, split_y, upper_tangent, lower_tangent, tighter_surface_is_upper = find_optimal_split_point_for_both_surfaces(
+        upper_data, lower_data, search_region
+    )
+    
+    if logger_func:
+        surface_name = "upper" if tighter_surface_is_upper else "lower"
+        logger_func(f"Using split point from {surface_name} surface: ({split_x:.4f}, {split_y:.4f})")
+        logger_func(f"Upper tangent: {upper_tangent}")
+        logger_func(f"Lower tangent: {lower_tangent}")
+    
+    # Reorganize the airfoil data based on the split point
+    if logger_func:
+        logger_func("Reorganizing airfoil data for unified split point...")
+    
+    new_upper_data, new_lower_data = reorganize_airfoil_data_for_split_point(
+        upper_data, lower_data, split_x, tighter_surface_is_upper
+    )
+    
+    if logger_func:
+        logger_func(f"Data reorganization complete. Upper: {len(new_upper_data)} points, Lower: {len(new_lower_data)} points")
+        logger_func("Starting unified peak curvature optimization...")
+    
+    # Helper: per-surface progress logger wrappers to tag surface for GUI plot updates
+    def make_surface_logger(surface_tag):
+        def _surface_logger(*args):
+            # Strings or other messages pass-through
+            if len(args) == 1 and isinstance(args[0], str):
+                if logger_func:
+                    logger_func(args[0])
+                return
+            # Progress tuples from minimize_with_debug_with_abort
+            if len(args) == 7:
+                # iteration, elapsed, val, true_max, best_true_max, best_x, current_ctrl
+                if logger_func:
+                    try:
+                        logger_func(*args, surface_tag)
+                    except Exception:
+                        # Fallback if upstream can't handle 8-arg form
+                        logger_func(*args)
+                return
+            # Fallback
+            if logger_func:
+                logger_func(*args)
+        return _surface_logger
+
+    upper_logger = make_surface_logger("upper")
+    lower_logger = make_surface_logger("lower")
+
+    # Helper: bounds and monotonic constraints for free-x inner variables [x1,y1,x2,y2,...]
+    def build_bounds_and_constraints(data_array, n_inner, split_x_local):
+        y_vals = data_array[:, 1]
+        y_min = float(np.min(y_vals))
+        y_max = float(np.max(y_vals))
+        margin = 0.25 * (y_max - y_min + 1e-6)
+        y_lo = y_min - margin
+        y_hi = y_max + margin
+        delta = 1e-4
+        bounds = []
+        for i in range(n_inner):
+            # x_i bounds increasing from split_x to 1.0
+            x_lo = min(max(split_x_local + i * delta, 0.0), 1.0)
+            x_hi = max(min(1.0 - (n_inner - 1 - i) * delta, 1.0), x_lo + 1e-12)
+            bounds.append((x_lo, x_hi))
+            bounds.append((y_lo, y_hi))
+        # Monotonic constraints: x_{i+1} - x_i - delta >= 0
+        constraints = []
+        for i in range(n_inner - 1):
+            idx_i = 2 * i
+            idx_ip1 = 2 * (i + 1)
+            constraints.append({
+                "type": "ineq",
+                "fun": (lambda ii=idx_i, jj=idx_ip1: lambda vec: vec[jj] - vec[ii] - delta)()
+            })
+        return bounds, constraints
+
+    # Helper: anchored, tighter bounds around MSR baseline to prevent collapse in softmax stage
+    def build_anchored_bounds(data_array, msr_ctrl, split_x_local):
+        n_inner = len(msr_ctrl) - 2
+        y_vals = data_array[:, 1]
+        y_min = float(np.min(y_vals))
+        y_max = float(np.max(y_vals))
+        global_margin = 0.25 * (y_max - y_min + 1e-6)
+        delta = 1e-4
+        # Radii around MSR positions
+        radius_x = 0.05  # 5% chord by default
+        radius_y = 0.20 * (y_max - y_min + 1e-6)
+        bounds = []
+        for i in range(n_inner):
+            x0 = float(msr_ctrl[i + 1, 0])
+            y0 = float(msr_ctrl[i + 1, 1])
+            x_lo_geom = max(split_x_local + i * delta, 0.0)
+            x_hi_geom = min(1.0 - (n_inner - 1 - i) * delta, 1.0)
+            x_lo = max(x_lo_geom, x0 - radius_x)
+            x_hi = min(x_hi_geom, x0 + radius_x)
+            if x_hi <= x_lo:
+                x_hi = x_lo + 1e-6
+            y_lo = max(y_min - global_margin, y0 - radius_y)
+            y_hi = min(y_max + global_margin, y0 + radius_y)
+            if y_hi <= y_lo:
+                y_hi = y_lo + 1e-6
+            bounds.append((x_lo, x_hi))
+            bounds.append((y_lo, y_hi))
+        # Monotonic constraints: x_{i+1} - x_i - delta >= 0
+        constraints = []
+        for i in range(n_inner - 1):
+            idx_i = 2 * i
+            idx_ip1 = 2 * (i + 1)
+            constraints.append({
+                "type": "ineq",
+                "fun": (lambda ii=idx_i, jj=idx_ip1: lambda vec: vec[jj] - vec[ii] - delta)()
+            })
+        return bounds, constraints
+
+    # Stage 1: Use the existing MSR builder to produce initial control polygons
+    if logger_func:
+        logger_func("Stage 1: MSR optimization for initial guess...")
+        logger_func("Delegating Stage 1 to build_bezier_unified_peak_curvature_free_x_msr(...)")
+
+    from core.bezier_optimizer import build_bezier_unified_peak_curvature_free_x_msr as _msr_builder
+    (upper_msr_ctrl, lower_msr_ctrl), (new_upper_data, new_lower_data) = _msr_builder(
+        upper_data,
+        lower_data,
+        num_control_points_new,
+        te_tangent_vector,
+        regularization_weight=regularization_weight,
+        error_function=error_function,
+        logger_func=logger_func,
+        abort_flag=abort_flag,
+        search_region=search_region,
+    )
+
+    # Per-surface TE for downstream steps
+    te_y_upper = float(new_upper_data[-1, 1])
+    te_y_lower = float(new_lower_data[-1, 1])
+    # Bounds/constraints for Stage 2
+    split_x = float(upper_msr_ctrl[0, 0])
+    n_inner_upper = len(upper_msr_ctrl) - 2
+    n_inner_lower = len(lower_msr_ctrl) - 2
+    upper_bounds, upper_constraints = build_bounds_and_constraints(new_upper_data, n_inner_upper, split_x)
+    lower_bounds, lower_constraints = build_bounds_and_constraints(new_lower_data, n_inner_lower, split_x)
+
+    # Optional: Log MSR stage ctrl
+    if logger_func:
+        logger_func("MSR stage upper control points:")
+        logger_func(str(upper_msr_ctrl))
+        logger_func("MSR stage lower control points:")
+        logger_func(str(lower_msr_ctrl))
+    
+    # Stage 2: Softmax optimization
+    if logger_func:
+        logger_func("Stage 2: Softmax optimization...")
+    
+    # Optimize upper surface with softmax
+    if logger_func:
+        logger_func("Optimizing upper surface (softmax)...")
+    
+    # Define softmax objective function for upper surface
+    def upper_softmax_objective_function(variables):
+        # variables: [x1, y1, x2, y2, ..., xn-1, yn-1] (excluding split point and TE)
+        n_vars = len(variables)
+        n_inner = n_vars // 2
+        
+        # Reconstruct control points
+        control_points = np.zeros((num_control_points_new, 2))
+        control_points[0] = [split_x, split_y]  # Split point
+        
+        # Set inner control points
+        for i in range(n_inner):
+            control_points[i + 1] = [variables[2*i], variables[2*i + 1]]
+        
+        control_points[-1] = [1.0, te_y_upper]  # TE
+        
+        # Apply tangent constraint to second control point (P1)
+        if n_inner > 0:
+            p0_to_p1 = control_points[1] - control_points[0]
+            tx, ty = upper_tangent
+            if abs(tx) > 1e-12 or abs(ty) > 1e-12:
+                tangent_norm_sq = tx*tx + ty*ty
+                t = np.dot(p0_to_p1, upper_tangent) / tangent_norm_sq
+                projected_p1 = np.array([split_x, split_y]) + t * np.array(upper_tangent)
+                control_points[1] = projected_p1
+        
+        # Calculate residuals for softmax
+        efun = error_function if error_function.endswith("_softmax") else (error_function + "_softmax")
+        error_result = calculate_single_bezier_fitting_error(control_points, new_upper_data, error_function=efun, return_all=True)
+        
+        # Extract residuals from the return value
+        if isinstance(error_result, tuple) and len(error_result) >= 1:
+            residuals = error_result[0]  # First element is the residuals array
+        else:
+            # Fallback if the return format is unexpected
+            residuals = np.array([error_result])
+        
+        # Apply softmax
+        alpha = config.SOFTMAX_ALPHA
+        abs_res = np.abs(residuals)
+        # Prevent overflow by clipping large values
+        max_val = np.max(abs_res)
+        if max_val > 100:  # Threshold to prevent overflow
+            abs_res = np.clip(abs_res, 0, 100)
+        softmax_val = np.log(np.sum(np.exp(alpha * abs_res))) / alpha
+        
+        if regularization_weight and regularization_weight != 0:
+            softmax_val = softmax_val + regularization_weight * smoothness_penalty(control_points)
+        return softmax_val
+
+    # Hooks for progress and residuals
+    def _upper_softmax_build_ctrl(vars_vec):
+        n_vars_local = len(vars_vec)
+        n_inner_local = n_vars_local // 2
+        ctrl = np.zeros((num_control_points_new, 2))
+        ctrl[0] = [split_x, split_y]
+        for i in range(n_inner_local):
+            ctrl[i + 1] = [vars_vec[2*i], vars_vec[2*i + 1]]
+        ctrl[-1] = [1.0, te_y_upper]
+        if n_inner_local > 0:
+            p0_to_p1 = ctrl[1] - ctrl[0]
+            tx, ty = upper_tangent
+            if abs(tx) > 1e-12 or abs(ty) > 1e-12:
+                tangent_norm_sq = tx*tx + ty*ty
+                t = np.dot(p0_to_p1, upper_tangent) / tangent_norm_sq
+                ctrl[1] = np.array([split_x, split_y]) + t * np.array(upper_tangent)
+        return ctrl
+    def _upper_softmax_residuals(vars_vec):
+        ctrl = _upper_softmax_build_ctrl(vars_vec)
+        res_tuple = calculate_single_bezier_fitting_error(ctrl, new_upper_data, error_function=error_function, return_all=True)
+        return res_tuple[0] if isinstance(res_tuple, tuple) else np.array([res_tuple])
+    upper_softmax_objective_function.__build_ctrl__ = _upper_softmax_build_ctrl
+    upper_softmax_objective_function.__get_residuals__ = _upper_softmax_residuals
+    
+    # Optimize upper surface with softmax
+    # Softmax stage: anchored bounds/constraints around MSR
+    upper_bounds, upper_constraints = build_anchored_bounds(new_upper_data, upper_msr_ctrl, split_x)
+    result, _ = minimize_with_debug_with_abort(
+        fun=upper_softmax_objective_function,
+        x0=np.concatenate([upper_msr_ctrl[1:-1, 0], upper_msr_ctrl[1:-1, 1]]),  # Use MSR result as initial guess
+        method="SLSQP",
+        options=config.SLSQP_OPTIONS,
+        abort_flag=abort_flag,
+        bounds=upper_bounds,
+        constraints=upper_constraints,
+        progress_callback=upper_logger,
+    )
+    
+    if result is None:
+        if logger_func:
+            logger_func("Upper surface softmax optimization failed")
+        return None, None
+    
+    # Reconstruct upper control points from softmax result
+    n_inner = (len(result.x) // 2)
+    upper_final_ctrl = np.zeros((num_control_points_new, 2))
+    upper_final_ctrl[0] = [split_x, split_y]  # Split point
+    for i in range(n_inner):
+        upper_final_ctrl[i + 1] = [result.x[2*i], result.x[2*i + 1]]
+    upper_final_ctrl[-1] = [1.0, te_y_upper]  # TE
+    
+    # Apply tangent constraint to second control point
+    if n_inner > 0:
+        p0_to_p1 = upper_final_ctrl[1] - upper_final_ctrl[0]
+        tx, ty = upper_tangent
+        if abs(tx) > 1e-12 or abs(ty) > 1e-12:
+            tangent_norm_sq = tx*tx + ty*ty
+            t = np.dot(p0_to_p1, upper_tangent) / tangent_norm_sq
+            projected_p1 = np.array([split_x, split_y]) + t * np.array(upper_tangent)
+            upper_final_ctrl[1] = projected_p1
+
+    # Log softmax-stage upper control points
+    if logger_func:
+        import numpy as _np
+        _np.set_printoptions(precision=6, suppress=True)
+        logger_func("Softmax stage upper control points:")
+        logger_func(str(upper_final_ctrl))
+    
+    # Optimize lower surface with softmax
+    if logger_func:
+        logger_func("Optimizing lower surface (softmax)...")
+    
+    # Define softmax objective function for lower surface
+    def lower_softmax_objective_function(variables):
+        # variables: [x1, y1, x2, y2, ..., xn-1, yn-1] (excluding split point and TE)
+        n_vars = len(variables)
+        n_inner = n_vars // 2
+        
+        # Reconstruct control points
+        control_points = np.zeros((num_control_points_new, 2))
+        control_points[0] = [split_x, split_y]  # Split point
+        
+        # Set inner control points
+        for i in range(n_inner):
+            control_points[i + 1] = [variables[2*i], variables[2*i + 1]]
+        
+        control_points[-1] = [1.0, te_y_lower]  # TE
+        
+        # Apply tangent constraint to second control point (P1)
+        if n_inner > 0:
+            p0_to_p1 = control_points[1] - control_points[0]
+            tx, ty = lower_tangent
+            if abs(tx) > 1e-12 or abs(ty) > 1e-12:
+                tangent_norm_sq = tx*tx + ty*ty
+                t = np.dot(p0_to_p1, lower_tangent) / tangent_norm_sq
+                projected_p1 = np.array([split_x, split_y]) + t * np.array(lower_tangent)
+                control_points[1] = projected_p1
+        
+        # Calculate residuals for softmax
+        efun = error_function if error_function.endswith("_softmax") else (error_function + "_softmax")
+        error_result = calculate_single_bezier_fitting_error(control_points, new_lower_data, error_function=efun, return_all=True)
+        
+        # Extract residuals from the return value
+        if isinstance(error_result, tuple) and len(error_result) >= 1:
+            residuals = error_result[0]  # First element is the residuals array
+        else:
+            # Fallback if the return format is unexpected
+            residuals = np.array([error_result])
+        
+        # Apply softmax
+        alpha = config.SOFTMAX_ALPHA
+        abs_res = np.abs(residuals)
+        # Prevent overflow by clipping large values
+        max_val = np.max(abs_res)
+        if max_val > 100:  # Threshold to prevent overflow
+            abs_res = np.clip(abs_res, 0, 100)
+        softmax_val = np.log(np.sum(np.exp(alpha * abs_res))) / alpha
+        
+        if regularization_weight and regularization_weight != 0:
+            softmax_val = softmax_val + regularization_weight * smoothness_penalty(control_points)
+        return softmax_val
+
+    # Hooks for progress and residuals (lower)
+    def _lower_softmax_build_ctrl(vars_vec):
+        n_vars_local = len(vars_vec)
+        n_inner_local = n_vars_local // 2
+        ctrl = np.zeros((num_control_points_new, 2))
+        ctrl[0] = [split_x, split_y]
+        for i in range(n_inner_local):
+            ctrl[i + 1] = [vars_vec[2*i], vars_vec[2*i + 1]]
+        ctrl[-1] = [1.0, te_y_lower]
+        if n_inner_local > 0:
+            p0_to_p1 = ctrl[1] - ctrl[0]
+            tx, ty = lower_tangent
+            if abs(tx) > 1e-12 or abs(ty) > 1e-12:
+                tangent_norm_sq = tx*tx + ty*ty
+                t = np.dot(p0_to_p1, lower_tangent) / tangent_norm_sq
+                ctrl[1] = np.array([split_x, split_y]) + t * np.array(lower_tangent)
+        return ctrl
+    def _lower_softmax_residuals(vars_vec):
+        ctrl = _lower_softmax_build_ctrl(vars_vec)
+        res_tuple = calculate_single_bezier_fitting_error(ctrl, new_lower_data, error_function=error_function, return_all=True)
+        return res_tuple[0] if isinstance(res_tuple, tuple) else np.array([res_tuple])
+    lower_softmax_objective_function.__build_ctrl__ = _lower_softmax_build_ctrl
+    lower_softmax_objective_function.__get_residuals__ = _lower_softmax_residuals
+    
+    # Optimize lower surface with softmax
+    # Anchored bounds/constraints around lower MSR
+    lower_bounds, lower_constraints = build_anchored_bounds(new_lower_data, lower_msr_ctrl, split_x)
+    result, _ = minimize_with_debug_with_abort(
+        fun=lower_softmax_objective_function,
+        x0=np.concatenate([lower_msr_ctrl[1:-1, 0], lower_msr_ctrl[1:-1, 1]]),  # Use MSR result as initial guess
+        method="SLSQP",
+        options=config.SLSQP_OPTIONS,
+        abort_flag=abort_flag,
+        bounds=lower_bounds,
+        constraints=lower_constraints,
+        progress_callback=lower_logger,
+    )
+    
+    if result is None:
+        if logger_func:
+            logger_func("Lower surface softmax optimization failed")
+        return None, None
+    
+    # Reconstruct lower control points from softmax result
+    n_inner = (len(result.x) // 2)
+    lower_final_ctrl = np.zeros((num_control_points_new, 2))
+    lower_final_ctrl[0] = [split_x, split_y]  # Split point
+    for i in range(n_inner):
+        lower_final_ctrl[i + 1] = [result.x[2*i], result.x[2*i + 1]]
+    lower_final_ctrl[-1] = [1.0, te_y_lower]  # TE
+    
+    # Apply tangent constraint to second control point
+    if n_inner > 0:
+        p0_to_p1 = lower_final_ctrl[1] - lower_final_ctrl[0]
+        tx, ty = lower_tangent
+        if abs(tx) > 1e-12 or abs(ty) > 1e-12:
+            tangent_norm_sq = tx*tx + ty*ty
+            t = np.dot(p0_to_p1, lower_tangent) / tangent_norm_sq
+            projected_p1 = np.array([split_x, split_y]) + t * np.array(lower_tangent)
+            lower_final_ctrl[1] = projected_p1
+
+    # Log softmax-stage lower control points
+    if logger_func:
+        import numpy as _np
+        _np.set_printoptions(precision=6, suppress=True)
+        logger_func("Softmax stage lower control points:")
+        logger_func(str(lower_final_ctrl))
+    
+    if logger_func:
+        logger_func("Unified peak curvature optimization completed.")
+    
+    return (upper_final_ctrl, lower_final_ctrl), (new_upper_data, new_lower_data)
+
+
+
+
+
+
+
+
+

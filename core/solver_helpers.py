@@ -253,6 +253,99 @@ def get_fixed_inner_x_partition(is_upper_surface, num_control_points, original_d
     fixed_y_values = [y_n_minus_1]
     return fixed_inner_x_coords, free_indices, fixed_indices, fixed_y_values
 
+
+
+def get_unified_peak_curvature_fixed_x_partition(upper_data, lower_data, num_control_points, te_tangent_vector, te_y=None, search_region=0.1):
+    """
+    Returns unified peak curvature-based fixed-x partitioning for both surfaces.
+    Uses a single split point determined by the surface with tighter curvature.
+    
+    Args:
+        upper_data (np.ndarray): Upper surface data (may be reorganized)
+        lower_data (np.ndarray): Lower surface data (may be reorganized)
+        num_control_points (int): Number of control points
+        te_tangent_vector (tuple): Trailing edge tangent vector
+        te_y (float): Trailing edge y-coordinate
+        search_region (float): Fraction of chord to search for peak curvature
+        
+    Returns:
+        tuple: (upper_fixed_inner_x_coords, lower_fixed_inner_x_coords, upper_free_indices, lower_free_indices, 
+                upper_fixed_indices, lower_fixed_indices, upper_fixed_y_values, lower_fixed_y_values, split_info)
+    """
+    from utils.bezier_utils import find_optimal_split_point_for_both_surfaces
+    
+    # Find the optimal split point for both surfaces
+    split_x, split_y, upper_tangent, lower_tangent, tighter_surface_is_upper = find_optimal_split_point_for_both_surfaces(
+        upper_data, lower_data, search_region
+    )
+    
+    # Get the paper fixed x-coordinates
+    upper_paper_fixed_x_coords = get_paper_fixed_x_coords(True)
+    lower_paper_fixed_x_coords = get_paper_fixed_x_coords(False)
+    
+    if num_control_points != len(upper_paper_fixed_x_coords):
+        num_control_points = len(upper_paper_fixed_x_coords)
+    
+    # Create new fixed x-coordinates with the split point
+    upper_fixed_inner_x_coords = upper_paper_fixed_x_coords[1:-1].copy()
+    lower_fixed_inner_x_coords = lower_paper_fixed_x_coords[1:-1].copy()
+    
+    # Replace the first inner point with split point for both surfaces
+    upper_fixed_inner_x_coords[0] = split_x
+    lower_fixed_inner_x_coords[0] = split_x
+    
+
+    
+    # Set up partitioning for both surfaces
+    n_upper = len(upper_fixed_inner_x_coords)
+    n_lower = len(lower_fixed_inner_x_coords)
+    
+    # Free indices: all except first (split point) and last (pre-TE)
+    # Note: index 1 (second control point) is now included in free indices
+    upper_free_indices = list(range(1, n_upper-1))
+    lower_free_indices = list(range(1, n_lower-1))
+    
+    # Fixed indices: first (split point) and last (pre-TE)
+    upper_fixed_indices = [0, n_upper-1]
+    lower_fixed_indices = [0, n_lower-1]
+    
+    # Fixed y-values: split point y and pre-TE y for both surfaces
+    if te_y is None:
+        te_y = float(upper_data[-1, 1])  # Use upper surface TE y
+    
+    # Pre-TE y calculation for upper surface
+    upper_x_n_minus_1 = upper_fixed_inner_x_coords[-1]
+    x_te = 1.0
+    tx_te, ty_te = te_tangent_vector
+    if abs(tx_te) < 1e-12:
+        upper_y_n_minus_1 = np.interp(upper_x_n_minus_1, upper_data[:, 0], upper_data[:, 1])
+    else:
+        upper_y_n_minus_1 = te_y - (x_te - upper_x_n_minus_1) * (ty_te / tx_te)
+    
+    # Pre-TE y calculation for lower surface
+    lower_x_n_minus_1 = lower_fixed_inner_x_coords[-1]
+    if abs(tx_te) < 1e-12:
+        lower_y_n_minus_1 = np.interp(lower_x_n_minus_1, lower_data[:, 0], lower_data[:, 1])
+    else:
+        lower_y_n_minus_1 = te_y - (x_te - lower_x_n_minus_1) * (ty_te / tx_te)
+    
+    upper_fixed_y_values = [split_y, upper_y_n_minus_1]
+    lower_fixed_y_values = [split_y, lower_y_n_minus_1]
+    
+    # Split info for debugging/logging
+    split_info = {
+        'split_x': split_x,
+        'split_y': split_y,
+        'upper_tangent': upper_tangent,
+        'lower_tangent': lower_tangent,
+        'tighter_surface_is_upper': tighter_surface_is_upper
+    }
+    
+    return (upper_fixed_inner_x_coords, lower_fixed_inner_x_coords, 
+            upper_free_indices, lower_free_indices,
+            upper_fixed_indices, lower_fixed_indices,
+            upper_fixed_y_values, lower_fixed_y_values, split_info)
+
 def build_control_points_with_fixed(variables_y, fixed_inner_x_coords, te_y, free_indices, fixed_indices, fixed_y_values):
     """
     Assemble full control points array, inserting fixed y-values at fixed_indices.
@@ -267,6 +360,51 @@ def build_control_points_with_fixed(variables_y, fixed_inner_x_coords, te_y, fre
         y_vals[idx] = y
     control_points[1:-1, 1] = y_vals
     control_points[-1] = np.array([1.0, te_y])
+    return control_points
+
+def build_control_points_with_peak_curvature_split(variables_y, fixed_inner_x_coords, split_x, split_y, split_tangent, te_y, free_indices, fixed_indices, fixed_y_values):
+    """
+    Assemble full control points array with peak curvature split point.
+    The second control point is optimized but constrained to follow the tangent direction.
+    """
+    n = len(fixed_inner_x_coords)
+    control_points = np.zeros((n + 2, 2))
+    
+    # Set the split point as the first control point
+    control_points[0] = np.array([split_x, split_y])
+    
+    # Set inner control points
+    control_points[1:-1, 0] = fixed_inner_x_coords
+    y_vals = np.zeros(n)
+    y_vals[free_indices] = variables_y
+    for idx, y in zip(fixed_indices, fixed_y_values):
+        y_vals[idx] = y
+    control_points[1:-1, 1] = y_vals
+    
+    # For the second control point, we want it to be optimized but constrained to the tangent
+    # We'll use the optimization variable for the y-coordinate, but calculate x based on tangent
+    if 1 in free_indices:  # If the second control point is in free indices
+        # Get the optimized y-coordinate for the second control point
+        p1_y = y_vals[1]
+        
+        # Calculate x-coordinate based on tangent direction
+        # We want P1 to lie on the line through P0 in the direction of the tangent
+        # P1 = P0 + t * tangent, where t is determined by the y-coordinate
+        tx, ty = split_tangent
+        if abs(ty) > 1e-12:  # Avoid division by zero
+            # Solve for t: split_y + t * ty = p1_y
+            t = (p1_y - split_y) / ty
+            p1_x = split_x + t * tx
+        else:
+            # If tangent is horizontal, use the fixed x-coordinate
+            p1_x = fixed_inner_x_coords[1]
+        
+        # Update the second control point
+        control_points[1] = np.array([p1_x, p1_y])
+    
+    # Set trailing edge
+    control_points[-1] = np.array([1.0, te_y])
+    
     return control_points
 
 def assemble_polygons(var_y, inner_x_upper, inner_x_lower, original_upper_data, original_lower_data):

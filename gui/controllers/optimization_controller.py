@@ -59,7 +59,18 @@ class OptimizationController:
             regularization_weight = float(opt.single_bezier_reg_weight_input.text())
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
-            gui_strategy = opt.strategy_combo.currentText().lower()  # 'fixed-x' or 'free-x'
+            optimize_splitpoint = opt.optimize_splitpoint_checkbox.isChecked()
+            gui_strategy_raw = opt.strategy_combo.currentText()
+            
+            # Convert GUI strategy names to internal names
+            if gui_strategy_raw == "Fixed-x":
+                gui_strategy = "fixed-x"
+            elif gui_strategy_raw == "Free-x":
+                gui_strategy = "free-x"
+            else:
+                self.processor.log_message.emit(f"Error: Unsupported strategy '{gui_strategy_raw}'.")
+                return
+                
             error_function = "euclidean" #opt.error_function_combo.currentText().lower()  # 'euclidean' or 'orthogonal'
             objective_gui = opt.objective_combo.currentText()
             if objective_gui == 'MSR':
@@ -69,9 +80,12 @@ class OptimizationController:
             else:
                 self.processor.log_message.emit(f"Error: Unsupported objective '{objective_gui}'.")
                 return
-            if gui_strategy not in ['fixed-x', 'free-x']:
-                self.processor.log_message.emit(f"Error: Unsupported strategy '{gui_strategy}'.")
-                return
+            
+            # Check if split optimization is compatible with current settings
+            if optimize_splitpoint:
+                if objective_type not in ['msr', 'softmax'] or gui_strategy not in ['fixed-x', 'free-x']:
+                    self.processor.log_message.emit("Warning: Split optimization only works with MSR or Softmax objective and fixed-x or free-x strategy. Falling back to standard method.")
+                    optimize_splitpoint = False
         except ValueError:
             self.processor.log_message.emit(
                 "Error: Invalid input for regularization weight, curve error points, or TE vector points. Please enter valid numbers."
@@ -107,6 +121,7 @@ class OptimizationController:
             gui_strategy,
             error_function,
             objective_type,
+            optimize_splitpoint,
             self._abort_flag
         )
         self._generation_process = multiprocessing.Process(

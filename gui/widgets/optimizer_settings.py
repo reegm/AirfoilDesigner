@@ -79,6 +79,14 @@ class OptimizerSettingsWidget(QGroupBox):
 
         # Enforce G2 at leading edge
         self.g2_checkbox = QCheckBox("Enforce G2 at leading edge")
+        
+        # Optimize Splitpoint checkbox
+        self.optimize_splitpoint_checkbox = QCheckBox("Optimize Splitpoint")
+        self.optimize_splitpoint_checkbox.setToolTip(
+            "Use enhanced local polynomial calculation to find optimal split point for both surfaces.\n"
+            "Uses 3 points before and 3 points after the split point with quadratic fitting.\n"
+            "Only works with MSR or Softmax objective and fixed-x or free-x strategy. Falls back to standard method otherwise."
+        )
 
         # Action buttons
         self.build_single_bezier_button = QPushButton("Generate Airfoil")
@@ -130,6 +138,12 @@ class OptimizerSettingsWidget(QGroupBox):
         g2_row.addWidget(self.g2_checkbox)
         g2_row.addStretch(1)
         layout.addLayout(g2_row)
+        
+        # Optimize Splitpoint checkbox
+        splitpoint_row = QHBoxLayout()
+        splitpoint_row.addWidget(self.optimize_splitpoint_checkbox)
+        splitpoint_row.addStretch(1)
+        layout.addLayout(splitpoint_row)
 
         # Buttons
         button_row = QHBoxLayout()
