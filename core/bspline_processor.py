@@ -11,7 +11,7 @@ class BSplineProcessor:
     This ensures vertical tangents at leading edge, giving automatic G1 continuity.
     """
 
-    def __init__(self, degree: int = 3):
+    def __init__(self, degree: int = 5):
         self.upper_control_points: np.ndarray | None = None
         self.lower_control_points: np.ndarray | None = None
         self.upper_knot_vector: np.ndarray | None = None
@@ -404,6 +404,15 @@ class BSplineProcessor:
         print(f"[DEBUG]   Lower P0: ({self.lower_control_points[0, 0]:.6f}, {self.lower_control_points[0, 1]:.6f})")
         print(f"[DEBUG]   Lower P1: ({self.lower_control_points[1, 0]:.6f}, {self.lower_control_points[1, 1]:.6f})")
         print(f"[DEBUG]   Lower Pn: ({self.lower_control_points[-1, 0]:.6f}, {self.lower_control_points[-1, 1]:.6f})")
+        
+        # Show complete control point arrays for comparison with STEP export
+        print(f"[DEBUG] Complete upper control points ({len(self.upper_control_points)} points):")
+        for i, cp in enumerate(self.upper_control_points):
+            print(f"[DEBUG]   Upper P{i}: ({cp[0]:.6f}, {cp[1]:.6f})")
+        
+        print(f"[DEBUG] Complete lower control points ({len(self.lower_control_points)} points):")
+        for i, cp in enumerate(self.lower_control_points):
+            print(f"[DEBUG]   Lower P{i}: ({cp[0]:.6f}, {cp[1]:.6f})")
 
     def _create_knot_vector(self, num_control_points: int) -> np.ndarray:
         """Create clamped knot vector."""
