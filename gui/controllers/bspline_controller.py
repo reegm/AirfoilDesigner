@@ -30,6 +30,7 @@ class BSplineController:
                 self.processor.upper_data,
                 self.processor.lower_data,
                 num_control_points,
+                self.processor.is_trailing_edge_thickened(),
             )
 
             if success:

@@ -6,7 +6,11 @@ from scipy.interpolate import LSQUnivariateSpline
 
 
 class BSplineProcessor:
-    
+    """
+    B-spline processor with G1 constraint: second control point at x=0.
+    This ensures vertical tangents at leading edge, giving automatic G1 continuity.
+    """
+
     def __init__(self, degree: int = 3):
         self.upper_control_points: np.ndarray | None = None
         self.lower_control_points: np.ndarray | None = None
@@ -16,19 +20,27 @@ class BSplineProcessor:
         self.lower_curve: interpolate.BSpline | None = None
         self.degree: int = int(degree)
         self.fitted: bool = False
+        self.is_sharp_te: bool = False  # Track trailing edge type (will be set from thickened parameter)
+
+
 
     def fit_bspline(
         self,
         upper_data: np.ndarray,
         lower_data: np.ndarray,
         num_control_points: int = 10,
+        thickened: bool = False,
     ) -> bool:
         """
-        Fit B-splines with G1 constraint at leading edge.
+        Fit B-splines with G1 constraint at leading edge and proper trailing edge constraints.
         """
         try:
             print(f"[DEBUG] Constrained B-spline: {len(upper_data)} + {len(lower_data)} points -> {num_control_points} CP per surface")
             print(f"[DEBUG] Using x = u² parametrization with P1.x = 0 constraint")
+            
+            # Set trailing edge type from thickened parameter
+            self.is_sharp_te = not thickened
+            print(f"[DEBUG] Trailing edge type: {'Sharp' if self.is_sharp_te else 'Blunt'} (thickened={thickened})")
             
             # Ensure both surfaces start at the same point
             # Average the leading edge points
@@ -37,6 +49,16 @@ class BSplineProcessor:
             lower_data_corrected = lower_data.copy()
             upper_data_corrected[0] = le_point
             lower_data_corrected[0] = le_point
+            
+            # For sharp trailing edge, also ensure they end at the same point
+            if self.is_sharp_te:
+                te_point = np.array([1.0, 0.0])  # Sharp trailing edge at (1, 0)
+                upper_data_corrected[-1] = te_point
+                lower_data_corrected[-1] = te_point
+                print(f"[DEBUG] Sharp TE: Both surfaces end at (1.0, 0.0)")
+            else:
+                print(f"[DEBUG] Blunt TE: Upper ends at ({upper_data[-1, 0]:.6f}, {upper_data[-1, 1]:.6f})")
+                print(f"[DEBUG] Blunt TE: Lower ends at ({lower_data[-1, 0]:.6f}, {lower_data[-1, 1]:.6f})")
             
             # Fit each surface with the constraint
             self.upper_control_points, self.upper_knot_vector, self.upper_curve = \
@@ -50,11 +72,24 @@ class BSplineProcessor:
             self.upper_control_points[0] = shared_p0
             self.lower_control_points[0] = shared_p0
             
+            # For sharp trailing edge, ensure both last points are identical at (1, 0)
+            if self.is_sharp_te:
+                te_point = np.array([1.0, 0.0])
+                self.upper_control_points[-1] = te_point
+                self.lower_control_points[-1] = te_point
+            else:
+                # For blunt trailing edge, set last control points to actual trailing edge positions
+                self.upper_control_points[-1] = upper_data[-1]
+                self.lower_control_points[-1] = lower_data[-1]
+                print(f"[DEBUG] Blunt TE: Upper Pn set to ({self.upper_control_points[-1, 0]:.6f}, {self.upper_control_points[-1, 1]:.6f})")
+                print(f"[DEBUG] Blunt TE: Lower Pn set to ({self.lower_control_points[-1, 0]:.6f}, {self.lower_control_points[-1, 1]:.6f})")
+            
             # Rebuild curves with final control points
             self.upper_curve = interpolate.BSpline(self.upper_knot_vector, self.upper_control_points, self.degree)
             self.lower_curve = interpolate.BSpline(self.lower_knot_vector, self.lower_control_points, self.degree)
             
             self.fitted = True
+            self._validate_g1_continuity()
             
             return True
             
@@ -65,7 +100,7 @@ class BSplineProcessor:
 
     def _fit_single_surface_constrained(self, surface_data: np.ndarray, num_control_points: int, is_upper_surface: bool = True):
         """
-        Fit single surface with built-in constraint: P1 has x=0 (vertical tangent).
+        Fit single surface with built-in constraint: P1 has x=0 (vertical tangent) and trailing edge constraints.
         """
         print(f"[DEBUG] Fitting {'upper' if is_upper_surface else 'lower'} surface with {len(surface_data)} points using x = u² parametrization...")
         
@@ -90,16 +125,25 @@ class BSplineProcessor:
         basis_matrix = self._build_basis_matrix(u_params, knot_vector)
         
         # Solve for x-coordinates with constraint
-        x_control = self._solve_x_coordinates_constrained(basis_matrix, surface_data[:, 0], num_control_points)
+        x_control = self._solve_x_coordinates_constrained(basis_matrix, surface_data[:, 0], num_control_points, surface_data)
         
         # Solve for y-coordinates with tangent direction constraint
-        y_control = self._solve_y_coordinates_constrained(basis_matrix, surface_data[:, 1], num_control_points, is_upper_surface)
+        y_control = self._solve_y_coordinates_constrained(basis_matrix, surface_data[:, 1], num_control_points, is_upper_surface, surface_data)
         
         control_points = np.column_stack([x_control, y_control])
+        
+        # Apply trailing edge constraint
+        if self.is_sharp_te:
+            control_points[-1] = np.array([1.0, 0.0])
+        else:
+            # For blunt trailing edge, set last control point to actual trailing edge position
+            control_points[-1] = surface_data[-1]
+        
         curve = interpolate.BSpline(knot_vector, control_points, self.degree)
         
         print(f"[DEBUG] Built-in constraint method: P0 = ({control_points[0, 0]:.6f}, {control_points[0, 1]:.6f})")
         print(f"[DEBUG] Built-in constraint method: P1 = ({control_points[1, 0]:.6f}, {control_points[1, 1]:.6f})")
+        print(f"[DEBUG] Built-in constraint method: Pn = ({control_points[-1, 0]:.6f}, {control_points[-1, 1]:.6f})")
         
         return control_points, knot_vector, curve
 
@@ -115,9 +159,9 @@ class BSplineProcessor:
         u_params = np.sqrt(x_coords)
         return u_params
 
-    def _solve_x_coordinates_constrained(self, basis_matrix: np.ndarray, x_data: np.ndarray, num_control_points: int):
+    def _solve_x_coordinates_constrained(self, basis_matrix: np.ndarray, x_data: np.ndarray, num_control_points: int, surface_data: np.ndarray = None):
         """
-        Solve for x-coordinates with P1.x = 0 constraint.
+        Solve for x-coordinates with P1.x = 0 constraint and trailing edge constraint.
         For x = u² parametrization with cubic B-splines.
         """
         if self.degree == 3:
@@ -135,10 +179,28 @@ class BSplineProcessor:
                 x_control[i] = u_val * u_val
             
             # Fine-tune with constrained least squares to better fit the data
-            return self._refine_with_constrained_least_squares(basis_matrix, x_data, x_control)
+            x_control = self._refine_with_constrained_least_squares(basis_matrix, x_data, x_control)
+            
+            # Apply trailing edge constraint
+            if surface_data is not None:
+                if self.is_sharp_te:
+                    x_control[-1] = 1.0  # Sharp trailing edge at x=1
+                else:
+                    x_control[-1] = surface_data[-1, 0]  # Blunt trailing edge at actual position
+            
+            return x_control
         else:
             # For other degrees, use constrained least squares
-            return self._solve_constrained_least_squares(basis_matrix, x_data, num_control_points)
+            x_control = self._solve_constrained_least_squares(basis_matrix, x_data, num_control_points)
+            
+            # Apply trailing edge constraint
+            if surface_data is not None:
+                if self.is_sharp_te:
+                    x_control[-1] = 1.0  # Sharp trailing edge at x=1
+                else:
+                    x_control[-1] = surface_data[-1, 0]  # Blunt trailing edge at actual position
+            
+            return x_control
 
     def _refine_with_constrained_least_squares(self, basis_matrix: np.ndarray, x_data: np.ndarray, initial_x_control: np.ndarray):
         """
@@ -168,13 +230,16 @@ class BSplineProcessor:
         
         return x_control
 
-    def _solve_y_coordinates_constrained(self, basis_matrix: np.ndarray, y_data: np.ndarray, num_control_points: int, is_upper_surface: bool):
+    def _solve_y_coordinates_constrained(self, basis_matrix: np.ndarray, y_data: np.ndarray, num_control_points: int, is_upper_surface: bool, surface_data: np.ndarray = None):
         """
-        Solve for y-coordinates ensuring correct tangent direction.
+        Solve for y-coordinates ensuring correct tangent direction and trailing edge constraint.
         Upper surface P1 should have y > 0, lower surface P1 should have y < 0.
         """
         # First solve unconstrained
         y_control = np.linalg.lstsq(basis_matrix, y_data, rcond=None)[0]
+        
+        # Constrain P0.y = 0 (leading edge at origin)
+        y_control[0] = 0.0
         
         # Check and correct P1 tangent direction
         if is_upper_surface:
@@ -185,6 +250,13 @@ class BSplineProcessor:
             if y_control[1] > 0:
                 print(f"[DEBUG] Correcting lower surface tangent direction: P1.y {y_control[1]:.6f} -> {-abs(y_control[1]):.6f}")
                 y_control[1] = -abs(y_control[1])
+        
+        # Apply trailing edge constraint
+        if surface_data is not None:
+            if self.is_sharp_te:
+                y_control[-1] = 0.0  # Sharp trailing edge at y=0
+            else:
+                y_control[-1] = surface_data[-1, 1]  # Blunt trailing edge at actual position
         
         return y_control
 
@@ -212,7 +284,7 @@ class BSplineProcessor:
 
     def _fit_scipy_with_constraint(self, surface_data: np.ndarray, num_control_points: int, is_upper_surface: bool = True):
         """
-        Fallback: Use scipy LSQUnivariateSpline and then adjust P1 to have x=0.
+        Fallback: Use scipy LSQUnivariateSpline and then adjust control points for all constraints.
         """
         # Use x = u² parametrization
         u_params = self._create_parameter_from_x_coords(surface_data)
@@ -240,11 +312,20 @@ class BSplineProcessor:
         
         control_points = np.column_stack([coeffs_x, coeffs_y])
         
-        # Apply constraint: P0.x = 0, P1.x = 0
+        # Get trailing edge constraints
+        te_x = surface_data[-1, 0] if not self.is_sharp_te else 1.0
+        te_y = surface_data[-1, 1] if not self.is_sharp_te else 0.0
+        
+        # Apply constraints: P0.x = 0, P0.y = 0, P1.x = 0, Pn.x = te_x, Pn.y = te_y
         print(f"[DEBUG] Original P0: ({control_points[0, 0]:.6f}, {control_points[0, 1]:.6f})")
         print(f"[DEBUG] Original P1: ({control_points[1, 0]:.6f}, {control_points[1, 1]:.6f})")
-        control_points[0, 0] = 0.0  # Force x=0 for first control point
-        control_points[1, 0] = 0.0  # Force x=0 for second control point
+        print(f"[DEBUG] Original Pn: ({control_points[-1, 0]:.6f}, {control_points[-1, 1]:.6f})")
+        
+        control_points[0, 0] = 0.0   # Force x=0 for first control point
+        control_points[0, 1] = 0.0   # Force y=0 for first control point
+        control_points[1, 0] = 0.0   # Force x=0 for second control point
+        control_points[-1, 0] = te_x # Trailing edge x constraint
+        control_points[-1, 1] = te_y # Trailing edge y constraint
         
         # Enforce correct tangent direction
         if is_upper_surface:
@@ -258,11 +339,71 @@ class BSplineProcessor:
         
         print(f"[DEBUG] Constrained P0: ({control_points[0, 0]:.6f}, {control_points[0, 1]:.6f})")
         print(f"[DEBUG] Constrained P1: ({control_points[1, 0]:.6f}, {control_points[1, 1]:.6f})")
+        print(f"[DEBUG] Constrained Pn: ({control_points[-1, 0]:.6f}, {control_points[-1, 1]:.6f})")
         
         # Rebuild curve
         bspline_curve = interpolate.BSpline(full_knot_vector, control_points, self.degree)
         
         return control_points, full_knot_vector, bspline_curve
+
+    def _validate_g1_continuity(self):
+        """Validate that G1 continuity is achieved and trailing edge constraints are satisfied."""
+        if not self.fitted:
+            return
+            
+        # Check position continuity at leading edge
+        pos_upper = self.upper_curve(0.0)
+        pos_lower = self.lower_curve(0.0)
+        pos_error = np.linalg.norm(pos_upper - pos_lower)
+        
+        # Check tangent continuity (should be automatic since both P1 have x=0)
+        dt = 1e-8
+        tangent_upper = (self.upper_curve(dt) - self.upper_curve(0.0)) / dt
+        tangent_lower = (self.lower_curve(dt) - self.lower_curve(0.0)) / dt
+        
+        # For vertical tangents, x-components should be ~0
+        tangent_x_error = max(abs(tangent_upper[0]), abs(tangent_lower[0]))
+        
+        # Cross product should be 0 (both tangents are vertical)
+        cross_product = tangent_upper[0] * tangent_lower[1] - tangent_upper[1] * tangent_lower[0]
+        
+        # Check trailing edge constraints
+        te_upper = self.upper_curve(1.0)
+        te_lower = self.lower_curve(1.0)
+        
+        if self.is_sharp_te:
+            # For sharp TE, both surfaces should end at (1, 0)
+            te_error_upper = np.linalg.norm(te_upper - np.array([1.0, 0.0]))
+            te_error_lower = np.linalg.norm(te_lower - np.array([1.0, 0.0]))
+            te_position_error = np.linalg.norm(te_upper - te_lower)
+        else:
+            # For blunt TE, check if control points match the expected trailing edge positions
+            te_error_upper = np.linalg.norm(te_upper - self.upper_control_points[-1])
+            te_error_lower = np.linalg.norm(te_lower - self.lower_control_points[-1])
+            te_position_error = np.linalg.norm(te_upper - te_lower)  # This is expected to be > 0 for blunt TE
+        
+        print(f"[DEBUG] G1 continuity validation:")
+        print(f"[DEBUG]   Position continuity error: {pos_error:.2e}")
+        print(f"[DEBUG]   Tangent x-component error: {tangent_x_error:.2e}")
+        print(f"[DEBUG]   Cross product: {abs(cross_product):.2e}")
+        print(f"[DEBUG]   G1 satisfied: {pos_error < 1e-10 and tangent_x_error < 1e-6}")
+        
+        print(f"[DEBUG] Trailing edge validation:")
+        print(f"[DEBUG]   TE type: {'Sharp' if self.is_sharp_te else 'Blunt'}")
+        print(f"[DEBUG]   Upper TE error: {te_error_upper:.2e}")
+        print(f"[DEBUG]   Lower TE error: {te_error_lower:.2e}")
+        if self.is_sharp_te:
+            print(f"[DEBUG]   TE position error: {te_position_error:.2e}")
+            print(f"[DEBUG]   Sharp TE satisfied: {te_position_error < 1e-10}")
+        
+        # Show control points for verification
+        print(f"[DEBUG] Control points:")
+        print(f"[DEBUG]   Upper P0: ({self.upper_control_points[0, 0]:.6f}, {self.upper_control_points[0, 1]:.6f})")
+        print(f"[DEBUG]   Upper P1: ({self.upper_control_points[1, 0]:.6f}, {self.upper_control_points[1, 1]:.6f})")
+        print(f"[DEBUG]   Upper Pn: ({self.upper_control_points[-1, 0]:.6f}, {self.upper_control_points[-1, 1]:.6f})")
+        print(f"[DEBUG]   Lower P0: ({self.lower_control_points[0, 0]:.6f}, {self.lower_control_points[0, 1]:.6f})")
+        print(f"[DEBUG]   Lower P1: ({self.lower_control_points[1, 0]:.6f}, {self.lower_control_points[1, 1]:.6f})")
+        print(f"[DEBUG]   Lower Pn: ({self.lower_control_points[-1, 0]:.6f}, {self.lower_control_points[-1, 1]:.6f})")
 
     def _create_knot_vector(self, num_control_points: int) -> np.ndarray:
         """Create clamped knot vector."""

@@ -12,7 +12,7 @@ import numpy as np
 from PySide6.QtWidgets import QFileDialog
 
 from core.airfoil_processor import AirfoilProcessor
-from utils.dxf_exporter import export_curves_to_dxf
+from utils.dxf_exporter import export_curves_to_dxf, export_bspline_to_dxf
 from utils.sampling_utils import sample_airfoil_surfaces
 from utils.data_loader import export_airfoil_to_selig_format
 
@@ -64,6 +64,24 @@ class FileController:
             )
     
 
+    def export_dxf(self) -> None:
+        """Export the current model as a DXF file. Automatically chooses between B-spline and Bezier export."""
+        # First check if B-spline is available and fitted
+        bspline_proc = getattr(self.window, "bspline_processor", None)
+        bspline_fitted = False
+        if bspline_proc is not None:
+            try:
+                bspline_fitted = bool(getattr(bspline_proc, "fitted", False))
+            except Exception:
+                bspline_fitted = False
+
+        if bspline_fitted and getattr(bspline_proc, "upper_control_points", None) is not None and \
+           getattr(bspline_proc, "lower_control_points", None) is not None:
+            # Use B-spline export
+            self.export_bspline_dxf()
+        else:
+            # Fall back to Bezier export
+            self.export_single_bezier_dxf()
     
     def export_single_bezier_dxf(self) -> None:
         """Export the current Bezier model(s) as a DXF file."""
@@ -125,6 +143,60 @@ class FileController:
             dxf_doc.saveas(file_path)
             self.processor.log_message.emit(
                 f"Single Bezier DXF export successful to '{os.path.basename(file_path)}'."
+            )
+            self.processor.log_message.emit(
+                "Note: For correct scale in CAD software, ensure import settings are configured for millimeters."
+            )
+        except IOError as exc:
+            self.processor.log_message.emit(f"Could not save DXF file: {exc}")
+    
+    def export_bspline_dxf(self) -> None:
+        """Export the current B-spline model as a DXF file."""
+        # Check if B-spline processor is available and fitted
+        bspline_proc = getattr(self.window, "bspline_processor", None)
+        if bspline_proc is None or not getattr(bspline_proc, "fitted", False):
+            self.processor.log_message.emit(
+                "Error: B-spline model not available for export. Please fit B-spline first."
+            )
+            return
+
+        try:
+            chord_length_mm = float(
+                self.window.airfoil_settings_panel.chord_length_input.text()
+            )
+        except ValueError:
+            self.processor.log_message.emit(
+                "Error: Invalid chord length. Please enter a number."
+            )
+            return
+
+        dxf_doc = export_bspline_to_dxf(
+            bspline_proc,
+            chord_length_mm,
+            self.processor.log_message.emit,
+        )
+
+        if not dxf_doc:
+            self.processor.log_message.emit(
+                "B-spline DXF export failed during document creation."
+            )
+            return
+
+        default_filename = self._get_default_dxf_filename()
+        file_path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Save B-spline DXF File",
+            default_filename,
+            "DXF Files (*.dxf)",
+        )
+        if not file_path:
+            self.processor.log_message.emit("B-spline DXF export cancelled by user.")
+            return
+
+        try:
+            dxf_doc.saveas(file_path)
+            self.processor.log_message.emit(
+                f"B-spline DXF export successful to '{os.path.basename(file_path)}'."
             )
             self.processor.log_message.emit(
                 "Note: For correct scale in CAD software, ensure import settings are configured for millimeters."

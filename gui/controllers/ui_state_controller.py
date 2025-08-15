@@ -34,9 +34,23 @@ class UIStateController:
         comb = self.window.comb_panel
 
         is_file_loaded = self.processor.upper_data is not None
-        is_model_built = (
+        
+        # Check for Bezier model
+        is_bezier_model_built = (
             self.processor.upper_poly_sharp is not None
         )
+        
+        # Check for B-spline model
+        bspline_proc = getattr(self.window, "bspline_processor", None)
+        is_bspline_model_built = False
+        if bspline_proc is not None:
+            try:
+                is_bspline_model_built = bool(getattr(bspline_proc, "fitted", False))
+            except Exception:
+                is_bspline_model_built = False
+        
+        # Model is built if either Bezier or B-spline is available
+        is_model_built = is_bezier_model_built or is_bspline_model_built
         is_thickened = self.processor._is_thickened
         is_trailing_edge_thickened = False
         if hasattr(self.processor, "is_trailing_edge_thickened"):
@@ -69,9 +83,20 @@ class UIStateController:
         scale = comb.comb_scale_slider.value() / 1000.0
         density = comb.comb_density_slider.value()
 
-        is_model_present = (
+        # Check for any model (Bezier or B-spline)
+        is_bezier_model_present = (
             self.processor.upper_poly_sharp is not None
         )
+        
+        bspline_proc = getattr(self.window, "bspline_processor", None)
+        is_bspline_model_present = False
+        if bspline_proc is not None:
+            try:
+                is_bspline_model_present = bool(getattr(bspline_proc, "fitted", False))
+            except Exception:
+                is_bspline_model_present = False
+        
+        is_model_present = is_bezier_model_present or is_bspline_model_present
 
         if is_model_present:
             self.processor.request_plot_update_with_comb_params(scale, density)
