@@ -12,6 +12,7 @@ import numpy as np
 from PySide6.QtWidgets import QFileDialog
 
 from core.airfoil_processor import AirfoilProcessor
+from core import config
 from utils.dxf_exporter import export_curves_to_dxf, export_bspline_to_dxf
 from utils.sampling_utils import sample_airfoil_surfaces
 from utils.data_loader import export_airfoil_to_selig_format
@@ -424,7 +425,7 @@ class FileController:
             logger_func=self.processor.log_message.emit,
             upper_knot_vector=getattr(bspline_proc, 'upper_knot_vector', None),
             lower_knot_vector=getattr(bspline_proc, 'lower_knot_vector', None),
-            degree=getattr(bspline_proc, 'degree', 5),
+                            degree=getattr(bspline_proc, 'degree', config.DEFAULT_BSPLINE_DEGREE),
         )
 
         if success:

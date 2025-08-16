@@ -26,11 +26,17 @@ class BSplineController:
             # Get control point count from GUI
             num_control_points = int(self.window.optimizer_panel.bspline_cp_spin.value())
 
+            # e.g., in your controller before calling fit_bspline(...)
+            self.bspline_processor.knot_end_bias = 0.5   # knots cluster more at both ends
+            # self.bspline_processor.param_end_bias = 0.3  # parameters mildly cluster at both ends
+
             success = self.bspline_processor.fit_bspline(
                 self.processor.upper_data,
                 self.processor.lower_data,
                 num_control_points,
                 self.processor.is_trailing_edge_thickened(),
+                self.processor.upper_te_tangent_vector,
+                self.processor.lower_te_tangent_vector,
             )
 
             if success:
@@ -54,8 +60,10 @@ class BSplineController:
                 self.bspline_processor.last_lower_max_error = lower_max_err
                 self.bspline_processor.last_lower_max_error_idx = lower_max_err_idx
                 
+                num_spans = num_control_points - self.bspline_processor.degree
                 self.window.status_log.append(
-                    f"B-spline fit OK. Upper max error: {upper_max_err:.6e}, Lower max error: {lower_max_err:.6e}"
+                    f"B-spline fit OK (degree {self.bspline_processor.degree}, {num_spans} spans). "
+                    f"Upper max error: {upper_max_err:.6e}, Lower max error: {lower_max_err:.6e}"
                 )
                 
                 # Trigger plot update with B-spline curves
