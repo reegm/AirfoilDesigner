@@ -23,14 +23,15 @@ jobs:
           python-version: '3.12'
           architecture: x64
           cache: pip
-      
-      - name: Create virtual environment and everything else in one step
+            
+      - name: Create virtual environment, install dependencies, build EXE
+        shell: pwsh
         run: |
           python -m venv .venv
           .\.venv\Scripts\Activate.ps1
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
-
+      
           # locate CasADi .pyd dynamically
           $casadi_pyd = Get-ChildItem -Path .\.venv\Lib\site-packages\_casadi*.pyd | Select-Object -First 1
       
@@ -39,8 +40,6 @@ jobs:
             --hidden-import "casadi._casadi" `
             --add-binary "$($casadi_pyd.FullName);casadi" `
             --name AirfoilDesigner run_gui.py
-            - name: Activate venv & install dependencies
-              shell: powershell
               
       - name: Zip EXE
         run: powershell Compress-Archive -Path dist\AirfoilDesigner.exe -DestinationPath dist\AirfoilDesigner.zip -Force
