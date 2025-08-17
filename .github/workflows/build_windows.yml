@@ -4,14 +4,13 @@ on:
   push:
     tags:
       - 'v*'
-  pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
+  build-and-release:
     runs-on: windows-latest
 
     steps:
@@ -21,42 +20,32 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.12'
           architecture: x64
           cache: pip
-
-      - name: Install dependencies
+            
+      - name: Create virtual environment, install dependencies, build EXE
+        shell: pwsh
         run: |
-          pip install --upgrade pip
+          python -m venv .venv
+          .\.venv\Scripts\Activate.ps1
+          python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
+      
+          # locate CasADi .pyd dynamically
+          Get-ChildItem .\.venv\Lib\site-packages\casadi\*.pyd
+          $casadi_pyd = Get-ChildItem -Path .\.venv\Lib\site-packages\casadi\_casadi*.pyd | Select-Object -First 1
+          if (-not $casadi_pyd) { throw "CasADi .pyd not found!" }
 
-      - name: Build EXE
-        env:
-          PYTHONOPTIMIZE: 2
-        run: pyinstaller --onefile --noconsole --clean --icon=img/favicon.ico --name AirfoilDesigner run_gui.py
-
-      - name: List dist folder
-        run: dir dist\
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AirfoilDesigner
-          path: dist/AirfoilDesigner.exe
-
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: AirfoilDesigner
-          path: dist
+          
+          pyinstaller --onefile --noconsole --clean --icon=img/favicon.ico `
+            --hidden-import "OCP" `
+            --hidden-import "casadi._casadi" `
+            --add-binary "$($casadi_pyd.FullName);casadi" `
+            --name AirfoilDesigner run_gui.py
+              
+      - name: Zip EXE
+        run: powershell Compress-Archive -Path dist\AirfoilDesigner.exe -DestinationPath dist\AirfoilDesigner.zip -Force
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
@@ -65,4 +54,4 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
-          files: dist/AirfoilDesigner.exe
+          files: dist/AirfoilDesigner.zip
