@@ -33,7 +33,7 @@ jobs:
           pip install -r requirements.txt pyinstaller
       
           # locate CasADi .pyd dynamically
-          $casadi_pyd = Get-ChildItem -Path .\.venv\Lib\site-packages\_casadi*.pyd | Select-Object -First 1
+          $casadi_pyd = Get-ChildItem -Path .\.venv\Lib\site-packages\casadi\_casadi*.pyd | Select-Object -First 1
           if (-not $casadi_pyd) { throw "CasADi .pyd not found!" }
           
           pyinstaller --onefile --noconsole --clean --icon=img/favicon.ico `
