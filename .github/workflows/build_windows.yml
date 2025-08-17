@@ -24,18 +24,30 @@ jobs:
           architecture: x64
           cache: pip
 
-      - name: Install dependencies
+      - name: Create virtual environment
+        run: python -m venv .venv
+
+      - name: Activate venv & install dependencies
+        shell: powershell
         run: |
+          .\.venv\Scripts\Activate.ps1
           pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
       - name: Build EXE
-        env:
-          PYTHONOPTIMIZE: 2
-        run: pyinstaller --onefile --noconsole --clean --icon=img/favicon.ico --name AirfoilDesigner run_gui.py
+        shell: powershell
+        run: |
+          .\.venv\Scripts\Activate.ps1
+          pyinstaller --clean --onefile --noconsole --icon=img/favicon.ico --name AirfoilDesigner `
+            --hidden-import casadi._casadi `
+            --add-binary ".\.venv\Lib\site-packages\casadi\_casadi.cp312-win_amd64.pyd;casadi" `
+            --add-binary ".\.venv\Lib\site-packages\OCP\*;OCP" `
+            --add-binary ".\.venv\Lib\site-packages\cadquery\*;cadquery" `
+            run_gui.py
 
       - name: Zip EXE
-        run: powershell Compress-Archive -Path dist\AirfoilDesigner.exe -DestinationPath dist\AirfoilDesigner.zip -Force
+        shell: powershell
+        run: Compress-Archive -Path dist\AirfoilDesigner.exe -DestinationPath dist\AirfoilDesigner.zip -Force
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
