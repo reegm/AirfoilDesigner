@@ -1,6 +1,6 @@
 out/
 res/
-venv/
+.venv/
 dist/
 build/
 doc/
