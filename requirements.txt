@@ -4,4 +4,5 @@ ezdxf
 PySide6==6.9.0
 pyqtgraph
 joblib
-cadquery
+# cadquery  # Temporarily disabled for build issues
+# OCP  # Temporarily disabled for build issues
