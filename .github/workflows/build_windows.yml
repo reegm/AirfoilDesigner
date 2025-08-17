@@ -33,15 +33,13 @@ jobs:
         shell: pwsh
         run: |
           # locate CasADi .pyd dynamically
-          $casadi_pyd = Get-ChildItem -Path .\.venv\Lib\site-packages\casadi\_casadi*.pyd | Select-Object -First 1
-
-          # PyInstaller command
-          pyinstaller --clean --onefile --noconsole --icon=img/favicon.ico --name AirfoilDesigner `
-            --hidden-import casadi._casadi `
+          $casadi_pyd = Get-ChildItem -Path .\.venv\Lib\site-packages\_casadi*.pyd | Select-Object -First 1
+          pyinstaller --onefile --noconsole --clean --icon=img/favicon.ico `
+            --hidden-import "OCP" `
+            --hidden-import "casadi._casadi" `
             --add-binary "$($casadi_pyd.FullName);casadi" `
-            --add-binary ".\.venv\Lib\site-packages\OCP\*;OCP" `
-            --add-binary ".\.venv\Lib\site-packages\cadquery\*;cadquery" `
-            run_gui.py
+            --name AirfoilDesigner run_gui.py
+
 
       - name: Zip EXE
         run: powershell Compress-Archive -Path dist\AirfoilDesigner.exe -DestinationPath dist\AirfoilDesigner.zip -Force
