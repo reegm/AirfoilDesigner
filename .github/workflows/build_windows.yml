@@ -1,4 +1,4 @@
-hing name: Build and Release Windows EXE
+name: Build and Release Windows EXE
 
 on:
   push:
