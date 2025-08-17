@@ -27,8 +27,10 @@ jobs:
       - name: Create virtual environment
         run: python -m venv .venv
 
-      - name: Install dependencies
+      - name: Activate venv & install dependencies
+        shell: powershell
         run: |
+          .\.venv\Scripts\Activate.ps1
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
