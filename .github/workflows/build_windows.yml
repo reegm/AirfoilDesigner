@@ -32,17 +32,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
       
-          # locate CasADi .pyd dynamically
-          Get-ChildItem .\.venv\Lib\site-packages\casadi\*.pyd
-          $casadi_pyd = Get-ChildItem -Path .\.venv\Lib\site-packages\casadi\_casadi*.pyd | Select-Object -First 1
-          if (-not $casadi_pyd) { throw "CasADi .pyd not found!" }
-
-          
-          pyinstaller --onefile --noconsole --clean --icon=img/favicon.ico `
-            --hidden-import "OCP" `
-            --hidden-import "casadi._casadi" `
-            --add-binary "$($casadi_pyd.FullName);casadi" `
-            --name AirfoilDesigner run_gui.py
+          pyinstaller --onefile --noconsole --clean --icon=img/favicon.ico  --name AirfoilDesigner run_gui.py
               
       - name: Zip EXE
         run: powershell Compress-Archive -Path dist\AirfoilDesigner.exe -DestinationPath dist\AirfoilDesigner.zip -Force
