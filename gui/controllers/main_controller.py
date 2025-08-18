@@ -64,7 +64,7 @@ class MainController(QObject):
         fp = self.window.file_panel
         fp.load_button.clicked.connect(self.file_controller.load_airfoil_file)
         fp.export_dxf_button.clicked.connect(self.file_controller.export_dxf)
-        # fp.export_step_button.clicked.connect(self.file_controller.export_step_surface)  # Temporarily disabled
+        fp.export_step_button.clicked.connect(self.file_controller.export_step_surface)
         fp.export_dat_button.clicked.connect(self.file_controller.export_dat_file)
 
         # Optimization operations

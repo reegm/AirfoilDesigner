@@ -16,7 +16,7 @@ from core import config
 from utils.dxf_exporter import export_curves_to_dxf, export_bspline_to_dxf
 from utils.sampling_utils import sample_airfoil_surfaces
 from utils.data_loader import export_airfoil_to_selig_format
-# from utils.cadquery_exporter import export_bspline_separate_surfaces_to_step  # Temporarily disabled
+from utils.cadquery_exporter import export_bspline_separate_surfaces_to_step
 
 
 class FileController:
@@ -365,134 +365,134 @@ class FileController:
                 return f"{sanitized}_highres.dat"
         return "airfoil_highres.dat"
 
-    # def export_step_surface(self) -> None:
-    #     """Export B-spline airfoil as separate 1mm STEP surfaces using CadQuery."""
-    #     # First check if B-spline is available and fitted
-    #     bspline_proc = getattr(self.window, "bspline_processor", None)
-    #     bspline_fitted = False
-    #     if bspline_proc is not None:
-    #         try:
-    #             bspline_fitted = bool(getattr(bspline_proc, "fitted", False))
-    #         except Exception:
-    #             bspline_fitted = False
+    def export_step_surface(self) -> None:
+        """Export B-spline airfoil as separate 1mm STEP surfaces using CadQuery."""
+        # First check if B-spline is available and fitted
+        bspline_proc = getattr(self.window, "bspline_processor", None)
+        bspline_fitted = False
+        if bspline_proc is not None:
+            try:
+                bspline_fitted = bool(getattr(bspline_proc, "fitted", False))
+            except Exception:
+                bspline_fitted = False
 
-    #     if bspline_fitted and getattr(bspline_proc, "upper_control_points", None) is not None and \
-    #        getattr(bspline_proc, "lower_control_points", None) is not None:
-    #         # Use B-spline export
-    #         self._export_bspline_step()
-    #     else:
-    #         # Fall back to Bezier export
-    #         self._export_bezier_step()
+        if bspline_fitted and getattr(bspline_proc, "upper_control_points", None) is not None and \
+           getattr(bspline_proc, "lower_control_points", None) is not None:
+            # Use B-spline export
+            self._export_bspline_step()
+        else:
+            # Fall back to Bezier export
+            self._export_bezier_step()
 
-    # def _export_bspline_step(self) -> None:
-    #     """Export the current B-spline model as STEP surfaces."""
-    #     bspline_proc = getattr(self.window, "bspline_processor", None)
-    #     if bspline_proc is None or not getattr(bspline_proc, "fitted", False):
-    #         self.processor.log_message.emit(
-    #             "Error: B-spline model not available for STEP export. Please fit B-spline first."
-    #         )
-    #         return
+    def _export_bspline_step(self) -> None:
+        """Export the current B-spline model as STEP surfaces."""
+        bspline_proc = getattr(self.window, "bspline_processor", None)
+        if bspline_proc is None or not getattr(bspline_proc, "fitted", False):
+            self.processor.log_message.emit(
+                "Error: B-spline model not available for STEP export. Please fit B-spline first."
+            )
+            return
 
-    #     try:
-    #         chord_length_mm = float(
-    #             self.window.airfoil_settings_panel.chord_length_input.text()
-    #         )
-    #     except ValueError:
-    #         self.processor.log_message.emit(
-    #             "Error: Invalid chord length. Please enter a number."
-    #         )
-    #         return
+        try:
+            chord_length_mm = float(
+                self.window.airfoil_settings_panel.chord_length_input.text()
+            )
+        except ValueError:
+            self.processor.log_message.emit(
+                "Error: Invalid chord length. Please enter a number."
+            )
+            return
 
-    #     # File dialog
-    #     default_filename = self._get_default_step_filename()
-    #     file_path, _ = QFileDialog.getSaveFileName(
-    #         self.window,
-    #         "Save STEP Surface File",
-    #         default_filename,
-    #         "STEP Files (*.step *.stp);;All Files (*)",
-    #     )
+        # File dialog
+        default_filename = self._get_default_step_filename()
+        file_path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Save STEP Surface File",
+            default_filename,
+            "STEP Files (*.step *.stp);;All Files (*)",
+        )
 
-    #     if not file_path:
-    #         self.processor.log_message.emit("STEP export cancelled.")
-    #         return
+        if not file_path:
+            self.processor.log_message.emit("STEP export cancelled.")
+            return
 
-    #     # Perform export with hardcoded 1mm surfaces, passing knots/degree to preserve control-pole BSplines
-    #     success = export_bspline_separate_surfaces_to_step(
-    #         upper_control_points=bspline_proc.upper_control_points,
-    #         lower_control_points=bspline_proc.lower_control_points,
-    #         output_path=file_path,
-    #         chord_length_mm=chord_length_mm,
-    #         logger_func=self.processor.log_message.emit,
-    #         upper_knot_vector=getattr(bspline_proc, 'upper_knot_vector', None),
-    #         lower_knot_vector=getattr(bspline_proc, 'lower_knot_vector', None),
-    #                         degree=getattr(bspline_proc, 'degree', config.DEFAULT_BSPLINE_DEGREE),
-    #     )
+        # Perform export with hardcoded 1mm surfaces, passing knots/degree to preserve control-pole BSplines
+        success = export_bspline_separate_surfaces_to_step(
+            upper_control_points=bspline_proc.upper_control_points,
+            lower_control_points=bspline_proc.lower_control_points,
+            output_path=file_path,
+            chord_length_mm=chord_length_mm,
+            logger_func=self.processor.log_message.emit,
+            upper_knot_vector=getattr(bspline_proc, 'upper_knot_vector', None),
+            lower_knot_vector=getattr(bspline_proc, 'lower_knot_vector', None),
+                            degree=getattr(bspline_proc, 'degree', config.DEFAULT_BSPLINE_DEGREE),
+        )
 
-    #     if success:
-    #         self.processor.log_message.emit(f"STEP surface export completed: '{os.path.basename(file_path)}'")
-    #     else:
-    #         self.processor.log_message.emit("STEP surface export failed.")
+        if success:
+            self.processor.log_message.emit(f"STEP surface export completed: '{os.path.basename(file_path)}'")
+        else:
+            self.processor.log_message.emit("STEP surface export failed.")
 
-    # def _export_bezier_step(self) -> None:
-    #     """Export the current Bezier model as STEP surfaces."""
-    #     polygons_to_export = None
-    #     if self.processor._is_thickened and self.processor._thickened_single_bezier_polygons:
-    #         polygons_to_export = self.processor._thickened_single_bezier_polygons
-    #         self.processor.log_message.emit("Preparing to export thickened Bézier model as STEP surfaces.")
-    #     elif self.processor.upper_poly_sharp is not None and self.processor.lower_poly_sharp is not None:
-    #         polygons_to_export = [self.processor.upper_poly_sharp, self.processor.lower_poly_sharp]
-    #         self.processor.log_message.emit("Preparing to export sharp Bézier model as STEP surfaces.")
-    #     else:
-    #         self.processor.log_message.emit("Error: No Bézier model available for STEP export.")
-    #         return
+    def _export_bezier_step(self) -> None:
+        """Export the current Bezier model as STEP surfaces."""
+        polygons_to_export = None
+        if self.processor._is_thickened and self.processor._thickened_single_bezier_polygons:
+            polygons_to_export = self.processor._thickened_single_bezier_polygons
+            self.processor.log_message.emit("Preparing to export thickened Bézier model as STEP surfaces.")
+        elif self.processor.upper_poly_sharp is not None and self.processor.lower_poly_sharp is not None:
+            polygons_to_export = [self.processor.upper_poly_sharp, self.processor.lower_poly_sharp]
+            self.processor.log_message.emit("Preparing to export sharp Bézier model as STEP surfaces.")
+        else:
+            self.processor.log_message.emit("Error: No Bézier model available for STEP export.")
+            return
 
-    #     if len(polygons_to_export) < 2:
-    #         self.processor.log_message.emit("Error: Need both upper and lower curves for STEP export.")
-    #         return
+        if len(polygons_to_export) < 2:
+            self.processor.log_message.emit("Error: Need both upper and lower curves for STEP export.")
+            return
 
-    #     try:
-    #         chord_length_mm = float(
-    #             self.window.airfoil_settings_panel.chord_length_input.text()
-    #         )
-    #     except ValueError:
-    #         self.processor.log_message.emit(
-    #             "Error: Invalid chord length. Please enter a number."
-    #         )
-    #         return
+        try:
+            chord_length_mm = float(
+                self.window.airfoil_settings_panel.chord_length_input.text()
+            )
+        except ValueError:
+            self.processor.log_message.emit(
+                "Error: Invalid chord length. Please enter a number."
+            )
+            return
 
-    #     # File dialog
-    #     default_filename = self._get_default_step_filename()
-    #     file_path, _ = QFileDialog.getSaveFileName(
-    #         self.window,
-    #         "Save STEP Surface File",
-    #         default_filename,
-    #         "STEP Files (*.step *.stp);;All Files (*)",
-    #     )
+        # File dialog
+        default_filename = self._get_default_step_filename()
+        file_path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Save STEP Surface File",
+            default_filename,
+            "STEP Files (*.step *.stp);;All Files (*)",
+        )
 
-    #     if not file_path:
-    #         self.processor.log_message.emit("STEP export cancelled.")
-    #         return
+        if not file_path:
+            self.processor.log_message.emit("STEP export cancelled.")
+            return
 
-    #     # Perform export with hardcoded 1mm surfaces
-    #     success = export_bspline_separate_surfaces_to_step(
-    #         upper_control_points=polygons_to_export[0],
-    #         lower_control_points=polygons_to_export[1],
-    #         output_path=file_path,
-    #         chord_length_mm=chord_length_mm,
-    #         logger_func=self.processor.log_message.emit
-    #     )
+        # Perform export with hardcoded 1mm surfaces
+        success = export_bspline_separate_surfaces_to_step(
+            upper_control_points=polygons_to_export[0],
+            lower_control_points=polygons_to_export[1],
+            output_path=file_path,
+            chord_length_mm=chord_length_mm,
+            logger_func=self.processor.log_message.emit
+        )
 
-    #     if success:
-    #         self.processor.log_message.emit(f"STEP surface export completed: '{os.path.basename(file_path)}'")
-    #     else:
-    #         self.processor.log_message.emit("STEP surface export failed.")
+        if success:
+            self.processor.log_message.emit(f"STEP surface export completed: '{os.path.basename(file_path)}'")
+        else:
+            self.processor.log_message.emit("STEP surface export failed.")
 
-    # def _get_default_step_filename(self) -> str:
-    #     """Generate default filename for STEP export."""
-    #     import re
-    #     profile_name = getattr(self.processor, "airfoil_name", None)
-    #     if profile_name:
-    #         sanitized = re.sub(r"[^A-Za-z0-9\-_]+", "_", profile_name)
-    #         if sanitized:
-    #             return f"{sanitized}_surface.step"
-    #     return "airfoil_surface.step" 
+    def _get_default_step_filename(self) -> str:
+        """Generate default filename for STEP export."""
+        import re
+        profile_name = getattr(self.processor, "airfoil_name", None)
+        if profile_name:
+            sanitized = re.sub(r"[^A-Za-z0-9\-_]+", "_", profile_name)
+            if sanitized:
+                return f"{sanitized}_surface.step"
+        return "airfoil_surface.step" 

@@ -32,9 +32,9 @@ class FileControlPanel(QGroupBox):
         self.export_dat_button = QPushButton("Export DAT")
         self.export_dat_button.setMinimumWidth(120)  # Give button a minimum width
         
-        # self.export_step_button = QPushButton("Export STEP")
-        # self.export_step_button.setMinimumWidth(120)
-        # self.export_step_button.setToolTip("Export B-spline curves as 1mm surfaces for Fusion 360")
+        self.export_step_button = QPushButton("Export STEP")
+        self.export_step_button.setMinimumWidth(120)
+        self.export_step_button.setToolTip("Export B-spline curves as 1mm surfaces for Fusion 360")
         
         self.points_per_surface_label = QLabel("Points per surface:")
         self.points_per_surface_input = QSpinBox()
@@ -52,7 +52,7 @@ class FileControlPanel(QGroupBox):
         export_layout = QHBoxLayout()
         export_layout.setSpacing(10)
         export_layout.addWidget(self.export_dxf_button)
-        # export_layout.addWidget(self.export_step_button)  # Temporarily disabled
+        export_layout.addWidget(self.export_step_button)
         export_layout.addStretch(1)
 
         dat_export_layout = QHBoxLayout()
