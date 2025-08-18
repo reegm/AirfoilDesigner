@@ -590,4 +590,52 @@ def build_coupled_bezier_staged(
                     logger_func(f"Stage 2 hop {hop+1}/{hops_free} improved best max error to {best_max_err:.6e}")
             # If hop didn't improve, keep current coordinates for next perturbation
 
-    return (best_upper, best_lower) 
+    return (best_upper, best_lower)
+
+
+def build_coupled_bezier_fixed_x_chebyshev(
+    original_upper_data,
+    original_lower_data,
+    regularization_weight,
+    te_tangent_vector_upper,
+    te_tangent_vector_lower,
+    error_function="euclidean",
+    logger_func=None,
+    abort_flag=None,
+):
+    """
+    Coupled fixed-x Bezier optimizer using Chebyshev (minimax) LP formulation.
+    Optimizes both surfaces simultaneously with G2 continuity constraints.
+    """
+    from core.bezier_unified_optimizer import optimize_bezier
+    
+    if logger_func:
+        logger_func("Running coupled fixed-x Chebyshev LP optimization...")
+    
+    # Get TE y values
+    te_y_upper = float(original_upper_data[-1, 1])
+    te_y_lower = float(original_lower_data[-1, 1])
+    
+    # Use the unified optimizer for coupled fixed-x Chebyshev
+    result = optimize_bezier(
+        initial_ctrl=None,  # Will be built internally
+        original_data=original_upper_data,
+        mode="fixed-x",
+        coupled=True,
+        error_function=error_function,
+        objective="chebyshev",  # Use Chebyshev LP solver
+        te_y=te_y_upper,
+        te_tangent_vector=te_tangent_vector_upper,
+        regularization_weight=regularization_weight,
+        logger_func=logger_func,
+        abort_flag=abort_flag,
+        g2_constraint=True,
+        lower_data=original_lower_data,
+        lower_te_y=te_y_lower,
+        lower_te_tangent_vector=te_tangent_vector_lower,
+        is_upper_surface=True,  # For upper surface
+        num_control_points_new=config.NUM_CONTROL_POINTS_SINGLE_BEZIER,
+    )
+    
+    # The unified optimizer returns a tuple (upper_ctrl, lower_ctrl) for coupled mode
+    return result 

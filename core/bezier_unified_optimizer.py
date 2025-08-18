@@ -323,6 +323,33 @@ def optimize_bezier(
             if is_upper_surface is None or num_control_points_new is None:
                 raise ValueError("is_upper_surface and num_control_points_new required for coupled fixed-x mode")
             
+            # Special case: Use coupled LP solver for Chebyshev approximation
+            if objective == "chebyshev" and error_function == "euclidean":
+                if logger_func:
+                    logger_func("Using coupled Chebyshev LP solver for fixed-x mode")
+                
+                from core.chebyshev_lp_optimizer import optimize_coupled_fixed_x_chebyshev_lp
+                
+                # Solve using coupled LP
+                result = optimize_coupled_fixed_x_chebyshev_lp(
+                    original_upper_data=original_data,
+                    original_lower_data=lower_data,
+                    regularization_weight=regularization_weight,
+                    te_tangent_vector_upper=te_tangent_vector,
+                    te_tangent_vector_lower=lower_te_tangent_vector,
+                    error_function=error_function,
+                    logger_func=logger_func,
+                    abort_flag=abort_flag
+                )
+                
+                if result is not None:
+                    return result  # Returns (upper_ctrl, lower_ctrl)
+                else:
+                    if logger_func:
+                        logger_func("Coupled LP solver failed, falling back to softmax")
+                    # Fall back to softmax if LP fails
+                    objective = "softmax"
+            
             # Build initial control points for both surfaces
             
             # Upper surface

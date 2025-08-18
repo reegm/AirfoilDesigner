@@ -5,6 +5,8 @@ Contains the worker functions that run in separate processes to avoid blocking t
 
 import numpy as np
 
+from core.bezier_chebyshev_wrapper import build_coupled_bezier_fixed_x_chebyshev
+
 
 def calculate_te_tangent(upper_data, lower_data, te_vector_points):
     """
@@ -271,8 +273,17 @@ def _generation_worker(args, queue):
                     abort_flag=abort_flag
                 )
             elif objective_type == 'chebyshev':
-                queue.put({"success": False, "error": "Chebyshev LP solver currently only supports uncoupled fixed-x mode. Please uncheck 'Enforce G2 at leading edge' to test."})
-                return
+                upper_poly, lower_poly = build_coupled_bezier_fixed_x_chebyshev(
+                    upper_data=upper_data,
+                    lower_data=lower_data,
+                    num_control_points=num_control_points,
+                    upper_te_tangent_vector=upper_te_tangent_vector,
+                    lower_te_tangent_vector=lower_te_tangent_vector,
+                    regularization_weight=regularization_weight,
+                    error_function=error_function,
+                    logger_func=combined_logger,
+                    abort_flag=abort_flag
+                )
             elif objective_type == 'softmax':
                 upper_poly, lower_poly = build_coupled_bezier_fixed_x_softmax(
                     upper_data,
