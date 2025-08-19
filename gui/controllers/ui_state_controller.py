@@ -35,11 +35,6 @@ class UIStateController:
 
         is_file_loaded = self.processor.upper_data is not None
         
-        # Check for Bezier model
-        is_bezier_model_built = (
-            self.processor.upper_poly_sharp is not None
-        )
-        
         # Check for B-spline model
         bspline_proc = getattr(self.window, "bspline_processor", None)
         is_bspline_model_built = False
@@ -49,26 +44,22 @@ class UIStateController:
             except Exception:
                 is_bspline_model_built = False
         
-        # Model is built if either Bezier or B-spline is available
-        is_model_built = is_bezier_model_built or is_bspline_model_built
+        # Model is built if B-spline is available
+        is_model_built = is_bspline_model_built
         
-        # Check thickening state for both models
-        is_bezier_thickened = getattr(self.processor, "_is_thickened", False)
+        # Check thickening state for B-spline model
         is_bspline_thickened = False
         if is_bspline_model_built and bspline_proc is not None:
             is_bspline_thickened = not bspline_proc.is_sharp_te
         
-        # Overall thickening state - if either model is thickened, consider it thickened
-        is_thickened = is_bezier_thickened or is_bspline_thickened
+        # Overall thickening state
+        is_thickened = is_bspline_thickened
         
         is_trailing_edge_thickened = False
         if hasattr(self.processor, "is_trailing_edge_thickened"):
             is_trailing_edge_thickened = self.processor.is_trailing_edge_thickened()
 
-        # Build button
-        opt.build_single_bezier_button.setEnabled(is_file_loaded)
-
-        # Thickening button - enable if any model is built and not already thickened
+        # Thickening button - enable if B-spline model is built and not already thickened
         airfoil.toggle_thickening_button.setEnabled(
             is_model_built and not is_trailing_edge_thickened
         )
@@ -92,11 +83,7 @@ class UIStateController:
         scale = comb.comb_scale_slider.value() / 1000.0
         density = comb.comb_density_slider.value()
 
-        # Check for any model (Bezier or B-spline)
-        is_bezier_model_present = (
-            self.processor.upper_poly_sharp is not None
-        )
-        
+        # Check for B-spline model
         bspline_proc = getattr(self.window, "bspline_processor", None)
         is_bspline_model_present = False
         if bspline_proc is not None:
@@ -105,29 +92,22 @@ class UIStateController:
             except Exception:
                 is_bspline_model_present = False
         
-        is_model_present = is_bezier_model_present or is_bspline_model_present
-
-        if is_model_present:
-            # Update Bezier comb
-            self.processor.request_plot_update_with_comb_params(scale, density)
-            
-            # Also update B-spline comb if B-spline model is present
-            if is_bspline_model_present:
-                bspline_proc = getattr(self.window, "bspline_processor", None)
-                if bspline_proc is not None and bspline_proc.is_fitted():
-                    # Trigger B-spline plot update with new comb parameters
-                    self.window.bspline_controller._update_plot_with_bsplines()
+        if is_bspline_model_present:
+            # Update B-spline comb if B-spline model is present
+            bspline_proc = getattr(self.window, "bspline_processor", None)
+            if bspline_proc is not None and bspline_proc.is_fitted():
+                # Trigger B-spline plot update with new comb parameters
+                self.window.bspline_controller._update_plot_with_bsplines()
     
     def handle_toggle_thickening(self) -> None:
-        """Apply/remove trailing-edge thickening for both Bezier and B-spline models."""
+        """Apply/remove trailing-edge thickening for B-spline models."""
         airfoil = self.window.airfoil_settings_panel
         try:
             te_thickness_percent = float(airfoil.te_thickness_input.text()) / (
                 float(airfoil.chord_length_input.text()) / 100.0
             )
             
-            # Check if we have any models to thicken
-            is_bezier_model_built = self.processor.upper_poly_sharp is not None
+            # Check if we have B-spline model to thicken
             bspline_proc = getattr(self.window, "bspline_processor", None)
             is_bspline_model_built = False
             if bspline_proc is not None:
@@ -136,22 +116,17 @@ class UIStateController:
                 except Exception:
                     is_bspline_model_built = False
             
-            if not is_bezier_model_built and not is_bspline_model_built:
-                self.processor.log_message.emit("No models available to apply thickening to.")
+            if not is_bspline_model_built:
+                self.processor.log_message.emit("No B-spline model available to apply thickening to.")
                 return
             
-            # Handle Bezier thickening
-            if is_bezier_model_built:
-                self.processor.toggle_thickening(te_thickness_percent)
-            
             # Handle B-spline thickening
-            if is_bspline_model_built:
-                bspline_controller = getattr(self.window, "bspline_controller", None)
-                if bspline_controller is not None:
-                    if not self.processor._is_thickened:  # Apply thickening
-                        bspline_controller.apply_te_thickening(te_thickness_percent)
-                    else:  # Remove thickening
-                        bspline_controller.remove_te_thickening()
+            bspline_controller = getattr(self.window, "bspline_controller", None)
+            if bspline_controller is not None:
+                if not self.processor._is_thickened:  # Apply thickening
+                    bspline_controller.apply_te_thickening(te_thickness_percent)
+                else:  # Remove thickening
+                    bspline_controller.remove_te_thickening()
             
             self.handle_comb_params_changed()
             self.update_button_states()

@@ -7,72 +7,18 @@ algorithms or UI widgets.
 """
 from __future__ import annotations
 
-# ---- Optimisation weights -------------------------------------------------
-DEFAULT_REGULARIZATION_WEIGHT: float = 0.0
-
 # ---- Geometry & Model -----------------------------------------------------
-NUM_CONTROL_POINTS_SINGLE_BEZIER: int = 10  # Order-9 Bezier (per Venkataraman 2017)
 
 # B-spline settings
 DEFAULT_BSPLINE_DEGREE: int = 5  # Degree of B-spline curves (3-7 recommended for airfoils)
 DEFAULT_BSPLINE_KNOT_END_BIAS: float = 0.0  # Blend factor for interior knot distribution: 0 = uniform, 1 = Chebyshev (end-clustered)
-DEFAULT_BSPLINE_PARAM_END_BIAS: float = 0.1  # Blend factor for parameterization: 0 = u = sqrt(x), 1 = Chebyshev-like u = arccos(1-2x)/pi
-
-# Fixed x-coordinates from the Venkataraman paper
-PAPER_FIXED_X_UPPER = [
-    0.0,
-    0.0,
-    0.11422,
-    0.25294,
-    0.37581,
-    0.49671,
-    0.61942,
-    0.74701,
-    0.88058,
-    1.0,
-]
-PAPER_FIXED_X_LOWER = [
-    0.0,
-    0.0,
-    0.12325,
-    0.25314,
-    0.37519,
-    0.49569,
-    0.61975,
-    0.74391,
-    0.87391,
-    1.0,
-]
 
 # ---- Manufacturing / Export defaults -------------------------------------
 DEFAULT_CHORD_LENGTH_MM: float = 200.0
 DEFAULT_TE_THICKNESS_MM: float = 0.0
 
-# ---- Optimiser settings ---------------------------------------------------
-SLSQP_OPTIONS = {
-    "disp": False,
-    "maxiter": 10000,
-    "ftol": 1e-12,  # Function tolerance for convergence
-    "gtol": 1e-8,   # Gradient tolerance for early termination
-    "eps": 1e-6     # Step size for gradient estimation
-}
-
 # ---- Sampling & Debugging -----------------------------------------------
-# Adaptive sampling for error calculations
-# Start with coarse sampling, increase resolution as error improves
-NUM_POINTS_CURVE_ERROR_COARSE: int = 5000    # Initial optimization phases
-NUM_POINTS_CURVE_ERROR_MEDIUM: int = 12000   # Intermediate refinement
-NUM_POINTS_CURVE_ERROR_FINE: int = 20000     # Final precision
-NUM_POINTS_CURVE_ERROR_ULTRA: int = 35000    # Ultimate precision (rarely used)
-
-# Adaptive sampling thresholds - when to increase resolution
-ADAPTIVE_SAMPLING_THRESHOLD_MEDIUM: float = 5e-4  # Switch from coarse to medium
-ADAPTIVE_SAMPLING_THRESHOLD_FINE: float = 1e-4    # Switch from medium to fine
-ADAPTIVE_SAMPLING_THRESHOLD_ULTRA: float = 7e-5   # Switch from fine to ultra
-
-# Legacy setting for backward compatibility
-NUM_POINTS_CURVE_ERROR: int = NUM_POINTS_CURVE_ERROR_FINE
-
+NUM_POINTS_CURVE_ERROR: int = 35000    # Ultimate precision (rarely used)
 
 # Plot sampling settings
 # Curvature-adaptive sampling improves visual smoothness near the leading edge
@@ -94,40 +40,3 @@ DEFAULT_TE_VECTOR_POINTS: int = 2
 
 # Debugging & Logging
 DEBUG_WORKER_LOGGING: bool = True
-
-# Plot update control
-UPDATE_PLOT: bool = True  # Whether to update the plot during optimization (can be disabled for performance)
-PROGRESS_UPDATE_INTERVAL: float = 1  # Seconds between progress updates (0.5 = 2 updates per second)
-
-# Orthogonal distance calculation settings
-ORTHOGONAL_DISTANCE_MAX_ITERATIONS: int = 20
-ORTHOGONAL_DISTANCE_MAX_TOLERANCE: float = 1e-12
-
-# Softmax Settings
-SOFTMAX_ALPHA: float = 2000  # Reduced from 100 to be less aggressive about worst errors
-
-# Plateau detection settings
-PLATEAU_THRESHOLD: float = 1e-10
-PLATEAU_PATIENCE: int = 30
-
-MAX_ERROR_THRESHOLD: float = 5e-5  # Ultimate target
-
-# ---- Abort mechanism settings -------------------------------------------
-# Time interval (seconds) for checking abort flag during optimization
-ABORT_CHECK_INTERVAL: float = 0.1
-
-# Maximum time to wait for graceful shutdown after abort request
-ABORT_TIMEOUT: float = 5.0
-
-# ---- Staged optimizer settings -------------------------------------------
-# Basin-hopping hop counts per stage
-HYBRID_BH_HOPS_MSR: int = 5                 # Enable MSR basin-hopping for priming Stage 2
-HYBRID_BH_HOPS_FREE_MINMAX: int = 15        # more aggressive in free-x where gains are largest
-
-
-# Perturbation scale (normalized coordinates)
-HYBRID_BH_PERTURB_STD: float = 0.005
-
-# Per-stage local optimizer iteration budgets
-HYBRID_LOCAL_MAXITER_MSR: int = 400
-HYBRID_LOCAL_MAXITER_MINMAX_FREE: int = 1500

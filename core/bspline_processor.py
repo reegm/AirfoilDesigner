@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 from scipy import interpolate, optimize
 from scipy.interpolate import LSQUnivariateSpline
+from scipy.interpolate import BSpline
 
 from core import config
-
 
 class BSplineProcessor:
     """
@@ -145,17 +145,6 @@ class BSplineProcessor:
         basis_upper = self._build_basis_matrix(u_params_upper, knot_vector)
         basis_lower = self._build_basis_matrix(u_params_lower, knot_vector)
         
-        # For G2 with arbitrary degree, we need to be more careful
-        # The key insight: we can parameterize the solution space
-        # Control points that must be constrained:
-        # - P0 = (0, 0) for both surfaces (shared)
-        # - P1.x = 0 for both surfaces (G1 constraint)
-        # - For G2, we need to relate P1.y and P2 appropriately
-        
-        # Design variables:
-        # [P1.y_upper, P1.y_lower, P2.x_upper, P2.y_upper, P2.x_lower, P2.y_lower, 
-        #  P3_upper, ..., Pn_upper, P3_lower, ..., Pn_lower]
-        
         # Number of free variables per surface
         n_fixed = 3  # P0, P1, P2 are partially constrained
         n_free = num_control_points - n_fixed
@@ -232,7 +221,7 @@ class BSplineProcessor:
         print(f"[DEBUG] Upper TE target: {te_point_upper}")
         print(f"[DEBUG] Lower TE target: {te_point_lower}")
         
-        # Add trailing edge tangent constraints if tangent vectors are provided
+        # Add trailing edge tangent constraints if selected
         if upper_te_dir is not None and lower_te_dir is not None and enforce_te_tangency:
             def te_tangent_constraint_upper(vars):
                 """Constraint for upper surface trailing edge tangent."""
@@ -483,15 +472,6 @@ class BSplineProcessor:
         
         # Add trailing edge tangent constraint if provided
         if te_tangent_vector is not None:
-            # For B-spline tangent constraint, we want the last control point to be positioned
-            # such that the tangent at the trailing edge matches the target direction
-            
-            # Simple approach: constrain the last control point to be in the direction of the tangent
-            # from the second-to-last control point
-            
-            # We want: (P_n - P_{n-1}) to be parallel to te_tangent_vector
-            # This means: (P_n - P_{n-1}) × te_tangent_vector = 0
-            # Or: (P_n.x - P_{n-1}.x) * te_tangent_vector.y - (P_n.y - P_{n-1}.y) * te_tangent_vector.x = 0
             
             row = np.zeros(2 * num_control_points)
             # P_n terms

@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 import numpy as np
-
+from scipy.interpolate import BSpline
+from scipy.spatial import cKDTree
+from core import config
 from core.bspline_processor import BSplineProcessor
-from core.error_functions import calculate_bspline_fitting_error
 
 
 class BSplineController:
     """Controller for B-spline operations, following existing architecture."""
-
+    
     def __init__(self, processor, window: Any):
         self.processor = processor
         self.window = window
@@ -17,6 +18,8 @@ class BSplineController:
         self.bspline_processor = getattr(window, "bspline_processor", None) or BSplineProcessor()
         # Store the B-spline processor in the window for access by other controllers
         self.window.bspline_processor = self.bspline_processor
+
+    
 
     def fit_bspline(self) -> None:
         """Fit B-spline curves to loaded airfoil data."""
@@ -58,16 +61,14 @@ class BSplineController:
                 self.window.status_log.append(f"B-spline fitting with G2 continuity {g2_status}, TE tangency {te_tangency_status}")
                 
                 # Calculate and display errors for each surface
-                upper_sum_sq, upper_max_err, upper_max_err_idx = calculate_bspline_fitting_error(
+                upper_sum_sq, upper_max_err, upper_max_err_idx = self.calculate_bspline_fitting_error(
                     self.bspline_processor.upper_curve,
                     self.processor.upper_data,
-                    error_function="euclidean",
                     return_max_error=True,
                 )
-                lower_sum_sq, lower_max_err, lower_max_err_idx = calculate_bspline_fitting_error(
+                lower_sum_sq, lower_max_err, lower_max_err_idx = self.calculate_bspline_fitting_error(
                     self.bspline_processor.lower_curve,
                     self.processor.lower_data,
-                    error_function="euclidean",
                     return_max_error=True,
                 )
                 
@@ -90,6 +91,37 @@ class BSplineController:
 
         except Exception as e:  # pragma: no cover
             self.window.status_log.append(f"Error during B-spline fitting: {e}")
+
+    def calculate_bspline_fitting_error(
+                self,
+                bspline_curve: BSpline,
+                original_data: np.ndarray,
+                *,
+                return_max_error: bool = False,
+                return_all: bool = False,
+            ):
+            """
+            Calculate fitting error for a B-spline curve against original data.
+            """
+            # Approximate orthogonal by dense sampling
+            num_points_curve = config.NUM_POINTS_CURVE_ERROR
+            t_samples = np.linspace(0.0, 1.0, num_points_curve)
+            if len(t_samples) > 0:
+                t_samples[-1] = min(t_samples[-1], 1.0 - 1e-12)
+            sampled_curve_points = bspline_curve(t_samples)
+            sampled_curve_points = sampled_curve_points[np.argsort(sampled_curve_points[:, 0])]
+            tree = cKDTree(sampled_curve_points)
+            min_dists, _ = tree.query(original_data, k=1)
+            sum_sq = float(np.sum(min_dists ** 2))
+            if return_all:
+                rms = float(np.sqrt(np.mean(min_dists ** 2)))
+                return min_dists, rms, (sum_sq, int(np.argmax(min_dists)))
+            if return_max_error:
+                max_error = float(np.max(min_dists))
+                max_error_idx = int(np.argmax(min_dists))
+                return sum_sq, max_error, max_error_idx
+            return sum_sq
+    
 
     def apply_te_thickening(self, te_thickness_percent: float) -> bool:
         """
@@ -162,6 +194,7 @@ class BSplineController:
             return False
         return not self.bspline_processor.is_sharp_te
 
+    
     def _update_plot_with_bsplines(self) -> None:
         """Update plot to display B-spline curves and control points."""
         # Get comb parameters from the UI
@@ -195,28 +228,7 @@ class BSplineController:
             plot_data['bspline_lower_max_error'] = self.bspline_processor.last_lower_max_error
             plot_data['bspline_lower_max_error_idx'] = self.bspline_processor.last_lower_max_error_idx
         
-        # Include existing Bezier model data if available
-        if hasattr(self.processor, 'upper_poly_sharp') and self.processor.upper_poly_sharp is not None:
-            plot_data['single_bezier_upper_poly'] = self.processor.upper_poly_sharp
-            plot_data['single_bezier_lower_poly'] = self.processor.lower_poly_sharp
-            plot_data['worst_single_bezier_upper_max_error'] = getattr(self.processor, 'last_single_bezier_upper_max_error', None)
-            plot_data['worst_single_bezier_upper_max_error_idx'] = getattr(self.processor, 'last_single_bezier_upper_max_error_idx', None)
-            plot_data['worst_single_bezier_lower_max_error'] = getattr(self.processor, 'last_single_bezier_lower_max_error', None)
-            plot_data['worst_single_bezier_lower_max_error_idx'] = getattr(self.processor, 'last_single_bezier_lower_max_error_idx', None)
-            
-            # Include Bezier comb data if available (from thickened model)
-            if hasattr(self.processor, '_is_thickened') and self.processor._is_thickened:
-                if hasattr(self.processor, '_thickened_single_bezier_polygons') and self.processor._thickened_single_bezier_polygons:
-                    # Get comb parameters from UI
-                    comb_scale = self.window.comb_panel.comb_scale_slider.value() / 1000.0
-                    comb_density = self.window.comb_panel.comb_density_slider.value()
-                    
-                    # Calculate Bezier comb data
-                    plot_data['comb_single_bezier'] = self.processor._calculate_curvature_comb_data(
-                        self.processor._thickened_single_bezier_polygons,
-                        num_points_per_segment=comb_density,
-                        scale_factor=comb_scale,
-                    )
+
         
         # Emit plot update signal
         self.processor.plot_update_requested.emit(plot_data)

@@ -67,13 +67,11 @@ class MainController(QObject):
         fp = self.window.file_panel
         fp.load_button.clicked.connect(self.file_controller.load_airfoil_file)
         fp.export_dxf_button.clicked.connect(self.file_controller.export_dxf)
-        fp.export_step_button.clicked.connect(self.file_controller.export_step_surface)
+
         fp.export_dat_button.clicked.connect(self.file_controller.export_dat_file)
 
         # Optimization operations
         opt = self.window.optimizer_panel
-        opt.build_single_bezier_button.clicked.connect(self.optimization_controller.generate_or_abort)
-        opt.staged_opt_button.clicked.connect(self.optimization_controller.run_staged_or_abort)
         opt.recalculate_button.clicked.connect(self.optimization_controller.recalculate_te_vectors)
         opt.fit_bspline_button.clicked.connect(self.bspline_controller.fit_bspline)
 
@@ -88,21 +86,16 @@ class MainController(QObject):
 
     def _update_plot_from_processor(self, plot_data: dict[str, Any]) -> None:
         """Receive plot data from the processor and forward to the widget."""
-        # Check if this is a progress update by checking if we have current progress info
-        is_progress_update = hasattr(self.optimization_controller, '_current_progress_info')
-        
-        # Cache so we can recompute comb later (but not for progress updates)
-        if not is_progress_update:
-            self._last_plot_data = plot_data.copy()
+        # Cache so we can recompute comb later
+        self._last_plot_data = plot_data.copy()
 
         try:
             chord_length_mm = float(self.window.airfoil_settings_panel.chord_length_input.text())
         except Exception:
             chord_length_mm = None
 
-        # Only clear the plot for non-progress updates to avoid flickering
-        if not is_progress_update:
-            self.window.plot_widget.clear()
+        # Clear the plot
+        self.window.plot_widget.clear()
         
         # Remove chord_length_mm from plot_data to avoid duplicate parameter
         plot_data_without_chord = {k: v for k, v in plot_data.items() if k != 'chord_length_mm'}
@@ -112,10 +105,5 @@ class MainController(QObject):
             chord_length_mm=chord_length_mm,
         )
 
-        # Only update button states for non-progress updates
-        if not is_progress_update:
-            self.ui_state_controller.update_button_states()
-        
-        # Clear progress info after using it
-        if is_progress_update:
-            delattr(self.optimization_controller, '_current_progress_info') 
+        # Update button states
+        self.ui_state_controller.update_button_states() 
