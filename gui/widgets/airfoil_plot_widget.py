@@ -73,6 +73,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
         bspline_lower_max_error=None,
         bspline_upper_max_error_idx=None,
         bspline_lower_max_error_idx=None,
+        comb_bspline=None,
     ):
         """Render everything supplied in *kwargs* on the canvas."""
         # Clear all items to ensure no remnants
@@ -108,6 +109,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
 
         # Comb colours
         COLOR_SINGLE_BEZIER_COMB = pg.mkPen((220, 220, 220), width=1)
+        COLOR_BSPLINE_COMB = pg.mkPen((180, 180, 180), width=1)
         COLOR_COMB_OUTLINE = pg.mkPen("yellow", width=2, style=Qt.PenStyle.DotLine)
 
         # --------------------------------------------------------------
@@ -366,6 +368,52 @@ class AirfoilPlotWidget(pg.PlotWidget):
                         lambda: tips_item.setVisible(main_comb_item.isVisible())
                     )
                     tips_item.setVisible(main_comb_item.isVisible())
+
+        # --------------------------------------------------------------
+        # 4b) B-spline Curvature comb
+        # --------------------------------------------------------------
+        if comb_bspline is not None and any(comb_bspline):
+            all_bspline_comb_hairs: list[np.ndarray] = []
+            all_bspline_comb_tips_segments: list[np.ndarray] = []
+
+            for comb_segments in comb_bspline:
+                if not comb_segments:
+                    continue
+                all_bspline_comb_hairs.extend(comb_segments)
+
+                comb_tips = np.array([hair[1] for hair in comb_segments])
+                for j in range(len(comb_tips) - 1):
+                    p1 = comb_tips[j]
+                    p2 = comb_tips[j + 1]
+                    if p1[1] != 0 or p2[1] != 0:
+                        all_bspline_comb_tips_segments.append(p1)
+                        all_bspline_comb_tips_segments.append(p2)
+
+            if all_bspline_comb_hairs:
+                comb_array = np.concatenate(all_bspline_comb_hairs)
+                main_bspline_comb_item = self.plot(
+                    comb_array[:, 0],
+                    comb_array[:, 1],
+                    pen=COLOR_BSPLINE_COMB,
+                    name="B-spline Curvature Comb",
+                    connect="pairs",
+                )
+                self.plot_items["B-spline Curvature Comb"] = [main_bspline_comb_item]
+
+                if all_bspline_comb_tips_segments:
+                    segments_array = np.array(all_bspline_comb_tips_segments)
+                    tips_item = self.plot(
+                        segments_array[:, 0],
+                        segments_array[:, 1],
+                        pen=COLOR_COMB_OUTLINE,
+                        connect="pairs",
+                    )
+                    self.plot_items["B-spline Comb Tips Polyline"] = [tips_item]
+
+                    main_bspline_comb_item.visibleChanged.connect(
+                        lambda: tips_item.setVisible(main_bspline_comb_item.isVisible())
+                    )
+                    tips_item.setVisible(main_bspline_comb_item.isVisible())
 
         # --------------------------------------------------------------
         # 5) Trailing-edge tangent vectors (only once)

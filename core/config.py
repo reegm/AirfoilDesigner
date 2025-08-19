@@ -15,7 +15,7 @@ NUM_CONTROL_POINTS_SINGLE_BEZIER: int = 10  # Order-9 Bezier (per Venkataraman 2
 
 # B-spline settings
 DEFAULT_BSPLINE_DEGREE: int = 5  # Degree of B-spline curves (3-7 recommended for airfoils)
-DEFAULT_BSPLINE_KNOT_END_BIAS: float = 0.1  # Blend factor for interior knot distribution: 0 = uniform, 1 = Chebyshev (end-clustered)
+DEFAULT_BSPLINE_KNOT_END_BIAS: float = 0.0  # Blend factor for interior knot distribution: 0 = uniform, 1 = Chebyshev (end-clustered)
 DEFAULT_BSPLINE_PARAM_END_BIAS: float = 0.1  # Blend factor for parameterization: 0 = u = sqrt(x), 1 = Chebyshev-like u = arccos(1-2x)/pi
 
 # Fixed x-coordinates from the Venkataraman paper

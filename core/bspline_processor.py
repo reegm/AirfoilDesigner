@@ -647,3 +647,75 @@ class BSplineProcessor:
     def is_fitted(self) -> bool:
         """Check if B-splines have been successfully fitted."""
         return self.fitted and self.upper_curve is not None and self.lower_curve is not None
+
+    def calculate_curvature_comb_data(
+        self,
+        num_points_per_segment=200,
+        scale_factor=0.050,
+    ):
+        """
+        Calculates the curvature comb lines for B-spline curves.
+        Returns a list of lists, where each inner list contains the hair segments for one curve.
+        """
+        if not self.is_fitted():
+            return None
+
+        all_curves_combs = []
+
+        # Process both upper and lower curves
+        curves = [self.upper_curve, self.lower_curve]
+        
+        for curve in curves:
+            curve_comb_hairs = []
+            
+            # Get parameter range for the curve
+            t_start = curve.t[curve.k]
+            t_end = curve.t[-(curve.k + 1)]
+            
+            # Sample points along the curve
+            t_vals = np.linspace(t_start, t_end, num_points_per_segment)
+            
+            # Evaluate curve points
+            curve_points = curve(t_vals)
+            
+            # Calculate first and second derivatives for curvature
+            derivatives_1 = curve.derivative(1)(t_vals)
+            derivatives_2 = curve.derivative(2)(t_vals)
+            
+            # Calculate curvature using the formula: κ = |r' × r''| / |r'|³
+            # For 2D curves: κ = (x'y'' - y'x'') / (x'² + y'²)^(3/2)
+            x_prime = derivatives_1[:, 0]
+            y_prime = derivatives_1[:, 1]
+            x_double_prime = derivatives_2[:, 0]
+            y_double_prime = derivatives_2[:, 1]
+            
+            # Calculate curvature
+            numerator = x_prime * y_double_prime - y_prime * x_double_prime
+            denominator = (x_prime**2 + y_prime**2)**(3/2)
+            
+            # Avoid division by zero
+            curvatures = np.divide(numerator, denominator, out=np.zeros_like(numerator), where=denominator > 1e-12)
+            
+            # Normalize tangents to get unit tangents
+            tangent_norms = np.sqrt(x_prime**2 + y_prime**2)
+            unit_tangents = np.zeros_like(derivatives_1)
+            valid_tangents = tangent_norms > 1e-12
+            unit_tangents[valid_tangents] = derivatives_1[valid_tangents] / tangent_norms[valid_tangents, np.newaxis]
+            
+            # Get normal vectors (rotate tangent by 90 degrees)
+            normals = np.zeros_like(unit_tangents)
+            normals[:, 0] = -unit_tangents[:, 1]
+            normals[:, 1] = unit_tangents[:, 0]
+            
+            # Invert the curvature so that combs point outwards for convex and inwards for concave
+            comb_lengths = -curvatures * scale_factor
+            end_points = curve_points + normals * comb_lengths[:, np.newaxis]
+            
+            # Create individual hair segments as separate line data
+            for j in range(num_points_per_segment):
+                hair_segment = np.array([curve_points[j], end_points[j]])
+                curve_comb_hairs.append(hair_segment)
+            
+            all_curves_combs.append(curve_comb_hairs)
+
+        return all_curves_combs if all_curves_combs else None

@@ -99,7 +99,15 @@ class UIStateController:
         is_model_present = is_bezier_model_present or is_bspline_model_present
 
         if is_model_present:
+            # Update Bezier comb
             self.processor.request_plot_update_with_comb_params(scale, density)
+            
+            # Also update B-spline comb if B-spline model is present
+            if is_bspline_model_present:
+                bspline_proc = getattr(self.window, "bspline_processor", None)
+                if bspline_proc is not None and bspline_proc.is_fitted():
+                    # Trigger B-spline plot update with new comb parameters
+                    self.window.bspline_controller._update_plot_with_bsplines()
     
     def handle_toggle_thickening(self) -> None:
         """Apply/remove trailing-edge thickening."""

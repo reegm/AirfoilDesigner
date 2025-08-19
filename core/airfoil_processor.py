@@ -221,6 +221,10 @@ class AirfoilProcessor(QObject):
         else:
             updated_plot_data['comb_single_bezier'] = None # Ensure it's cleared if no model
 
+        # Also include B-spline comb data if available
+        # Note: This requires access to the B-spline processor, which is handled in the UI state controller
+        # The B-spline comb will be added by the UI state controller when it calls this method
+
         # Emit signal with the newly calculated comb data, but don't update the cache with this
         # The cache should only hold data from a full model generation/update
         self.plot_update_requested.emit(updated_plot_data)

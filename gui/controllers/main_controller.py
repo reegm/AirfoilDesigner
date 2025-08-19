@@ -38,6 +38,9 @@ class MainController(QObject):
         self.file_controller = FileController(self.processor, self.window, self.ui_state_controller)
         self.optimization_controller = OptimizationController(self.processor, self.window, self.ui_state_controller)
         self.bspline_controller = BSplineController(self.processor, self.window)
+        
+        # Store B-spline controller in window for access by other controllers
+        self.window.bspline_controller = self.bspline_controller
 
         # ------------------------------------------------------------------
         # Wire up processor signals
