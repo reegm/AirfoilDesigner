@@ -51,7 +51,16 @@ class UIStateController:
         
         # Model is built if either Bezier or B-spline is available
         is_model_built = is_bezier_model_built or is_bspline_model_built
-        is_thickened = self.processor._is_thickened
+        
+        # Check thickening state for both models
+        is_bezier_thickened = getattr(self.processor, "_is_thickened", False)
+        is_bspline_thickened = False
+        if is_bspline_model_built and bspline_proc is not None:
+            is_bspline_thickened = not bspline_proc.is_sharp_te
+        
+        # Overall thickening state - if either model is thickened, consider it thickened
+        is_thickened = is_bezier_thickened or is_bspline_thickened
+        
         is_trailing_edge_thickened = False
         if hasattr(self.processor, "is_trailing_edge_thickened"):
             is_trailing_edge_thickened = self.processor.is_trailing_edge_thickened()
@@ -59,7 +68,7 @@ class UIStateController:
         # Build button
         opt.build_single_bezier_button.setEnabled(is_file_loaded)
 
-        # Thickening button
+        # Thickening button - enable if any model is built and not already thickened
         airfoil.toggle_thickening_button.setEnabled(
             is_model_built and not is_trailing_edge_thickened
         )
@@ -110,15 +119,43 @@ class UIStateController:
                     self.window.bspline_controller._update_plot_with_bsplines()
     
     def handle_toggle_thickening(self) -> None:
-        """Apply/remove trailing-edge thickening."""
+        """Apply/remove trailing-edge thickening for both Bezier and B-spline models."""
         airfoil = self.window.airfoil_settings_panel
         try:
             te_thickness_percent = float(airfoil.te_thickness_input.text()) / (
                 float(airfoil.chord_length_input.text()) / 100.0
             )
-            self.processor.toggle_thickening(te_thickness_percent)
+            
+            # Check if we have any models to thicken
+            is_bezier_model_built = self.processor.upper_poly_sharp is not None
+            bspline_proc = getattr(self.window, "bspline_processor", None)
+            is_bspline_model_built = False
+            if bspline_proc is not None:
+                try:
+                    is_bspline_model_built = bool(getattr(bspline_proc, "fitted", False))
+                except Exception:
+                    is_bspline_model_built = False
+            
+            if not is_bezier_model_built and not is_bspline_model_built:
+                self.processor.log_message.emit("No models available to apply thickening to.")
+                return
+            
+            # Handle Bezier thickening
+            if is_bezier_model_built:
+                self.processor.toggle_thickening(te_thickness_percent)
+            
+            # Handle B-spline thickening
+            if is_bspline_model_built:
+                bspline_controller = getattr(self.window, "bspline_controller", None)
+                if bspline_controller is not None:
+                    if not self.processor._is_thickened:  # Apply thickening
+                        bspline_controller.apply_te_thickening(te_thickness_percent)
+                    else:  # Remove thickening
+                        bspline_controller.remove_te_thickening()
+            
             self.handle_comb_params_changed()
             self.update_button_states()
+            
         except ValueError:
             self.processor.log_message.emit(
                 "Error: Invalid TE Thickness. Please enter a number."

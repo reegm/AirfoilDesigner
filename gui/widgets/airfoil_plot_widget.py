@@ -74,6 +74,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
         bspline_upper_max_error_idx=None,
         bspline_lower_max_error_idx=None,
         comb_bspline=None,
+        bspline_is_thickened=False,
     ):
         """Render everything supplied in *kwargs* on the canvas."""
         # Clear all items to ensure no remnants
@@ -111,6 +112,18 @@ class AirfoilPlotWidget(pg.PlotWidget):
         COLOR_SINGLE_BEZIER_COMB = pg.mkPen((220, 220, 220), width=1)
         COLOR_BSPLINE_COMB = pg.mkPen((180, 180, 180), width=1)
         COLOR_COMB_OUTLINE = pg.mkPen("yellow", width=2, style=Qt.PenStyle.DotLine)
+
+        # B-spline colors
+        COLOR_BSPLINE_CURVE = pg.mkPen("magenta", width=2.5)
+        COLOR_BSPLINE_CONTROL_POINTS = pg.mkPen((255, 20, 147), width=1.5, style=Qt.PenStyle.DashLine)
+        COLOR_BSPLINE_CONTROL_SYMBOL = pg.mkBrush((255, 20, 147, 200))
+        COLOR_BSPLINE_CONTROL_SYMBOL_PEN = pg.mkPen((255, 20, 147), width=1.5)
+        
+        # Thickened B-spline colors
+        COLOR_THICKENED_BSPLINE_CURVE = pg.mkPen("darkmagenta", width=3.0)
+        COLOR_THICKENED_BSPLINE_CONTROL_POINTS = pg.mkPen((139, 0, 139), width=1.5, style=Qt.PenStyle.DotLine)
+        COLOR_THICKENED_BSPLINE_CONTROL_SYMBOL = pg.mkBrush((139, 0, 139, 200))
+        COLOR_THICKENED_BSPLINE_CONTROL_SYMBOL_PEN = pg.mkPen((139, 0, 139), width=1.5)
 
         # --------------------------------------------------------------
         # 1) Original data
@@ -252,12 +265,21 @@ class AirfoilPlotWidget(pg.PlotWidget):
         # --------------------------------------------------------------
         # 3) B-spline curves and control points
         # --------------------------------------------------------------
-        COLOR_BSPLINE_CURVE = pg.mkPen("magenta", width=2.5)
-        COLOR_BSPLINE_CONTROL_POINTS = pg.mkPen((255, 20, 147), width=1.5, style=Qt.PenStyle.DashLine)
-        COLOR_BSPLINE_CONTROL_SYMBOL = pg.mkBrush((255, 20, 147, 200))
-        COLOR_BSPLINE_CONTROL_SYMBOL_PEN = pg.mkPen((255, 20, 147), width=1.5)
-
         if bspline_upper_curve is not None or bspline_lower_curve is not None:
+            # Choose colors based on thickening state
+            if bspline_is_thickened:
+                curve_color = COLOR_THICKENED_BSPLINE_CURVE
+                control_color = COLOR_THICKENED_BSPLINE_CONTROL_POINTS
+                control_symbol = COLOR_THICKENED_BSPLINE_CONTROL_SYMBOL
+                control_symbol_pen = COLOR_THICKENED_BSPLINE_CONTROL_SYMBOL_PEN
+                curve_name_prefix = "Thickened B-spline"
+            else:
+                curve_color = COLOR_BSPLINE_CURVE
+                control_color = COLOR_BSPLINE_CONTROL_POINTS
+                control_symbol = COLOR_BSPLINE_CONTROL_SYMBOL
+                control_symbol_pen = COLOR_BSPLINE_CONTROL_SYMBOL_PEN
+                curve_name_prefix = "B-spline"
+            
             self.plot_items["B-spline Curves"] = []
             self.plot_items["B-spline Control Points"] = []
 
@@ -271,9 +293,9 @@ class AirfoilPlotWidget(pg.PlotWidget):
                     self.plot(
                         bspline_upper_points[:, 0],
                         bspline_upper_points[:, 1],
-                        pen=COLOR_BSPLINE_CURVE,
+                        pen=curve_color,
                         antialias=True,
-                        name="B-spline Upper",
+                        name=f"{curve_name_prefix} Upper",
                     )
                 )
 
@@ -287,9 +309,9 @@ class AirfoilPlotWidget(pg.PlotWidget):
                     self.plot(
                         bspline_lower_points[:, 0],
                         bspline_lower_points[:, 1],
-                        pen=COLOR_BSPLINE_CURVE,
+                        pen=curve_color,
                         antialias=True,
-                        name="B-spline Lower",
+                        name=f"{curve_name_prefix} Lower",
                     )
                 )
 
@@ -299,12 +321,12 @@ class AirfoilPlotWidget(pg.PlotWidget):
                     self.plot(
                         bspline_upper_control_points[:, 0],
                         bspline_upper_control_points[:, 1],
-                        pen=COLOR_BSPLINE_CONTROL_POINTS,
+                        pen=control_color,
                         symbol="s",
                         symbolSize=6,
-                        symbolBrush=COLOR_BSPLINE_CONTROL_SYMBOL,
-                        symbolPen=COLOR_BSPLINE_CONTROL_SYMBOL_PEN,
-                        name="B-spline Control Points Upper",
+                        symbolBrush=control_symbol,
+                        symbolPen=control_symbol_pen,
+                        name=f"{curve_name_prefix} Control Points Upper",
                     )
                 )
 
@@ -314,12 +336,12 @@ class AirfoilPlotWidget(pg.PlotWidget):
                     self.plot(
                         bspline_lower_control_points[:, 0],
                         bspline_lower_control_points[:, 1],
-                        pen=COLOR_BSPLINE_CONTROL_POINTS,
+                        pen=control_color,
                         symbol="s",
                         symbolSize=6,
-                        symbolBrush=COLOR_BSPLINE_CONTROL_SYMBOL,
-                        symbolPen=COLOR_BSPLINE_CONTROL_SYMBOL_PEN,
-                        name="B-spline Control Points Lower",
+                        symbolBrush=control_symbol,
+                        symbolPen=control_symbol_pen,
+                        name=f"{curve_name_prefix} Control Points Lower",
                     )
                 )
 

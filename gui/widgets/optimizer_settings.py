@@ -80,6 +80,20 @@ class OptimizerSettingsWidget(QGroupBox):
 
         # Enforce G2 at leading edge
         self.g2_checkbox = QCheckBox("Enforce G2 at leading edge")
+        self.g2_checkbox.setToolTip(
+            "G2 continuity ensures smooth curvature transition at the leading edge.\n"
+            "When enabled: Both surfaces share the same leading edge radius.\n"
+            "When disabled: Only G1 (tangent) continuity is enforced."
+        )
+
+        # Enforce TE vector tangency
+        self.enforce_te_tangency_checkbox = QCheckBox("Enforce TE vector tangency")
+        self.enforce_te_tangency_checkbox.setChecked(True)  # Default to enabled
+        self.enforce_te_tangency_checkbox.setToolTip(
+            "When enabled: Bezier curves and B-splines are constrained to be tangent to the computed trailing edge vectors.\n"
+            "When disabled: Only endpoint constraints are applied, allowing better fit for some airfoils.\n"
+            "Note: Disabling may improve fit quality for certain input files."
+        )
 
         # B-spline settings
         self.bspline_cp_label = QLabel("B-spline control points:")
@@ -145,6 +159,7 @@ class OptimizerSettingsWidget(QGroupBox):
         # G2 checkbox
         g2_row = QHBoxLayout()
         g2_row.addWidget(self.g2_checkbox)
+        g2_row.addWidget(self.enforce_te_tangency_checkbox)
         g2_row.addStretch(1)
         layout.addLayout(g2_row)
 

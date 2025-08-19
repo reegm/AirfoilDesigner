@@ -15,6 +15,8 @@ class BSplineController:
         self.window = window
         # Reuse the instance created in MainWindow to keep a single source
         self.bspline_processor = getattr(window, "bspline_processor", None) or BSplineProcessor()
+        # Store the B-spline processor in the window for access by other controllers
+        self.window.bspline_processor = self.bspline_processor
 
     def fit_bspline(self) -> None:
         """Fit B-spline curves to loaded airfoil data."""
@@ -30,6 +32,14 @@ class BSplineController:
             self.bspline_processor.knot_end_bias = 0.5   # knots cluster more at both ends
             # self.bspline_processor.param_end_bias = 0.3  # parameters mildly cluster at both ends
 
+            # Get G2 flag from GUI checkbox
+            enforce_g2 = self.window.optimizer_panel.g2_checkbox.isChecked()
+            
+            # Get TE tangency flag from GUI checkbox
+            enforce_te_tangency = self.window.optimizer_panel.enforce_te_tangency_checkbox.isChecked()
+            
+            print(f"[DEBUG] Controller: enforce_te_tangency checkbox state: {enforce_te_tangency}")
+            
             success = self.bspline_processor.fit_bspline(
                 self.processor.upper_data,
                 self.processor.lower_data,
@@ -37,9 +47,16 @@ class BSplineController:
                 self.processor.is_trailing_edge_thickened(),
                 self.processor.upper_te_tangent_vector,
                 self.processor.lower_te_tangent_vector,
+                enforce_g2=enforce_g2,
+                enforce_te_tangency=enforce_te_tangency,
             )
 
             if success:
+                # Log G2 setting used
+                g2_status = "enabled" if enforce_g2 else "disabled"
+                te_tangency_status = "enabled" if enforce_te_tangency else "disabled"
+                self.window.status_log.append(f"B-spline fitting with G2 continuity {g2_status}, TE tangency {te_tangency_status}")
+                
                 # Calculate and display errors for each surface
                 upper_sum_sq, upper_max_err, upper_max_err_idx = calculate_bspline_fitting_error(
                     self.bspline_processor.upper_curve,
@@ -74,6 +91,77 @@ class BSplineController:
         except Exception as e:  # pragma: no cover
             self.window.status_log.append(f"Error during B-spline fitting: {e}")
 
+    def apply_te_thickening(self, te_thickness_percent: float) -> bool:
+        """
+        Apply trailing edge thickening to fitted B-splines.
+        
+        Args:
+            te_thickness_percent: The thickness percentage to apply (0.0 to 100.0)
+            
+        Returns:
+            bool: True if thickening was applied successfully, False otherwise
+        """
+        if not self.bspline_processor.is_fitted():
+            self.window.status_log.append("No B-spline model fitted. Please fit B-splines first.")
+            return False
+        
+        try:
+            # Convert percentage to decimal
+            te_thickness = te_thickness_percent / 100.0
+            
+            success = self.bspline_processor.apply_te_thickening(te_thickness)
+            
+            if success:
+                self.window.status_log.append(f"Applied {te_thickness_percent:.2f}% trailing edge thickness to B-splines.")
+                # Update the plot with thickened B-splines
+                self._update_plot_with_bsplines()
+                return True
+            else:
+                self.window.status_log.append("Failed to apply trailing edge thickening to B-splines.")
+                return False
+                
+        except Exception as e:
+            self.window.status_log.append(f"Error applying trailing edge thickening to B-splines: {e}")
+            return False
+
+    def remove_te_thickening(self) -> bool:
+        """
+        Remove trailing edge thickening from fitted B-splines.
+        
+        Returns:
+            bool: True if thickening was removed successfully, False otherwise
+        """
+        if not self.bspline_processor.is_fitted():
+            self.window.status_log.append("No B-spline model fitted. Please fit B-splines first.")
+            return False
+        
+        try:
+            success = self.bspline_processor.remove_te_thickening()
+            
+            if success:
+                self.window.status_log.append("Removed trailing edge thickening from B-splines.")
+                # Update the plot with sharp B-splines
+                self._update_plot_with_bsplines()
+                return True
+            else:
+                self.window.status_log.append("Failed to remove trailing edge thickening from B-splines.")
+                return False
+                
+        except Exception as e:
+            self.window.status_log.append(f"Error removing trailing edge thickening from B-splines: {e}")
+            return False
+
+    def is_te_thickened(self) -> bool:
+        """
+        Check if the B-spline model has trailing edge thickening applied.
+        
+        Returns:
+            bool: True if trailing edge is thickened, False otherwise
+        """
+        if not self.bspline_processor.is_fitted():
+            return False
+        return not self.bspline_processor.is_sharp_te
+
     def _update_plot_with_bsplines(self) -> None:
         """Update plot to display B-spline curves and control points."""
         # Get comb parameters from the UI
@@ -97,6 +185,7 @@ class BSplineController:
             'comb_bspline': comb_bspline,
             'upper_te_tangent_vector': self.processor.upper_te_tangent_vector,
             'lower_te_tangent_vector': self.processor.lower_te_tangent_vector,
+            'bspline_is_thickened': not self.bspline_processor.is_sharp_te,
         }
         
         # Add B-spline max error information

@@ -59,6 +59,7 @@ class OptimizationController:
             regularization_weight = float(opt.single_bezier_reg_weight_input.text())
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
+            enforce_te_tangency = opt.enforce_te_tangency_checkbox.isChecked()
             gui_strategy = opt.strategy_combo.currentText().lower()  # 'fixed-x' or 'free-x'
             error_function = "euclidean" #opt.error_function_combo.currentText().lower()  # 'euclidean' or 'orthogonal'
             objective_gui = opt.objective_combo.currentText()
@@ -107,6 +108,7 @@ class OptimizationController:
             gui_strategy,
             error_function,
             objective_type,
+            enforce_te_tangency,
             self._abort_flag
         )
         self._generation_process = multiprocessing.Process(
@@ -134,6 +136,7 @@ class OptimizationController:
             regularization_weight = float(opt.single_bezier_reg_weight_input.text())
             te_vector_points = int(opt.te_vector_points_combo.currentText())
             g2_flag = opt.g2_checkbox.isChecked()
+            enforce_te_tangency = opt.enforce_te_tangency_checkbox.isChecked()
         except ValueError:
             self.processor.log_message.emit("Error: Invalid input for regularization weight or TE vector points.")
             return
@@ -165,6 +168,7 @@ class OptimizationController:
             'staged',                # gui_strategy for worker
             'euclidean',             # error function forced to euclidean
             'softmax',                # objective placeholder
+            enforce_te_tangency,
             self._abort_flag,
         )
         self._generation_process = multiprocessing.Process(

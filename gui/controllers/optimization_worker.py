@@ -63,6 +63,7 @@ def _generation_worker(args, queue):
         gui_strategy,
         error_function,
         objective_type,
+        enforce_te_tangency,
         abort_flag
     ) = args
 
@@ -128,7 +129,12 @@ def _generation_worker(args, queue):
             if debug_logging_enabled:
                 print(f"[DEBUG] Unexpected logger call with {len(args)} arguments: {args}")
 
-    upper_te_tangent_vector, lower_te_tangent_vector = calculate_te_tangent(upper_data, lower_data, te_vector_points)
+    # Calculate TE tangent vectors only if TE tangency is enforced
+    if enforce_te_tangency:
+        upper_te_tangent_vector, lower_te_tangent_vector = calculate_te_tangent(upper_data, lower_data, te_vector_points)
+    else:
+        upper_te_tangent_vector = None
+        lower_te_tangent_vector = None
 
     try:
         # Dispatch based on strategy and g2_flag (coupled/uncoupled)
