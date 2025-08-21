@@ -35,7 +35,7 @@ jobs:
           pyinstaller --onefile --noconsole --clean --icon=img/favicon.ico  --name AirfoilFitter run_gui.py
               
       - name: Zip EXE
-        run: powershell Compress-Archive -Path dist\AirfoillFitter.exe -DestinationPath dist\AirfoillFitter.zip -Force
+        run: powershell Compress-Archive -Path dist\AirfoilFitter.exe -DestinationPath dist\AirfoillFitter.zip -Force
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
