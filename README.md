@@ -1,16 +1,16 @@
-# Airfoil Designer
+# Airfoil Fitter
 
-Airfoil Designer is a Python-based utility for importing airfoil .dat files and exporting clean Bézier curves, based on Venkataraman’s work (1995, 2017)  
+Airfoil Fitter is a Python-based utility for importing airfoil .dat files and exporting clean Bézier curves.  
 The graphical front‑end is implemented with Qt 6.
 
 ---
 
 ## Features
 
-*   **Airfoil Analysis**: Load airfoil data from `.dat` files and visualize the airfoil shape.
+*   **Airfoil Import**: Load airfoil data from `.dat` files and visualize the airfoil shape.
 *   **Bézier Curve Fitting**: Fit single or multiple Bézier curves to the airfoil data.
 *   **Trailing Edge Thickening**: Apply trailing edge thickening to the airfoil.
-*   **Curvature Combs**: Visualize the curvature of the airfoil using curvature combs.
+*   **Curvature Combs**: Check the curvature of the airfoil using curvature combs.
 *   **DXF Export**: Export the Bézier curves to a DXF file for use in CAD software.
 *   **Fixed-x fitting strategy**: Uses the fixed x-coordinates from Venkataraman 2017 for the fastest fit.
 *   **Free-x fitting strategy**: Employs a full optimization loop that includes x-coordinates, requires significantly more processing time.
