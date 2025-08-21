@@ -20,7 +20,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.12'
+          python-version: '3.x'
           architecture: x64
           cache: pip
             
@@ -32,10 +32,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
       
-          pyinstaller --onefile --noconsole --clean --icon=img/favicon.ico  --name AirfoilDesigner run_gui.py
+          pyinstaller --onefile --noconsole --clean --icon=img/favicon.ico  --name AirfoilFitter run_gui.py
               
       - name: Zip EXE
-        run: powershell Compress-Archive -Path dist\AirfoilDesigner.exe -DestinationPath dist\AirfoilDesigner.zip -Force
+        run: powershell Compress-Archive -Path dist\AirfoillFitter.exe -DestinationPath dist\AirfoillFitter.zip -Force
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
@@ -44,4 +44,4 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
-          files: dist/AirfoilDesigner.zip
+          files: dist/AirfoilFitter.zip
