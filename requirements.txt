@@ -3,4 +3,4 @@ numpy
 ezdxf
 PySide6==6.9.0
 pyqtgraph
-joblib
+#joblib

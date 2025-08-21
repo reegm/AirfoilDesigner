@@ -46,14 +46,10 @@ class FileController:
                 self.processor.log_message.emit(
                     f"Successfully loaded '{os.path.basename(file_path)}'."
                 )
-                # Reset TE vector points dropdown and disable recalc button
-                opt = self.window.optimizer_panel
-                opt.te_vector_points_combo.setCurrentText(str(opt.default_te_vector_points))
-                opt.disable_recalc_button()
                 
-                # Update UI state after successful file load
+                # Reset UI state for new airfoil
                 if self.ui_state_controller:
-                    self.ui_state_controller.update_button_states()
+                    self.ui_state_controller.reset_ui_for_new_airfoil()
             else:
                 self.processor.log_message.emit(
                     f"Failed to load '{os.path.basename(file_path)}'. Check file format and content."

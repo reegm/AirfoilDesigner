@@ -22,7 +22,6 @@ class AirfoilPlotWidget(pg.PlotWidget):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.setParent(parent)
-        # Ensure the plot expands nicely inside layouts
         self.setSizePolicy(
             pg.QtWidgets.QSizePolicy.Policy.Expanding,
             pg.QtWidgets.QSizePolicy.Policy.Expanding,
@@ -61,7 +60,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
         bspline_upper_max_error_idx=None,
         bspline_lower_max_error_idx=None,
         comb_bspline=None,
-        bspline_is_thickened=False,
+        bspline_is_blunt=False,
     ):
         """Render everything supplied in *kwargs* on the canvas."""
         # Clear all items to ensure no remnants
@@ -110,7 +109,7 @@ class AirfoilPlotWidget(pg.PlotWidget):
         # --------------------------------------------------------------
         if bspline_upper_curve is not None or bspline_lower_curve is not None:
             # Choose colors based on thickening state
-            if bspline_is_thickened:
+            if bspline_is_blunt:
                 curve_color = COLOR_THICKENED_BSPLINE_CURVE
                 control_color = COLOR_THICKENED_BSPLINE_CONTROL_POINTS
                 control_symbol = COLOR_THICKENED_BSPLINE_CONTROL_SYMBOL

@@ -218,7 +218,7 @@ class BSplineController:
             'comb_bspline': comb_bspline,
             'upper_te_tangent_vector': self.processor.upper_te_tangent_vector,
             'lower_te_tangent_vector': self.processor.lower_te_tangent_vector,
-            'bspline_is_thickened': not self.bspline_processor.is_sharp_te,
+            'bspline_is_blunt': not self.bspline_processor.is_sharp_te,
         }
         
         # Add B-spline max error information

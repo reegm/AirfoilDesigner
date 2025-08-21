@@ -72,7 +72,7 @@ class OptimizerSettingsWidget(QGroupBox):
         te_row.addStretch(1)
         layout.addLayout(te_row)
 
-        # B-spline row
+        # B-spline control points row with Fit button
         bs_row = QHBoxLayout()
         bs_row.addWidget(self.bspline_cp_label)
         bs_row.addWidget(self.bspline_cp_spin)
@@ -80,7 +80,7 @@ class OptimizerSettingsWidget(QGroupBox):
         bs_row.addStretch(1)
         layout.addLayout(bs_row)
 
-        # G2 checkbox
+        # G2 checkbox row
         g2_row = QHBoxLayout()
         g2_row.addWidget(self.g2_checkbox)
         g2_row.addWidget(self.enforce_te_tangency_checkbox)

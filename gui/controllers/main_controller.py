@@ -78,6 +78,7 @@ class MainController(QObject):
         # Airfoil settings
         airfoil = self.window.airfoil_settings_panel
         airfoil.toggle_thickening_button.clicked.connect(self.ui_state_controller.handle_toggle_thickening)
+        airfoil.te_thickness_input.textChanged.connect(self.ui_state_controller.handle_thickness_input_changed)
 
         # Comb parameters
         comb = self.window.comb_panel

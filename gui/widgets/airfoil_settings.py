@@ -29,7 +29,7 @@ class AirfoilSettingsWidget(QGroupBox):
         self.te_thickness_input.setFixedWidth(80)
 
         # Action button
-        self.toggle_thickening_button = QPushButton("Apply Thickening")
+        self.toggle_thickening_button = QPushButton("Thicken")
 
         # Layout
         layout = QVBoxLayout()
@@ -41,14 +41,12 @@ class AirfoilSettingsWidget(QGroupBox):
         chord_row.addStretch(1)
         layout.addLayout(chord_row)
 
-        # TE thickness row
+        # TE thickness row with thickening button
         te_row = QHBoxLayout()
         te_row.addWidget(QLabel("TE Thickness (mm):"))
         te_row.addWidget(self.te_thickness_input)
+        te_row.addWidget(self.toggle_thickening_button)
         te_row.addStretch(1)
         layout.addLayout(te_row)
-
-        # Action button
-        layout.addWidget(self.toggle_thickening_button)
 
         self.setLayout(layout) 

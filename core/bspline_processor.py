@@ -6,6 +6,7 @@ from scipy.interpolate import LSQUnivariateSpline
 from scipy.interpolate import BSpline
 
 from core import config
+from utils import bspline_helper
 
 class BSplineProcessor:
     """
@@ -25,6 +26,12 @@ class BSplineProcessor:
         self.is_sharp_te: bool = False
         self.enforce_g2: bool = True
         self.g2_weight: float = 100.0  # Weight for G2 constraint in optimization
+        # Backup for undoing TE thickening
+        self._backup_upper_control_points: np.ndarray | None = None
+        self._backup_lower_control_points: np.ndarray | None = None
+        self._backup_upper_knot_vector: np.ndarray | None = None
+        self._backup_lower_knot_vector: np.ndarray | None = None
+
 
     def fit_bspline(
         self,
@@ -72,8 +79,8 @@ class BSplineProcessor:
                 te_point_lower = lower_data_corrected[-1]
             
             # Normalize TE tangent vectors
-            upper_te_dir = self._normalize_vector(upper_te_tangent_vector)
-            lower_te_dir = self._normalize_vector(lower_te_tangent_vector)
+            upper_te_dir = bspline_helper.normalize_vector(upper_te_tangent_vector)
+            lower_te_dir = bspline_helper.normalize_vector(lower_te_tangent_vector)
 
             if self.enforce_g2:
                 # Use optimization-based approach for G2
@@ -99,6 +106,8 @@ class BSplineProcessor:
             # Validate trailing edge tangents if they were used in fitting
             if upper_te_dir is not None and lower_te_dir is not None and enforce_te_tangency:
                 self._validate_trailing_edge_tangents(upper_te_dir, lower_te_dir)
+            
+
             
             return True
             
@@ -133,17 +142,17 @@ class BSplineProcessor:
         print(f"[DEBUG] Lower TE point from input: {te_point_lower}")
         
         # Create parameter values
-        u_params_upper = self._create_parameter_from_x_coords(upper_data)
-        u_params_lower = self._create_parameter_from_x_coords(lower_data)
+        u_params_upper = bspline_helper.create_parameter_from_x_coords(upper_data)
+        u_params_lower = bspline_helper.create_parameter_from_x_coords(lower_data)
         
         # Create knot vectors
-        knot_vector = self._create_knot_vector(num_control_points)
+        knot_vector = bspline_helper.create_knot_vector(num_control_points, self.degree)
         self.upper_knot_vector = knot_vector.copy()
         self.lower_knot_vector = knot_vector.copy()
         
         # Build basis matrices
-        basis_upper = self._build_basis_matrix(u_params_upper, knot_vector)
-        basis_lower = self._build_basis_matrix(u_params_lower, knot_vector)
+        basis_upper = bspline_helper.build_basis_matrix(u_params_upper, knot_vector, self.degree)
+        basis_lower = bspline_helper.build_basis_matrix(u_params_lower, knot_vector, self.degree)
         
         # Number of free variables per surface
         n_fixed = 3  # P0, P1, P2 are partially constrained
@@ -193,8 +202,8 @@ class BSplineProcessor:
             cp_upper, cp_lower = self._vars_to_control_points(vars, num_control_points)
             
             # Compute curvatures at u=0
-            kappa_upper = self._compute_curvature_at_zero(cp_upper, self.upper_knot_vector)
-            kappa_lower = self._compute_curvature_at_zero(cp_lower, self.lower_knot_vector)
+            kappa_upper = bspline_helper.compute_curvature_at_zero(cp_upper, self.upper_knot_vector, self.degree)
+            kappa_lower = bspline_helper.compute_curvature_at_zero(cp_lower, self.lower_knot_vector, self.degree)
             
             return kappa_upper - kappa_lower
         
@@ -226,14 +235,14 @@ class BSplineProcessor:
             def te_tangent_constraint_upper(vars):
                 """Constraint for upper surface trailing edge tangent."""
                 cp_upper, _ = self._vars_to_control_points(vars, num_control_points)
-                computed_tangent = self._compute_tangent_at_trailing_edge(cp_upper, self.upper_knot_vector)
+                computed_tangent = bspline_helper.compute_tangent_at_trailing_edge(cp_upper, self.upper_knot_vector, self.degree)
                 # Return the difference between computed and desired tangent
                 return computed_tangent - upper_te_dir
             
             def te_tangent_constraint_lower(vars):
                 """Constraint for lower surface trailing edge tangent."""
                 _, cp_lower = self._vars_to_control_points(vars, num_control_points)
-                computed_tangent = self._compute_tangent_at_trailing_edge(cp_lower, self.lower_knot_vector)
+                computed_tangent = bspline_helper.compute_tangent_at_trailing_edge(cp_lower, self.lower_knot_vector, self.degree)
                 # Return the difference between computed and desired tangent
                 return computed_tangent - lower_te_dir
             
@@ -319,66 +328,6 @@ class BSplineProcessor:
         
         return cp_upper, cp_lower
 
-    def _compute_curvature_at_zero(self, control_points: np.ndarray, knot_vector: np.ndarray) -> float:
-        """Compute curvature at u=0 for given control points."""
-        # Create temporary curve
-        curve = interpolate.BSpline(knot_vector, control_points, self.degree)
-        
-        # Get derivatives at u=0
-        d1 = curve.derivative(1)(0.0)
-        d2 = curve.derivative(2)(0.0)
-        
-        # Compute curvature: κ = |x'y'' - y'x''| / (x'² + y'²)^(3/2)
-        cross = d1[0] * d2[1] - d1[1] * d2[0]
-        norm_d1 = np.linalg.norm(d1)
-        
-        if norm_d1 > 1e-12:
-            return abs(cross) / (norm_d1 ** 3)
-        else:
-            return 0.0
-
-    def _compute_tangent_at_trailing_edge(self, control_points: np.ndarray, knot_vector: np.ndarray) -> np.ndarray:
-        """
-        Compute the tangent vector at the trailing edge (u=1) of a B-spline curve.
-        
-        For a B-spline of degree p, the tangent at u=1 is:
-        tangent = p * (P_n - P_{n-1}) / (t_{n+1} - t_{n-p+1})
-        
-        Args:
-            control_points: Control points of the B-spline
-            knot_vector: Knot vector of the B-spline
-            
-        Returns:
-            np.ndarray: Tangent vector at the trailing edge
-        """
-        n = len(control_points) - 1  # Number of control points minus 1
-        p = self.degree
-        
-        # Get the last two control points
-        P_n = control_points[-1]
-        P_n_minus_1 = control_points[-2]
-        
-        # Get the relevant knot values
-        t_n_plus_1 = knot_vector[n + 1]
-        t_n_minus_p_plus_1 = knot_vector[n - p + 1]
-        
-        # Compute the denominator
-        denominator = t_n_plus_1 - t_n_minus_p_plus_1
-        
-        if abs(denominator) < 1e-12:
-            # Fallback: use simple difference
-            tangent = P_n - P_n_minus_1
-        else:
-            # Compute tangent using B-spline formula
-            tangent = p * (P_n - P_n_minus_1) / denominator
-        
-        # Normalize the tangent vector
-        norm = np.linalg.norm(tangent)
-        if norm > 1e-12:
-            tangent = tangent / norm
-        
-        return tangent
-
     def _fit_g1_independent(
         self,
         upper_data: np.ndarray,
@@ -400,17 +349,17 @@ class BSplineProcessor:
         print(f"[DEBUG] Lower TE point from input: {te_point_lower}")
         
         # Create parameter values
-        u_params_upper = self._create_parameter_from_x_coords(upper_data)
-        u_params_lower = self._create_parameter_from_x_coords(lower_data)
+        u_params_upper = bspline_helper.create_parameter_from_x_coords(upper_data)
+        u_params_lower = bspline_helper.create_parameter_from_x_coords(lower_data)
         
         # Create knot vectors
-        knot_vector = self._create_knot_vector(num_control_points)
+        knot_vector = bspline_helper.create_knot_vector(num_control_points, self.degree)
         self.upper_knot_vector = knot_vector.copy()
         self.lower_knot_vector = knot_vector.copy()
         
         # Build basis matrices
-        basis_upper = self._build_basis_matrix(u_params_upper, knot_vector)
-        basis_lower = self._build_basis_matrix(u_params_lower, knot_vector)
+        basis_upper = bspline_helper.build_basis_matrix(u_params_upper, knot_vector, self.degree)
+        basis_lower = bspline_helper.build_basis_matrix(u_params_lower, knot_vector, self.degree)
         
         # Fit upper surface
         self.upper_control_points = self._fit_single_surface_g1(
@@ -570,7 +519,7 @@ class BSplineProcessor:
             return
         
         if upper_te_dir is not None and self.upper_knot_vector is not None:
-            computed_upper_tangent = self._compute_tangent_at_trailing_edge(self.upper_control_points, self.upper_knot_vector)
+            computed_upper_tangent = bspline_helper.compute_tangent_at_trailing_edge(self.upper_control_points, self.upper_knot_vector, self.degree)
             upper_error = np.linalg.norm(computed_upper_tangent - upper_te_dir)
             print(f"[DEBUG] Upper TE tangent validation:")
             print(f"[DEBUG]   Target: {upper_te_dir}")
@@ -579,7 +528,7 @@ class BSplineProcessor:
             print(f"[DEBUG]   Satisfied: {upper_error < 1e-3}")
         
         if lower_te_dir is not None and self.lower_knot_vector is not None:
-            computed_lower_tangent = self._compute_tangent_at_trailing_edge(self.lower_control_points, self.lower_knot_vector)
+            computed_lower_tangent = bspline_helper.compute_tangent_at_trailing_edge(self.lower_control_points, self.lower_knot_vector, self.degree)
             lower_error = np.linalg.norm(computed_lower_tangent - lower_te_dir)
             print(f"[DEBUG] Lower TE tangent validation:")
             print(f"[DEBUG]   Target: {lower_te_dir}")
@@ -606,8 +555,8 @@ class BSplineProcessor:
         cross_product = tangent_upper[0] * tangent_lower[1] - tangent_upper[1] * tangent_lower[0]
         
         # G2: Curvature continuity
-        kappa_upper = self._compute_curvature_at_zero(self.upper_control_points, self.upper_knot_vector)
-        kappa_lower = self._compute_curvature_at_zero(self.lower_control_points, self.lower_knot_vector)
+        kappa_upper = bspline_helper.compute_curvature_at_zero(self.upper_control_points, self.upper_knot_vector, self.degree)
+        kappa_lower = bspline_helper.compute_curvature_at_zero(self.lower_control_points, self.lower_knot_vector, self.degree)
         
         curvature_error = abs(kappa_upper - kappa_lower)
         curvature_relative_error = curvature_error / max(kappa_upper, kappa_lower) if max(kappa_upper, kappa_lower) > 1e-12 else 0
@@ -635,142 +584,26 @@ class BSplineProcessor:
         for i in range(min(3, len(self.lower_control_points))):
             print(f"[DEBUG]   Lower P{i}: ({self.lower_control_points[i,0]:.6f}, {self.lower_control_points[i,1]:.6f})")
 
-    def _normalize_vector(self, vec: np.ndarray | None) -> np.ndarray | None:
-        """Normalize a vector."""
-        if vec is None:
-            return None
-        try:
-            v = np.asarray(vec, dtype=float)
-            n = float(np.hypot(v[0], v[1]))
-            if n <= 1e-12:
-                return None
-            return v / n
-        except Exception:
-            return None
-
-    def _create_parameter_from_x_coords(self, surface_data: np.ndarray) -> np.ndarray:
-        """Create parameter values with blending."""
-        x_coords = surface_data[:, 0]
-        x_coords = np.clip(x_coords, 0.0, 1.0 - 1e-12)
-        u0 = np.sqrt(x_coords)
-        #u1 = np.arccos(1.0 - 2.0 * x_coords) / np.pi
-        u_params = u0
-        return u_params
-    
-    def _create_knot_vector(self, num_control_points: int) -> np.ndarray:
-        """Create clamped knot vector."""
-        n = num_control_points - 1
-        p = self.degree
-        num_interior = n - p
-        
-        if num_interior <= 0:
-            knot_vector = np.concatenate([
-                np.zeros(p + 1),
-                np.ones(p + 1)
-            ])
-        else:
-            uniform_knots = np.linspace(0.0, 1.0, num_interior + 2)[1:-1]
-            knot_vector = np.concatenate([
-                np.zeros(p + 1),
-                uniform_knots,
-                np.ones(p + 1)
-            ])
-        return knot_vector
-    
-    def _build_basis_matrix(self, t_values: np.ndarray, knot_vector: np.ndarray) -> np.ndarray:
-        """Build B-spline basis matrix."""
-        num_points = len(t_values)
-        num_basis = len(knot_vector) - self.degree - 1
-        basis_matrix = np.zeros((num_points, num_basis))
-        
-        for i in range(num_basis):
-            for j, t in enumerate(t_values):
-                basis_matrix[j, i] = self._evaluate_basis_function(i, self.degree, t, knot_vector)
-        
-        return basis_matrix
-    
-    def _evaluate_basis_function(self, i: int, degree: int, t: float, knots: np.ndarray) -> float:
-        """Evaluate B-spline basis function."""
-        t = max(knots[0], min(knots[-1] - 1e-12, t))
-        
-        if degree == 0:
-            if i < len(knots) - 1:
-                if knots[i] <= t < knots[i + 1]:
-                    return 1.0
-                elif i == len(knots) - 2 and abs(t - knots[-1]) < 1e-12:
-                    return 1.0
-            return 0.0
-        
-        result = 0.0
-        
-        if i + degree < len(knots) and abs(knots[i + degree] - knots[i]) > 1e-15:
-            alpha1 = (t - knots[i]) / (knots[i + degree] - knots[i])
-            if 0 <= i < len(knots) - degree:
-                left_basis = self._evaluate_basis_function(i, degree - 1, t, knots)
-                result += alpha1 * left_basis
-        
-        if i + degree + 1 < len(knots) and abs(knots[i + degree + 1] - knots[i + 1]) > 1e-15:
-            alpha2 = (knots[i + degree + 1] - t) / (knots[i + degree + 1] - knots[i + 1])
-            if 0 <= i + 1 < len(knots) - degree:
-                right_basis = self._evaluate_basis_function(i + 1, degree - 1, t, knots)
-                result += alpha2 * right_basis
-        
-        return result
-    
     def is_fitted(self) -> bool:
         """Check if B-splines have been successfully fitted."""
         return self.fitted and self.upper_curve is not None and self.lower_curve is not None
-    
+
     def calculate_curvature_comb_data(self, num_points_per_segment=200, scale_factor=0.050):
         """Calculate curvature comb visualization data."""
         if not self.is_fitted():
             return None
         
-        all_curves_combs = []
-        curves = [self.upper_curve, self.lower_curve]
-        
-        for curve in curves:
-            curve_comb_hairs = []
-            t_start = curve.t[curve.k]
-            t_end = curve.t[-(curve.k + 1)]
-            t_vals = np.linspace(t_start, t_end, num_points_per_segment)
-            curve_points = curve(t_vals)
-            derivatives_1 = curve.derivative(1)(t_vals)
-            derivatives_2 = curve.derivative(2)(t_vals)
-            
-            x_prime = derivatives_1[:, 0]
-            y_prime = derivatives_1[:, 1]
-            x_double_prime = derivatives_2[:, 0]
-            y_double_prime = derivatives_2[:, 1]
-            
-            numerator = x_prime * y_double_prime - y_prime * x_double_prime
-            denominator = (x_prime**2 + y_prime**2)**(3/2)
-            curvatures = np.divide(numerator, denominator, out=np.zeros_like(numerator), where=denominator > 1e-12)
-            
-            tangent_norms = np.sqrt(x_prime**2 + y_prime**2)
-            unit_tangents = np.zeros_like(derivatives_1)
-            valid_tangents = tangent_norms > 1e-12
-            unit_tangents[valid_tangents] = derivatives_1[valid_tangents] / tangent_norms[valid_tangents, np.newaxis]
-            
-            normals = np.zeros_like(unit_tangents)
-            normals[:, 0] = -unit_tangents[:, 1]
-            normals[:, 1] = unit_tangents[:, 0]
-            
-            comb_lengths = -curvatures * scale_factor
-            end_points = curve_points + normals * comb_lengths[:, np.newaxis]
-            
-            for j in range(num_points_per_segment):
-                hair_segment = np.array([curve_points[j], end_points[j]])
-                curve_comb_hairs.append(hair_segment)
-            
-            all_curves_combs.append(curve_comb_hairs)
-        
-        return all_curves_combs if all_curves_combs else None
+        return bspline_helper.calculate_curvature_comb_data(
+            self.upper_curve, self.lower_curve, num_points_per_segment, scale_factor
+        )
 
     def apply_te_thickening(self, te_thickness: float) -> bool:
         """
-        Apply trailing edge thickening to fitted B-splines.
-        Offsets the last control point of each surface by te_thickness/2 in y (upper +, lower -).
+        Apply trailing edge thickening as a post-processing step to the entire airfoil.
+        Uses a smooth C2 blend along the chord so that the offset is 0 at the
+        leading edge (with zero slope and curvature) and reaches the requested
+        thickness at the trailing edge. This preserves the leading-edge tangency
+        and changes the curvature distribution as little as possible.
         
         Args:
             te_thickness: The thickness to apply at the trailing edge (0.0 to 1.0)
@@ -782,55 +615,58 @@ class BSplineProcessor:
             print("[DEBUG] Cannot apply TE thickening: B-splines not fitted")
             return False
         
-        if te_thickness <= 0.0:
-            print("[DEBUG] TE thickness must be positive")
+        # Allow zero thickness (applies the UI value even if 0)
+        if te_thickness < 0.0:
+            print("[DEBUG] TE thickness cannot be negative")
             return False
         
         try:
-            # Create copies of control points
-            upper_cp = self.upper_control_points.copy()
-            lower_cp = self.lower_control_points.copy()
-            
-            # Get current trailing edge points
-            current_upper_te = upper_cp[-1]
-            current_lower_te = lower_cp[-1]
-            
-            # For blunt trailing edges, we need to be more careful about thickening
-            # The thickening should be applied relative to the current endpoints
-            if self.is_sharp_te:
-                # Sharp trailing edge: both surfaces end at (1.0, 0.0)
-                # Simply offset in y direction
-                upper_cp[-1, 1] += te_thickness / 2.0
-                lower_cp[-1, 1] -= te_thickness / 2.0
-            else:
-                # Blunt trailing edge: surfaces end at different points
-                # Apply thickening by moving both surfaces outward from the centerline
-                # Calculate the centerline at the trailing edge
-                te_center = (current_upper_te + current_lower_te) / 2.0
-                
-                # Move upper surface up and lower surface down from the centerline
-                upper_cp[-1] = te_center + np.array([0.0, te_thickness / 2.0])
-                lower_cp[-1] = te_center - np.array([0.0, te_thickness / 2.0])
-            
-            # Update the control points
-            self.upper_control_points = upper_cp
-            self.lower_control_points = lower_cp
-            
-            # Rebuild the curves with the new control points
-            if self.upper_knot_vector is not None:
-                self.upper_curve = interpolate.BSpline(
-                    self.upper_knot_vector, self.upper_control_points, self.degree
-                )
-            
-            if self.lower_knot_vector is not None:
-                self.lower_curve = interpolate.BSpline(
-                    self.lower_knot_vector, self.lower_control_points, self.degree
-                )
-            
-            # Update trailing edge type
+            # Save backups to allow remove_te_thickening to restore
+            self._backup_upper_control_points = self.upper_control_points.copy()
+            self._backup_lower_control_points = self.lower_control_points.copy()
+            self._backup_upper_knot_vector = None if self.upper_knot_vector is None else self.upper_knot_vector.copy()
+            self._backup_lower_knot_vector = None if self.lower_knot_vector is None else self.lower_knot_vector.copy()
+
+
+            # Sample both curves densely in parameter domain
+            if self.upper_curve is None or self.lower_curve is None:
+                print("[DEBUG] Cannot apply TE thickening: curves not built")
+                return False
+
+            num_samples = max(200, int(config.PLOT_POINTS_PER_SURFACE))
+
+            _, upper_pts = bspline_helper.sample_curve(self.upper_curve, num_samples)
+            _, lower_pts = bspline_helper.sample_curve(self.lower_curve, num_samples)
+
+            # Blend based on x (already normalized to chord in data loader)
+            upper_x = np.clip(upper_pts[:, 0], 0.0, 1.0)
+            lower_x = np.clip(lower_pts[:, 0], 0.0, 1.0)
+            f_upper = bspline_helper.smoothstep_quintic(upper_x)
+            f_lower = bspline_helper.smoothstep_quintic(lower_x)
+
+            half_thickness = 0.5 * te_thickness
+
+            # Apply vertical, smoothly varying offsets; x unchanged
+            thick_upper = upper_pts.copy()
+            thick_lower = lower_pts.copy()
+            thick_upper[:, 1] = thick_upper[:, 1] + half_thickness * f_upper
+            thick_lower[:, 1] = thick_lower[:, 1] - half_thickness * f_lower
+
+            # Refit using current number of control points, preserving G1 at LE
+            num_control_points = int(self.upper_control_points.shape[0])
+            self._fit_g1_independent(
+                thick_upper, thick_lower, num_control_points,
+                upper_te_dir=None, lower_te_dir=None, enforce_te_tangency=False
+            )
+
+            # Mark as blunt before finalizing so finalize does not force sharp TE
             self.is_sharp_te = False
             
-            print(f"[DEBUG] Applied trailing edge thickening: {te_thickness:.4f}")
+            # Finalize and rebuild curves
+            self._finalize_curves()
+            self.fitted = True
+
+            print(f"[DEBUG] Applied trailing edge thickening (smooth, C2 blend): {te_thickness:.4f}")
             print(f"[DEBUG] Upper TE after thickening: {self.upper_control_points[-1]}")
             print(f"[DEBUG] Lower TE after thickening: {self.lower_control_points[-1]}")
             return True
@@ -851,56 +687,44 @@ class BSplineProcessor:
             return False
         
         try:
-            # Create copies of control points
-            upper_cp = self.upper_control_points.copy()
-            lower_cp = self.lower_control_points.copy()
-            
-            # For sharp trailing edges, set both to (1.0, 0.0)
-            # For blunt trailing edges, we need to restore the original endpoints
-            # Since we don't store the original endpoints, we'll need to refit the B-splines
-            # This is a limitation of the current implementation
-            
-            # For now, assume sharp trailing edge
-            te_point = np.array([1.0, 0.0])
-            upper_cp[-1] = te_point
-            lower_cp[-1] = te_point
-            
-            # Update the control points
-            self.upper_control_points = upper_cp
-            self.lower_control_points = lower_cp
-            
-            # Rebuild the curves with the new control points
-            if self.upper_knot_vector is not None:
-                self.upper_curve = interpolate.BSpline(
-                    self.upper_knot_vector, self.upper_control_points, self.degree
-                )
-            
-            if self.lower_knot_vector is not None:
-                self.lower_curve = interpolate.BSpline(
-                    self.lower_knot_vector, self.lower_control_points, self.degree
-                )
-            
-            # Update trailing edge type
-            self.is_sharp_te = True
-            
-            print("[DEBUG] Removed trailing edge thickening")
-            print(f"[DEBUG] Upper TE after removal: {self.upper_control_points[-1]}")
-            print(f"[DEBUG] Lower TE after removal: {self.lower_control_points[-1]}")
-            return True
+            # If we have a backup from before thickening, restore it
+            if self._backup_upper_control_points is not None and self._backup_lower_control_points is not None:
+                self.upper_control_points = self._backup_upper_control_points
+                self.lower_control_points = self._backup_lower_control_points
+                # Restore knot vectors when available
+                if self._backup_upper_knot_vector is not None:
+                    self.upper_knot_vector = self._backup_upper_knot_vector
+                if self._backup_lower_knot_vector is not None:
+                    self.lower_knot_vector = self._backup_lower_knot_vector
+
+                # Rebuild curves
+                if self.upper_knot_vector is not None:
+                    self.upper_curve = interpolate.BSpline(
+                        self.upper_knot_vector, self.upper_control_points, self.degree
+                    )
+                if self.lower_knot_vector is not None:
+                    self.lower_curve = interpolate.BSpline(
+                        self.lower_knot_vector, self.lower_control_points, self.degree
+                    )
+
+                # After restoring, clear backups
+                self._backup_upper_control_points = None
+                self._backup_lower_control_points = None
+                self._backup_upper_knot_vector = None
+                self._backup_lower_knot_vector = None
+
+                # Reset TE type to whatever the restored geometry implies. If last CPs match in y, it's sharp.
+                self.is_sharp_te = bool(np.allclose(self.upper_control_points[-1], self.lower_control_points[-1], atol=1e-12))
+
+                print("[DEBUG] Removed trailing edge thickening (restored from backup)")
+                print(f"[DEBUG] Upper TE after removal: {self.upper_control_points[-1]}")
+                print(f"[DEBUG] Lower TE after removal: {self.lower_control_points[-1]}")
+                return True
+
+                        # Fallback: if no backup available, we can't restore
+            print("[DEBUG] Cannot remove thickening: no backup available")
+            return False
             
         except Exception as e:
             print(f"[DEBUG] Error removing TE thickening: {e}")
             return False
-
-    # Keep all the original fallback methods that might be called
-    def _fit_single_surface_constrained(self, surface_data: np.ndarray, num_control_points: int, is_upper_surface: bool = True, te_direction_unit: np.ndarray | None = None):
-        """Fallback to single surface fitting if needed."""
-        return self._fit_single_surface_g1(
-            self._build_basis_matrix(
-                self._create_parameter_from_x_coords(surface_data),
-                self._create_knot_vector(num_control_points)
-            ),
-            surface_data,
-            num_control_points,
-            is_upper_surface
-        )
